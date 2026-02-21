@@ -431,6 +431,12 @@ print(f"Note : {gps['note']}")
 
 ### SDI (Sagittal Deviation Index)
 
+The SDI is a simplified, z-score-based deviation index using sagittal-plane
+data only (hip, knee, ankle, trunk). It is **not** the GDI of Schwartz &
+Rozumalski (2008), which requires 9 kinematic variables from 3D motion
+capture and uses a PCA-based algorithm. For the standard 3D GDI, use a full
+3D motion capture system and the original PCA-based algorithm.
+
 ```python
 from myogait import sagittal_deviation_index
 

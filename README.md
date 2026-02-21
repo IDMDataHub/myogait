@@ -240,6 +240,7 @@ gps = gait_profile_score_2d(cycles)
 print(f"GPS-2D: {gps['gps']:.1f}")
 
 # SDI: Sagittal Deviation Index (0-120, 100 = normal)
+# Note: This is a z-score based index, NOT the GDI (Schwartz & Rozumalski 2008).
 sdi = sagittal_deviation_index(cycles)
 print(f"SDI: {sdi['sdi']:.1f}")
 
@@ -449,7 +450,7 @@ All functions operate on a single `data` dict that flows through the pipeline.
 | `analyze_gait(data, cycles)` | Compute spatio-temporal parameters |
 | **Clinical scores** | |
 | `gait_profile_score_2d(cycles)` | GPS-2D: overall gait deviation (sagittal + frontal) |
-| `sagittal_deviation_index(cycles)` | SDI: 0-120 index (100 = normal) |
+| `sagittal_deviation_index(cycles)` | SDI (Sagittal Deviation Index): z-score based 0-120 index (100 = normal). Not the GDI. |
 | `gait_variable_scores(cycles)` | Per-joint deviation vs normative |
 | `movement_analysis_profile(cycles)` | MAP barplot data |
 | **Quality** | |

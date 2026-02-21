@@ -153,11 +153,16 @@ class TestFrontalAllStrata:
         assert len(result["mean"]) == 101
         assert len(result["sd"]) == 101
 
-    def test_pediatric_hip_adduction_higher(self):
-        """Pediatric hip adduction should be slightly higher than adult."""
+    def test_pediatric_hip_adduction_rom_wider(self):
+        """Pediatric hip adduction ROM should be wider than adult.
+
+        The _scale_rom approach preserves the global mean while amplifying
+        excursion, so the pediatric ROM (peak-to-peak) must exceed the
+        adult ROM rather than the mean being higher.
+        """
         adult = np.array(get_normative_curve("hip_adduction", "adult")["mean"])
         pediatric = np.array(get_normative_curve("hip_adduction", "pediatric")["mean"])
-        assert np.mean(pediatric) > np.mean(adult)
+        assert np.ptp(pediatric) > np.ptp(adult)
 
     def test_pediatric_sd_wider(self):
         """Pediatric frontal SD should be wider than adult."""

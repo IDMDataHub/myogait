@@ -273,11 +273,13 @@ class TestVariableSD:
         sd = np.array(result["sd"])
         assert sd.max() > sd.min(), "Ankle SD is constant -- expected variation"
 
-    def test_trunk_sd_constant(self):
-        """Trunk SD can remain constant (acceptable)."""
+    def test_trunk_sd_variable(self):
+        """Trunk SD now varies across the gait cycle (3-4 deg range)."""
         result = get_normative_curve("trunk", "adult")
         sd = np.array(result["sd"])
-        np.testing.assert_allclose(sd, sd[0], atol=1e-10)
+        assert sd.min() >= 2.5, f"Trunk SD min {sd.min():.1f} below 2.5"
+        assert sd.max() <= 5.0, f"Trunk SD max {sd.max():.1f} above 5.0"
+        assert sd.max() > sd.min(), "Trunk SD should vary across the gait cycle"
 
     def test_pelvis_sd_constant(self):
         """Pelvis SD can remain constant (acceptable)."""

@@ -273,19 +273,29 @@ def sagittal_deviation_index(
 ) -> dict:
     """Compute the myogait Sagittal Deviation Index (SDI).
 
-    This is a myogait-specific 2D deviation index.
-    It is **NOT** the GDI of Schwartz & Rozumalski (2008), which
-    requires 9 kinematic variables from 3D motion capture.
+    **This is NOT the Gait Deviation Index (GDI) of Schwartz &
+    Rozumalski (2008).**  The original GDI is a PCA/SVD-based index
+    computed from 9 kinematic variables (pelvis tilt/obliquity/rotation,
+    hip flex/abd/rotation, knee flex, ankle dorsi, foot progression)
+    recorded with a full 3D motion capture system.
 
-    The SDI is a scaled index where normal gait scores approximately
-    100 and pathological gait scores below 100:
+    The SDI is a simplified, z-score-based deviation index that uses
+    **sagittal-plane data only** (hip, knee, ankle, trunk).  It
+    converts the GPS-2D into a scaled index where normal gait scores
+    approximately 100 and pathological gait scores below 100:
 
-        SDI = 100 - 10 * (GPS-2D - ref_gps) / ref_sd
+        SDI = 100 - 10 * (GPS_2D - ref_mean) / ref_sd
 
-    where ``ref_gps`` is the expected GPS-2D for a normative subject
-    (mean of per-joint normative SDs) and ``ref_sd`` is the mean of
-    those normative SDs (i.e. derived from real normative data rather
-    than an arbitrary fraction).
+    where ``ref_mean`` is the expected GPS-2D for a normative subject
+    (mean of per-joint normative SDs) and ``ref_sd`` is the standard
+    deviation of those normative SDs (i.e. derived from real normative
+    data rather than an arbitrary fraction).
+
+    The mathematical basis is fundamentally different from the GDI:
+    the GDI projects gait kinematics onto principal components of a
+    normative dataset, whereas the SDI applies a simple z-score
+    transformation to the GPS-2D.  Results from the two methods are
+    **not comparable**.
 
     When *include_frontal* is ``True`` and frontal data is available,
     the GPS computation includes frontal variables, making the score
@@ -314,6 +324,9 @@ def sagittal_deviation_index(
     This score was previously named ``gait_deviation_index_2d``.
     That name is kept as a deprecated alias for backwards
     compatibility.
+
+    For the standard 3D GDI, use a full 3D motion capture system and
+    the original PCA-based algorithm (Schwartz & Rozumalski, 2008).
     """
     gps = gait_profile_score_2d(cycles, stratum, include_frontal=include_frontal)
 
@@ -365,7 +378,14 @@ def gait_deviation_index_2d(cycles: dict, stratum: str = "adult") -> dict:
     """Deprecated alias for :func:`sagittal_deviation_index`.
 
     .. deprecated::
-        Use :func:`sagittal_deviation_index` instead.
+        ``gait_deviation_index_2d`` is deprecated and will be removed in a
+        future release.  Use :func:`sagittal_deviation_index` instead.
+
+        The old name was misleading: this function does **not** compute the
+        Gait Deviation Index (GDI) of Schwartz & Rozumalski (2008).  It
+        computes the Sagittal Deviation Index (SDI), a simplified z-score
+        based index using sagittal-plane data only.  See
+        :func:`sagittal_deviation_index` for full details.
     """
     warnings.warn(
         "gait_deviation_index_2d is deprecated; use sagittal_deviation_index instead.",

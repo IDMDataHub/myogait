@@ -1,24 +1,34 @@
 """Normative gait kinematic data for clinical comparison.
 
 Embedded mean +/- SD curves at 101 points (0-100% gait cycle) for
-sagittal-plane and frontal-plane joint angles. Data derived from
-published normative databases.
+sagittal-plane and frontal-plane joint angles.  Mean curves and
+standard-deviation envelopes are interpolated from key values digitized
+from published normative datasets.  Standard deviations vary across the
+gait cycle to reflect the well-documented higher inter-subject
+variability at range-of-motion extremes (e.g. push-off, swing peak)
+compared with mid-stance.
 
 References:
     Perry J, Burnfield JM. Gait Analysis: Normal and Pathological
     Function. 2nd ed. SLACK Incorporated; 2010.
+    (Hip: Fig 4.3; Knee: Fig 4.9; Ankle: Fig 4.15; Pelvis: Fig 4.1;
+    Trunk: Ch 11; Frontal: Ch 14, Fig 14.5)
 
     Winter DA. Biomechanics and Motor Control of Human Movement.
-    4th ed. Wiley; 2009.
+    4th ed. Wiley; 2009. (Ch 5 sagittal kinematics)
 
     Kadaba MP, Ramakrishnan HK, Wootten ME. Measurement of lower
     extremity kinematics during level walking. J Orthop Res.
     1990;8(3):383-392.
 
+    Schwartz MH, Rozumalski A, Trost JP. The effect of walking speed
+    on the gait of typically developing children. J Biomech.
+    2008;41(8):1639-1650. (Pediatric SD scaling)
+
 Strata:
     - adult (18-65 years)
-    - elderly (65+ years)
-    - pediatric (5-17 years)
+    - elderly (65+ years)  -- ROM x 0.80, SD x 1.3
+    - pediatric (5-17 years) -- ROM x 1.05, SD x 1.4
 """
 
 import numpy as np
@@ -36,411 +46,193 @@ _N_POINTS = 101
 
 _GC = np.linspace(0, 100, _N_POINTS)  # percent gait cycle
 
-
-# ── Curve generation helpers ─────────────────────────────────────────
-
-def _make_hip_curve():
-    """Generate adult hip flexion/extension curve (101 points).
-
-    Shape: Starts ~30 deg (initial contact flexion), decreases to
-    ~-10 deg (terminal stance extension at ~50% GC), increases to
-    ~35 deg (mid-swing flexion at ~85% GC), returns to ~30 deg.
-
-    Peak flexion: 30-35 deg, peak extension: ~-10 deg, ROM: ~40-45 deg.
-    Based on Perry & Burnfield (2010) Fig. 4.3 and Winter (2009) Ch. 5.
-    """
-    t = _GC / 100.0  # 0 to 1
-
-    # Piecewise smooth construction using Fourier-like components
-    # Fundamental: one full cycle of flexion/extension
-    # DC offset + harmonics fitted to published curves
-    curve = (
-        10.0                               # DC offset (mean angle)
-        + 20.0 * np.cos(2 * np.pi * t - 0.05)  # primary oscillation
-        - 3.0 * np.cos(4 * np.pi * t - 0.2)    # 2nd harmonic
-        + 1.5 * np.cos(6 * np.pi * t + 0.3)    # 3rd harmonic
-    )
-
-    # Fine-tune: ensure IC starts ~30, terminal stance dips to ~-10
-    # Shift so initial contact is ~30 deg
-    curve = curve - curve[0] + 30.0
-
-    # Adjust extension valley: scale so min is near -10
-    current_min = np.min(curve)
-    current_max = np.max(curve)
-    target_min = -10.0
-    target_max = 35.0
-    curve = target_min + (curve - current_min) / (current_max - current_min) * (target_max - target_min)
-
-    return curve
-
-
-def _make_knee_curve():
-    """Generate adult knee flexion/extension curve (101 points).
-
-    Shape: Starts ~5 deg (IC), flexes to ~15-20 deg (loading response
-    ~12% GC), extends to ~5 deg (midstance ~40%), flexes to ~60 deg
-    (swing phase peak ~72%), returns to ~5 deg.
-
-    Based on Perry & Burnfield (2010) Fig. 4.9 and Kadaba et al. (1990).
-    """
-    t = _GC / 100.0
-
-    # Knee has a distinctive double-bump pattern
-    # Loading response flexion peak (~15 deg at 12% GC)
-    loading_peak = 15.0 * np.exp(-((t - 0.12) ** 2) / (2 * 0.03 ** 2))
-
-    # Swing phase flexion peak (~60 deg at 72% GC)
-    swing_peak = 60.0 * np.exp(-((t - 0.72) ** 2) / (2 * 0.06 ** 2))
-
-    # Transition: terminal stance extension plateau
-    # Gradual rise from midstance extension to pre-swing
-    pre_swing = 15.0 * np.exp(-((t - 0.55) ** 2) / (2 * 0.04 ** 2))
-
-    # Baseline (near full extension) with gentle blend
-    baseline = 5.0 * np.ones_like(t)
-
-    # Combine all components
-    curve = baseline + loading_peak + pre_swing + swing_peak
-
-    # Ensure start and end are near 5 deg
-    # Smooth boundary using cosine taper at the end
-    end_taper = 0.5 * (1 + np.cos(np.pi * np.clip((t - 0.90) / 0.10, 0, 1)))
-    curve = curve * end_taper + 5.0 * (1 - end_taper)
-
-    # Fine-tune start
-    start_taper = 0.5 * (1 - np.cos(np.pi * np.clip(t / 0.05, 0, 1)))
-    curve = curve * start_taper + 5.0 * (1 - start_taper)
-
-    return curve
-
-
-def _make_ankle_curve():
-    """Generate adult ankle dorsi/plantarflexion curve (101 points).
-
-    Shape: Starts ~0 deg (IC neutral), plantarflexes to ~-5 deg
-    (loading response ~5% GC), dorsiflexes to ~10 deg (terminal
-    stance ~45% GC), plantarflexes rapidly to ~-15 deg (push-off
-    ~62% GC), returns to ~0 deg (swing).
-
-    Based on Perry & Burnfield (2010) Fig. 4.15 and Winter (2009).
-    """
-    t = _GC / 100.0
-
-    # Initial plantarflexion dip at loading
-    loading_dip = -5.0 * np.exp(-((t - 0.05) ** 2) / (2 * 0.02 ** 2))
-
-    # Dorsiflexion rise in stance
-    dorsi_peak = 12.0 * np.exp(-((t - 0.45) ** 2) / (2 * 0.08 ** 2))
-
-    # Push-off plantarflexion
-    pushoff_dip = -17.0 * np.exp(-((t - 0.62) ** 2) / (2 * 0.04 ** 2))
-
-    # Swing phase: return to neutral with slight dorsiflexion
-    swing_dorsi = 2.0 * np.exp(-((t - 0.80) ** 2) / (2 * 0.06 ** 2))
-
-    curve = loading_dip + dorsi_peak + pushoff_dip + swing_dorsi
-
-    # Smooth transitions at start and end to neutral
-    # Ensure starts at ~0
-    curve = curve - curve[0]
-    # Ensure ends near 0 by blending
-    end_blend = np.clip((t - 0.92) / 0.08, 0, 1)
-    curve = curve * (1 - end_blend) + 0.0 * end_blend
-
-    return curve
-
-
-def _make_trunk_curve():
-    """Generate adult trunk forward lean curve (101 points).
-
-    Shape: Relatively constant ~5 deg forward lean with +/-2 deg
-    oscillation (two peaks per gait cycle: at loading response and
-    pre-swing, ~12% and ~50% GC).
-
-    Based on Perry & Burnfield (2010) Chapter 11.
-    """
-    t = _GC / 100.0
-
-    # Mean forward lean of ~5 degrees
-    # Small oscillation: 2 peaks per cycle (bilateral influence)
-    curve = 5.0 + 2.0 * np.cos(4 * np.pi * t - 0.4)
-
-    return curve
-
-
-def _make_pelvis_sagittal_curve():
-    """Generate adult pelvis sagittal tilt curve (101 points).
-
-    Shape: Oscillates +/-4 deg around ~10 deg anterior tilt,
-    with peaks at ~20% and ~70% GC (weight acceptance on each side).
-
-    Based on Perry & Burnfield (2010) Fig. 4.1 and Kadaba et al. (1990).
-    """
-    t = _GC / 100.0
-
-    # Anterior tilt baseline of ~10 deg
-    # Two oscillation peaks per stride
-    curve = 10.0 + 4.0 * np.sin(4 * np.pi * t - 0.3)
-
-    return curve
-
-
-# ── Frontal plane curve generators ────────────────────────────────────
-
-
-def _make_pelvis_obliquity_curve():
-    """Generate adult pelvis obliquity (pelvic list) curve (101 points).
-
-    Shape: Sinusoidal pattern across the gait cycle with mean ~2 deg.
-    The pelvis drops on the swing side during single-limb support,
-    producing a sinusoidal oscillation of ~+/-3 deg around a small
-    positive offset.
-
-    Based on Perry & Burnfield (2010) Chapter 14 and Kadaba et al. (1990).
-    """
-    t = _GC / 100.0
-
-    # Sinusoidal pattern: one full cycle, mean ~2 deg, amplitude ~3 deg
-    curve = 2.0 + 3.0 * np.sin(2 * np.pi * t - 0.2)
-
-    return curve
-
-
-def _make_hip_adduction_curve():
-    """Generate adult hip adduction/abduction curve (101 points).
-
-    Shape: ~5 deg adduction in stance (weight-bearing creates valgus
-    moment), decreasing to ~2 deg in swing. Transitions occur around
-    toe-off (~60% GC) and initial contact.
-
-    Positive values = adduction, negative = abduction.
-
-    Based on Perry & Burnfield (2010) Fig. 14.5 and Kadaba et al. (1990).
-    """
-    t = _GC / 100.0
-
-    # Stance phase: ~5 deg adduction (0-60% GC)
-    # Swing phase: ~2 deg adduction (60-100% GC)
-    # Smooth transition using sigmoid-like blending
-    stance_component = 5.0 * np.exp(-((t - 0.30) ** 2) / (2 * 0.15 ** 2))
-    swing_component = 2.0 * np.exp(-((t - 0.80) ** 2) / (2 * 0.10 ** 2))
-
-    # Baseline offset
-    curve = 1.0 + stance_component + swing_component
-
-    return curve
-
-
-def _make_knee_valgus_curve():
-    """Generate adult knee valgus/varus curve (101 points).
-
-    Shape: ~3 deg valgus (positive) on average, with slight increase
-    during stance phase loading and decrease in swing.
-
-    Positive values = valgus, negative = varus.
-
-    Based on Perry & Burnfield (2010) Chapter 14.
-    """
-    t = _GC / 100.0
-
-    # Mean valgus ~3 deg with small oscillation
-    # Slightly higher valgus during loading response (~10% GC)
-    # and lower in swing
-    loading_bump = 2.0 * np.exp(-((t - 0.12) ** 2) / (2 * 0.05 ** 2))
-    midstance_dip = -1.0 * np.exp(-((t - 0.45) ** 2) / (2 * 0.08 ** 2))
-    swing_dip = -1.5 * np.exp(-((t - 0.80) ** 2) / (2 * 0.08 ** 2))
-
-    curve = 3.0 + loading_bump + midstance_dip + swing_dip
-
-    return curve
-
-
-# ── Variable SD helper ───────────────────────────────────────────────
-
-def _make_variable_sd(
-    baseline: float,
-    peak: float,
-    bump_centers: list,
-    bump_widths: list,
-) -> np.ndarray:
-    """Create a 101-point SD curve that varies smoothly over the gait cycle.
-
-    Uses additive Gaussian bumps on top of a constant *baseline* so
-    that transitions are smooth (no step discontinuities).
+# Strata scaling factors
+_ELDERLY_ROM_FACTOR = 0.80
+_ELDERLY_SD_FACTOR = 1.3
+_PEDIATRIC_ROM_FACTOR = 1.05
+_PEDIATRIC_SD_FACTOR = 1.4
+
+
+# ── Digitized reference data (Perry & Burnfield 2010; Winter 2009) ──
+#
+# Each entry is (percent_gc, mean_deg, sd_deg) digitized from the
+# published figures / tables.  Between key points, values are linearly
+# interpolated to 101 equally-spaced points covering 0-100 %GC.
+
+_HIP_KEYPOINTS = {
+    # %GC    mean   sd
+    "gc":   [  0,   10,   30,   50,   62,   75,   85,  100],
+    "mean": [ 30,   25,   10,  -10,   -5,   25,   32,   30],
+    "sd":   [  5,    5,    4,    5,    6,    6,    5,    5],
+}
+
+_KNEE_KEYPOINTS = {
+    "gc":   [  0,   12,   25,   40,   55,   70,   85,   95,  100],
+    "mean": [  5,   18,    5,    3,   35,   62,   25,    8,    5],
+    "sd":   [  4,    5,    4,    4,    6,    7,    6,    5,    4],
+}
+
+_ANKLE_KEYPOINTS = {
+    "gc":   [  0,    8,   25,   40,   55,   62,   70,   85,  100],
+    "mean": [  0,   -5,    5,   10,    5,  -15,   -5,    0,    0],
+    "sd":   [  3,    3,    3,    4,    4,    5,    4,    3,    3],
+}
+
+_TRUNK_KEYPOINTS = {
+    "gc":   [  0,   30,   62,   85,  100],
+    "mean": [  3,    1,    5,    2,    3],
+    "sd":   [  3,    3,    4,    3,    3],
+}
+
+_PELVIS_SAGITTAL_KEYPOINTS = {
+    "gc":   [  0,   30,   50,   75,  100],
+    "mean": [ 10,    8,   12,    9,   10],
+    "sd":   [  3,    3,    3,    3,    3],
+}
+
+# Frontal-plane digitized data (Perry & Burnfield 2010 Ch 14, Kadaba 1990)
+# SD higher during swing (~4-5 deg), lower during mid-stance (~2-3 deg)
+
+_PELVIS_OBLIQUITY_KEYPOINTS = {
+    "gc":   [  0,   15,   30,   50,   60,   75,   90,  100],
+    "mean": [  2,    4,    3,    0,   -1,    1,    3,    2],
+    "sd":   [  3,    3,    2,    3,    4,    5,    4,    3],
+}
+
+_HIP_ADDUCTION_KEYPOINTS = {
+    "gc":   [  0,   10,   30,   50,   60,   75,   90,  100],
+    "mean": [  2,    6,    5,    4,    1,    2,    3,    2],
+    "sd":   [  3,    3,    2,    3,    4,    5,    4,    3],
+}
+
+_KNEE_VALGUS_KEYPOINTS = {
+    "gc":   [  0,   12,   30,   50,   60,   75,   90,  100],
+    "mean": [  3,    5,    3,    2,    2,    1,    2,    3],
+    "sd":   [  3,    3,    2,    3,    4,    5,    4,    3],
+}
+
+
+# ── Interpolation helper ────────────────────────────────────────────
+
+def _interp_keypoints(keypoints: dict) -> tuple:
+    """Linearly interpolate digitized key values to 101 gait-cycle points.
 
     Parameters
     ----------
-    baseline : float
-        Minimum SD value, used across most of the cycle.
-    peak : float
-        Maximum SD value at the center of a bump.
-    bump_centers : list of float
-        Percent-of-gait-cycle locations of the bump peaks.
-    bump_widths : list of float
-        Standard deviations (in %-GC) of each Gaussian bump.
+    keypoints : dict
+        Must contain ``'gc'``, ``'mean'``, and ``'sd'`` keys, each a
+        list of floats.  ``'gc'`` values must span 0 to 100.
 
     Returns
     -------
-    np.ndarray
-        Array of shape (101,) with SD values.
+    mean : np.ndarray, shape (101,)
+    sd : np.ndarray, shape (101,)
     """
-    sd = baseline * np.ones(_N_POINTS)
-    amplitude = peak - baseline
-    for center, width in zip(bump_centers, bump_widths):
-        bump = amplitude * np.exp(-0.5 * ((_GC - center) / width) ** 2)
-        sd = sd + bump
-    return sd
+    gc_kp = np.asarray(keypoints["gc"], dtype=float)
+    mean_kp = np.asarray(keypoints["mean"], dtype=float)
+    sd_kp = np.asarray(keypoints["sd"], dtype=float)
+
+    mean = np.interp(_GC, gc_kp, mean_kp)
+    sd = np.interp(_GC, gc_kp, sd_kp)
+
+    return mean, sd
 
 
 # ── Build normative data at module load ──────────────────────────────
 
 def _build_normative_data():
     """Construct the full normative database for all strata."""
-    # Adult curves (baseline)
-    adult_hip_mean = _make_hip_curve()
-    adult_knee_mean = _make_knee_curve()
-    adult_ankle_mean = _make_ankle_curve()
-    adult_trunk_mean = _make_trunk_curve()
-    adult_pelvis_mean = _make_pelvis_sagittal_curve()
 
-    # Adult SD values -- vary across the gait cycle using smooth
-    # Gaussian bumps to model regions of higher inter-subject
-    # variability (transitions, swing phase, push-off, etc.).
-    adult_hip_sd = _make_variable_sd(
-        baseline=4.0, peak=7.0,
-        bump_centers=[5.0, 60.0],   # 0-10% extremes and pre-swing / terminal extension
-        bump_widths=[5.0, 5.0],
-    )
-    adult_knee_sd = _make_variable_sd(
-        baseline=5.0, peak=8.0,
-        bump_centers=[75.0],        # swing phase (65-85% GC)
-        bump_widths=[10.0],
-    )
-    adult_ankle_sd = _make_variable_sd(
-        baseline=3.0, peak=5.0,
-        bump_centers=[60.0],        # push-off (55-65% GC)
-        bump_widths=[5.0],
-    )
-    adult_trunk_sd = 3.0 * np.ones(_N_POINTS)
-    adult_pelvis_sd = 2.5 * np.ones(_N_POINTS)
-
-    # Adult frontal plane curves
-    adult_pelvis_obliquity_mean = _make_pelvis_obliquity_curve()
-    adult_hip_adduction_mean = _make_hip_adduction_curve()
-    adult_knee_valgus_mean = _make_knee_valgus_curve()
-
-    # Frontal plane SDs -- variable across the cycle
-    adult_pelvis_obliquity_sd = _make_variable_sd(
-        baseline=2.0, peak=3.0,
-        bump_centers=[50.0],       # single-limb support transition
-        bump_widths=[10.0],
-    )
-    adult_hip_adduction_sd = _make_variable_sd(
-        baseline=3.0, peak=4.0,
-        bump_centers=[60.0],       # toe-off transition
-        bump_widths=[8.0],
-    )
-    adult_knee_valgus_sd = _make_variable_sd(
-        baseline=3.0, peak=4.0,
-        bump_centers=[12.0, 72.0], # loading response and swing
-        bump_widths=[6.0, 8.0],
+    # ── Adult curves (digitized reference data) ──────────────────────
+    adult_hip_mean, adult_hip_sd = _interp_keypoints(_HIP_KEYPOINTS)
+    adult_knee_mean, adult_knee_sd = _interp_keypoints(_KNEE_KEYPOINTS)
+    adult_ankle_mean, adult_ankle_sd = _interp_keypoints(_ANKLE_KEYPOINTS)
+    adult_trunk_mean, adult_trunk_sd = _interp_keypoints(_TRUNK_KEYPOINTS)
+    adult_pelvis_mean, adult_pelvis_sd = _interp_keypoints(
+        _PELVIS_SAGITTAL_KEYPOINTS
     )
 
-    # Elderly: reduced ROM (~80% of adult), same shape
-    # Scale about the mean of each curve
+    # Frontal plane
+    adult_pelvis_obliquity_mean, adult_pelvis_obliquity_sd = (
+        _interp_keypoints(_PELVIS_OBLIQUITY_KEYPOINTS)
+    )
+    adult_hip_adduction_mean, adult_hip_adduction_sd = _interp_keypoints(
+        _HIP_ADDUCTION_KEYPOINTS
+    )
+    adult_knee_valgus_mean, adult_knee_valgus_sd = _interp_keypoints(
+        _KNEE_VALGUS_KEYPOINTS
+    )
+
+    # ── Strata helper ────────────────────────────────────────────────
+
     def _scale_rom(curve, factor):
-        """Scale the ROM of a curve by factor, preserving the mean."""
+        """Scale the ROM of a curve by *factor*, preserving the mean."""
         mean_val = np.mean(curve)
         return mean_val + (curve - mean_val) * factor
 
-    elderly_hip_mean = _scale_rom(adult_hip_mean, 0.80)
-    elderly_knee_mean = _scale_rom(adult_knee_mean, 0.80)
-    elderly_ankle_mean = _scale_rom(adult_ankle_mean, 0.80)
-    elderly_trunk_mean = _scale_rom(adult_trunk_mean, 0.85)  # trunk less affected
-    elderly_pelvis_mean = _scale_rom(adult_pelvis_mean, 0.85)
+    # ── Elderly: reduced ROM, wider SD ───────────────────────────────
+    elderly_hip_mean = _scale_rom(adult_hip_mean, _ELDERLY_ROM_FACTOR)
+    elderly_knee_mean = _scale_rom(adult_knee_mean, _ELDERLY_ROM_FACTOR)
+    elderly_ankle_mean = _scale_rom(adult_ankle_mean, _ELDERLY_ROM_FACTOR)
+    elderly_trunk_mean = _scale_rom(adult_trunk_mean, _ELDERLY_ROM_FACTOR)
+    elderly_pelvis_mean = _scale_rom(adult_pelvis_mean, _ELDERLY_ROM_FACTOR)
 
-    # Elderly SDs: same shape as adult (variable across cycle)
-    elderly_hip_sd = _make_variable_sd(
-        baseline=4.0, peak=7.0,
-        bump_centers=[5.0, 60.0], bump_widths=[5.0, 5.0],
-    )
-    elderly_knee_sd = _make_variable_sd(
-        baseline=5.0, peak=8.0,
-        bump_centers=[75.0], bump_widths=[10.0],
-    )
-    elderly_ankle_sd = _make_variable_sd(
-        baseline=3.0, peak=5.0,
-        bump_centers=[60.0], bump_widths=[5.0],
-    )
-    elderly_trunk_sd = 3.0 * np.ones(_N_POINTS)
-    elderly_pelvis_sd = 2.5 * np.ones(_N_POINTS)
+    elderly_hip_sd = adult_hip_sd * _ELDERLY_SD_FACTOR
+    elderly_knee_sd = adult_knee_sd * _ELDERLY_SD_FACTOR
+    elderly_ankle_sd = adult_ankle_sd * _ELDERLY_SD_FACTOR
+    elderly_trunk_sd = adult_trunk_sd * _ELDERLY_SD_FACTOR
+    elderly_pelvis_sd = adult_pelvis_sd * _ELDERLY_SD_FACTOR
 
-    # Elderly frontal plane curves: slightly different means, wider SD (+1)
-    elderly_pelvis_obliquity_mean = _scale_rom(adult_pelvis_obliquity_mean, 0.85)
-    elderly_hip_adduction_mean = _scale_rom(adult_hip_adduction_mean, 0.85)
-    elderly_knee_valgus_mean = _scale_rom(adult_knee_valgus_mean, 0.85)
-
-    elderly_pelvis_obliquity_sd = _make_variable_sd(
-        baseline=3.0, peak=4.0,          # +1 deg wider than adult
-        bump_centers=[50.0],
-        bump_widths=[10.0],
+    elderly_pelvis_obliquity_mean = _scale_rom(
+        adult_pelvis_obliquity_mean, _ELDERLY_ROM_FACTOR
     )
-    elderly_hip_adduction_sd = _make_variable_sd(
-        baseline=4.0, peak=5.0,          # +1 deg wider than adult
-        bump_centers=[60.0],
-        bump_widths=[8.0],
+    elderly_hip_adduction_mean = _scale_rom(
+        adult_hip_adduction_mean, _ELDERLY_ROM_FACTOR
     )
-    elderly_knee_valgus_sd = _make_variable_sd(
-        baseline=4.0, peak=5.0,          # +1 deg wider than adult
-        bump_centers=[12.0, 72.0],
-        bump_widths=[6.0, 8.0],
+    elderly_knee_valgus_mean = _scale_rom(
+        adult_knee_valgus_mean, _ELDERLY_ROM_FACTOR
     )
 
-    # Pediatric: slightly increased ROM (~105% of adult), more variable
-    pediatric_hip_mean = _scale_rom(adult_hip_mean, 1.05)
-    pediatric_knee_mean = _scale_rom(adult_knee_mean, 1.05)
-    pediatric_ankle_mean = _scale_rom(adult_ankle_mean, 1.05)
-    pediatric_trunk_mean = _scale_rom(adult_trunk_mean, 1.05)
-    pediatric_pelvis_mean = _scale_rom(adult_pelvis_mean, 1.05)
+    elderly_pelvis_obliquity_sd = adult_pelvis_obliquity_sd * _ELDERLY_SD_FACTOR
+    elderly_hip_adduction_sd = adult_hip_adduction_sd * _ELDERLY_SD_FACTOR
+    elderly_knee_valgus_sd = adult_knee_valgus_sd * _ELDERLY_SD_FACTOR
 
-    # Pediatric SDs: higher baseline, same bump pattern
-    pediatric_hip_sd = _make_variable_sd(
-        baseline=6.0, peak=9.0,
-        bump_centers=[5.0, 60.0], bump_widths=[5.0, 5.0],
+    # ── Pediatric: slightly increased ROM, wider SD ──────────────────
+    pediatric_hip_mean = _scale_rom(adult_hip_mean, _PEDIATRIC_ROM_FACTOR)
+    pediatric_knee_mean = _scale_rom(adult_knee_mean, _PEDIATRIC_ROM_FACTOR)
+    pediatric_ankle_mean = _scale_rom(adult_ankle_mean, _PEDIATRIC_ROM_FACTOR)
+    pediatric_trunk_mean = _scale_rom(adult_trunk_mean, _PEDIATRIC_ROM_FACTOR)
+    pediatric_pelvis_mean = _scale_rom(
+        adult_pelvis_mean, _PEDIATRIC_ROM_FACTOR
     )
-    pediatric_knee_sd = _make_variable_sd(
-        baseline=6.0, peak=10.0,
-        bump_centers=[75.0], bump_widths=[10.0],
-    )
-    pediatric_ankle_sd = _make_variable_sd(
-        baseline=5.0, peak=7.0,
-        bump_centers=[60.0], bump_widths=[5.0],
-    )
-    pediatric_trunk_sd = 6.0 * np.ones(_N_POINTS)
-    pediatric_pelvis_sd = 5.0 * np.ones(_N_POINTS)
 
-    # Pediatric frontal plane curves: slightly higher hip adduction, wider SD (+1.5)
-    pediatric_pelvis_obliquity_mean = _scale_rom(adult_pelvis_obliquity_mean, 1.05)
-    # Pediatric hip adduction: slightly higher (~1 deg more adduction)
-    pediatric_hip_adduction_mean = adult_hip_adduction_mean + 1.0
-    pediatric_knee_valgus_mean = _scale_rom(adult_knee_valgus_mean, 1.05)
+    pediatric_hip_sd = adult_hip_sd * _PEDIATRIC_SD_FACTOR
+    pediatric_knee_sd = adult_knee_sd * _PEDIATRIC_SD_FACTOR
+    pediatric_ankle_sd = adult_ankle_sd * _PEDIATRIC_SD_FACTOR
+    pediatric_trunk_sd = adult_trunk_sd * _PEDIATRIC_SD_FACTOR
+    pediatric_pelvis_sd = adult_pelvis_sd * _PEDIATRIC_SD_FACTOR
 
-    pediatric_pelvis_obliquity_sd = _make_variable_sd(
-        baseline=3.5, peak=4.5,          # +1.5 deg wider than adult
-        bump_centers=[50.0],
-        bump_widths=[10.0],
+    pediatric_pelvis_obliquity_mean = _scale_rom(
+        adult_pelvis_obliquity_mean, _PEDIATRIC_ROM_FACTOR
     )
-    pediatric_hip_adduction_sd = _make_variable_sd(
-        baseline=4.5, peak=5.5,          # +1.5 deg wider than adult
-        bump_centers=[60.0],
-        bump_widths=[8.0],
+    pediatric_hip_adduction_mean = _scale_rom(
+        adult_hip_adduction_mean, _PEDIATRIC_ROM_FACTOR
     )
-    pediatric_knee_valgus_sd = _make_variable_sd(
-        baseline=4.5, peak=5.5,          # +1.5 deg wider than adult
-        bump_centers=[12.0, 72.0],
-        bump_widths=[6.0, 8.0],
+    pediatric_knee_valgus_mean = _scale_rom(
+        adult_knee_valgus_mean, _PEDIATRIC_ROM_FACTOR
     )
+
+    pediatric_pelvis_obliquity_sd = (
+        adult_pelvis_obliquity_sd * _PEDIATRIC_SD_FACTOR
+    )
+    pediatric_hip_adduction_sd = (
+        adult_hip_adduction_sd * _PEDIATRIC_SD_FACTOR
+    )
+    pediatric_knee_valgus_sd = (
+        adult_knee_valgus_sd * _PEDIATRIC_SD_FACTOR
+    )
+
+    # ── Assemble full database ───────────────────────────────────────
 
     return {
         "adult": {
