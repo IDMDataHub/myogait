@@ -258,7 +258,9 @@ def _page_overview(pdf, data: dict, cycles: dict, s: dict):
 
     axes[2, 0].set_xlabel(s["time_s"])
     axes[2, 1].set_xlabel(s["time_s"])
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    # This page includes a matplotlib table that can conflict with tight_layout.
+    # Use explicit spacing to avoid layout warnings in automated runs.
+    fig.subplots_adjust(top=0.90, bottom=0.08, left=0.06, right=0.97, hspace=0.35, wspace=0.25)
     pdf.savefig(fig, dpi=_DPI)
     plt.close(fig)
 
@@ -312,7 +314,10 @@ def _page_bilateral(pdf, cycles: dict, data: dict, s: dict):
                  verticalalignment="top", fontfamily="monospace",
                  bbox=dict(boxstyle="round", facecolor="lightyellow", alpha=0.5))
 
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    # This page includes a table that is not always tight_layout-compatible.
+    fig.subplots_adjust(
+        top=0.90, bottom=0.08, left=0.06, right=0.97, hspace=0.35, wspace=0.25
+    )
     pdf.savefig(fig, dpi=_DPI)
     plt.close(fig)
 
@@ -404,11 +409,16 @@ def _page_statistics(pdf, stats: dict, s: dict):
     else:
         flag_text = s["alerts"] + "\n\n" + s["no_anomaly"]
         bg_color = "lightgreen"
-    ax4.text(0.05, 0.95, flag_text, transform=ax4.transAxes, fontsize=9,
-             verticalalignment="top", fontfamily="monospace",
-             bbox=dict(boxstyle="round", facecolor=bg_color, alpha=0.3))
+    ax4.text(
+        0.05, 0.95, flag_text, transform=ax4.transAxes, fontsize=9,
+        verticalalignment="top", fontfamily="monospace",
+        bbox=dict(boxstyle="round", facecolor=bg_color, alpha=0.3),
+    )
 
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    # This page includes a table that is not always tight_layout-compatible.
+    fig.subplots_adjust(
+        top=0.90, bottom=0.08, left=0.06, right=0.97, hspace=0.35, wspace=0.25
+    )
     pdf.savefig(fig, dpi=_DPI)
     plt.close(fig)
 

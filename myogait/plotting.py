@@ -1616,7 +1616,9 @@ def plot_butterfly(
             ax.invert_yaxis()
 
         ax.set_ylabel("Angle (deg)")
-        ax.legend(loc="upper right", fontsize=8)
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(loc="upper right", fontsize=8)
         ax.grid(True, alpha=0.3)
 
     ax_top.set_title(f"Butterfly Plot - {joint.capitalize()}")
