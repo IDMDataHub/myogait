@@ -1,0 +1,72 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your suggestion! Please describe the feature you'd like.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What problem does this feature solve? What is the use case?
+      placeholder: "I'm trying to analyze treadmill gait and..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work? Include API examples if possible.
+      placeholder: |
+        ```python
+        from myogait import new_function
+        result = new_function(data, param=value)
+        ```
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Pose extraction
+        - Signal processing / filtering
+        - Joint angles
+        - Event detection
+        - Spatio-temporal analysis
+        - Clinical scores
+        - Visualization / plotting
+        - Export (CSV, OpenSim, Pose2Sim, C3D)
+        - PDF report
+        - CLI
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority for you
+      options:
+        - Nice to have
+        - Important
+        - Critical for my use case
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you considered any workarounds or alternative approaches?
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Links to papers, tools, or standards that describe the feature.

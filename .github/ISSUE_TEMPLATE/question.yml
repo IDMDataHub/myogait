@@ -1,0 +1,45 @@
+name: Question
+description: Ask a question about usage or biomechanics
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask your question here. For general Python support, please use Stack Overflow.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to know?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      options:
+        - Installation / setup
+        - Pipeline usage
+        - Biomechanical interpretation
+        - OpenSim / Pose2Sim integration
+        - Clinical scores (GPS, SDI, GVS)
+        - Export format
+        - Performance / GPU
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Describe what you've already attempted.
+
+  - type: input
+    id: version
+    attributes:
+      label: myogait version
+      placeholder: "0.3.0"

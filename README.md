@@ -2,8 +2,12 @@
 
 Markerless video-based gait analysis toolkit.
 
-![Python](https://img.shields.io/pypi/pyversions/myogait)
-![License](https://img.shields.io/pypi/l/myogait)
+[![CI](https://github.com/IDMDataHub/myogait/actions/workflows/ci.yml/badge.svg)](https://github.com/IDMDataHub/myogait/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/myogait)](https://pypi.org/project/myogait/)
+[![Python 3.10|3.11|3.12](https://img.shields.io/pypi/pyversions/myogait)](https://pypi.org/project/myogait/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-749%20passed-brightgreen)]()
+[![Downloads](https://img.shields.io/pypi/dm/myogait)](https://pypi.org/project/myogait/)
 
 **Author:** Frederic Fer, Institut de Myologie ([f.fer@institut-myologie.org](mailto:f.fer@institut-myologie.org))
 
@@ -47,6 +51,17 @@ pip install myogait[rtmw]        # RTMW 133-keypoint whole-body
 pip install myogait[mmpose]      # HRNet / RTMPose via MMPose
 pip install myogait[all]         # All backends
 ```
+
+## Supported Pose Estimation Backends
+
+| Backend | Install | Notes |
+|---------|---------|-------|
+| MediaPipe | `pip install myogait[mediapipe]` | Fast, good for real-time. 33 landmarks |
+| YOLOv8-Pose | `pip install myogait[yolo]` | Fast, robust. 17 COCO keypoints |
+| ViTPose | `pip install myogait[vitpose]` | State-of-the-art accuracy |
+| Sapiens | `pip install myogait[sapiens]` | Meta model, depth estimation |
+| RTMPose/RTMLib | `pip install myogait[rtmw]` | Real-time, ONNX optimized |
+| MMPose | `pip install myogait[mmpose]` | Academic reference, many models |
 
 ## GPU Support
 
@@ -178,41 +193,198 @@ HRNet-W48 and RTMPose-m via the OpenMMLab MMPose framework — 17 COCO keypoints
 - **HRNet:** Sun et al., *Deep High-Resolution Representation Learning for Visual Recognition*, TPAMI 2019
 - **RTMPose:** Jiang et al., *RTMPose: Real-Time Multi-Person Pose Estimation based on MMPose*, 2023
 
-## Quick Start
+## Tutorials & Examples
+
+### Basic Pipeline
+
+The core workflow extracts pose landmarks from video, preprocesses the signal,
+computes joint kinematics, detects gait events, and derives spatio-temporal
+parameters.
 
 ```python
-from myogait import (
-    extract, normalize, compute_angles, detect_events,
-    segment_cycles, analyze_gait, plot_summary, export_csv,
-)
+from myogait import extract, normalize, compute_angles, detect_events
+from myogait import segment_cycles, analyze_gait
 
-# Extract pose landmarks from video
-data = extract("video.mp4", model="mediapipe")
+# 1. Extract landmarks from video
+data = extract("walking_video.mp4", model="mediapipe")
 
-# With Sapiens depth + segmentation
-data = extract("video.mp4", model="sapiens-top", with_depth=True, with_seg=True)
-
-# Filter and normalize
+# 2. Preprocess: filter noise, handle gaps
 data = normalize(data, filters=["butterworth"])
 
-# Compute joint angles
-data = compute_angles(data, method="sagittal_vertical_axis")
+# 3. Compute joint angles (sagittal + frontal if depth available)
+data = compute_angles(data)
 
-# Detect gait events (heel strikes, toe-offs)
-data = detect_events(data, method="zeni")
+# 4. Detect gait events (heel strikes, toe offs)
+data = detect_events(data, method="gk_bike")  # uses gaitkit Bayesian detector
 
-# Segment into gait cycles
+# 5. Segment into gait cycles
 cycles = segment_cycles(data)
 
-# Run spatio-temporal analysis
+# 6. Compute spatio-temporal parameters
 stats = analyze_gait(data, cycles)
+print(f"Cadence: {stats['cadence']:.1f} steps/min")
+print(f"Walking speed: {stats['speed']:.2f} m/s")
+```
 
-# Visualize
+### Clinical Scores
+
+Compute standardized gait quality indices used in clinical gait analysis
+laboratories worldwide.
+
+```python
+from myogait import gait_profile_score_2d, sagittal_deviation_index
+from myogait import gait_variable_scores, movement_analysis_profile
+
+# GPS-2D: overall gait quality score (RMS deviation from normative)
+gps = gait_profile_score_2d(cycles)
+print(f"GPS-2D: {gps['gps']:.1f}")
+
+# SDI: Sagittal Deviation Index (0-120, 100 = normal)
+sdi = sagittal_deviation_index(cycles)
+print(f"SDI: {sdi['sdi']:.1f}")
+
+# Per-joint deviation scores
+gvs = gait_variable_scores(cycles)
+for joint, score in gvs["scores"].items():
+    print(f"  {joint}: {score:.1f}")
+```
+
+### Data Quality Assessment
+
+Evaluate landmark detection confidence and flag outliers before running
+the analysis pipeline.
+
+```python
+from myogait import confidence_filter, detect_outliers, data_quality_score
+
+# Filter low-confidence landmarks
+data = confidence_filter(data, threshold=0.3)
+
+# Detect and interpolate outliers
+data = detect_outliers(data, z_thresh=3.0)
+
+# Quality report
+quality = data_quality_score(data)
+print(f"Quality score: {quality['score']}/100")
+```
+
+### Normative Comparison
+
+Compare patient kinematics against published normative reference bands
+(Perry & Burnfield).
+
+```python
+from myogait import plot_normative_comparison, get_normative_band
+
+# Plot patient vs normative bands (Perry & Burnfield)
+fig = plot_normative_comparison(data, cycles, plane="both")
+fig.savefig("normative_comparison.png", dpi=150)
+
+# Access raw normative data
+mean, lower, upper = get_normative_band("hip_flexion", stratum="adult")
+```
+
+### Event Detection with gaitkit
+
+myogait integrates multiple gait event detection algorithms, including
+Bayesian and ensemble methods from the gaitkit library.
+
+```python
+from myogait import detect_events, event_consensus, list_event_methods
+
+# List all available methods
+print(list_event_methods())
+# ['zeni', 'velocity', 'crossing', 'oconnor',
+#  'gk_bike', 'gk_zeni', 'gk_ensemble', ...]
+
+# Single method (gaitkit Bayesian BIS -- best F1 score)
+data = detect_events(data, method="gk_bike")
+
+# Consensus: vote across multiple detectors
+data = event_consensus(data, methods=["gk_bike", "gk_zeni", "gk_oconnor"])
+```
+
+### Export to OpenSim / Pose2Sim
+
+Export landmarks and kinematics in formats compatible with OpenSim
+musculoskeletal modeling and Pose2Sim multi-camera triangulation.
+
+```python
+from myogait import export_trc, export_mot, export_openpose_json
+from myogait import export_opensim_scale_setup, export_ik_setup
+
+# OpenSim .trc markers file (with height-based unit conversion)
+export_trc(data, "markers.trc", opensim_model="gait2392")
+
+# OpenSim .mot kinematics
+export_mot(data, "kinematics.mot")
+
+# OpenSim Scale Tool setup XML
+export_opensim_scale_setup(data, "scale_setup.xml", model_file="gait2392.osim")
+
+# OpenSim IK setup XML
+export_ik_setup("markers.trc", "ik_setup.xml", model_file="scaled_model.osim")
+
+# Pose2Sim: export OpenPose-format JSON for triangulation
+export_openpose_json(data, "./openpose_output/", model="BODY_25")
+```
+
+### Video Overlay & Visualization
+
+Generate annotated videos, anonymized stick-figure animations, and
+publication-ready dashboards.
+
+```python
+from myogait import render_skeleton_video, render_stickfigure_animation
+from myogait import plot_summary, plot_gvs_profile
+
+# Skeleton overlay on original video
+render_skeleton_video("video.mp4", data, "overlay.mp4", show_angles=True)
+
+# Anonymized stick figure GIF
+render_stickfigure_animation(data, "stickfigure.gif")
+
+# Summary dashboard
 fig = plot_summary(data, cycles, stats)
-fig.savefig("summary.png")
+fig.savefig("dashboard.png", dpi=150)
 
-# Export
-export_csv(data, "./output", cycles, stats)
+# MAP barplot (Movement Analysis Profile)
+fig = plot_gvs_profile(gvs)
+fig.savefig("gvs_profile.png", dpi=150)
+```
+
+### PDF Report
+
+Generate a multi-page clinical report with kinematic plots, spatio-temporal
+tables, and normative comparisons.
+
+```python
+from myogait import generate_report
+
+# Generate clinical PDF report (French or English)
+generate_report(data, cycles, stats, "rapport_marche.pdf", language="fr")
+```
+
+### Multiple Export Formats
+
+Export analysis results to a variety of tabular and structured formats for
+downstream processing and archival.
+
+```python
+from myogait import export_csv, export_excel, to_dataframe, export_summary_json
+
+# CSV files (one per data type)
+export_csv(data, "./csv_output/", cycles, stats)
+
+# Excel workbook
+export_excel(data, "gait_analysis.xlsx", cycles, stats)
+
+# Pandas DataFrame for custom analysis
+df = to_dataframe(data, what="angles")
+print(df.head())
+
+# Compact summary JSON
+export_summary_json(data, cycles, stats, "summary.json")
 ```
 
 ## CLI Usage
@@ -266,18 +438,48 @@ All functions operate on a single `data` dict that flows through the pipeline.
 
 | Function | Description |
 |---|---|
-| `extract(video_path, model)` | Extract pose landmarks from a video file |
+| **Core pipeline** | |
+| `extract(video, model)` | Extract pose landmarks from video |
 | `normalize(data, filters)` | Filter and normalize landmark trajectories |
-| `compute_angles(data, method)` | Compute joint angles (sagittal_vertical_axis, sagittal_classic) |
-| `detect_events(data, method)` | Detect gait events (zeni, crossing, velocity, oconnor) |
-| `segment_cycles(data)` | Segment data into individual gait cycles |
-| `analyze_gait(data, cycles)` | Compute spatio-temporal and symmetry metrics |
-| `plot_summary(data, cycles, stats)` | Generate publication-quality summary plots |
-| `export_csv(data, output_dir, cycles, stats)` | Export results to CSV files |
-| `export_mot(data, path)` | Export to OpenSim .mot format |
-| `export_trc(data, path)` | Export to OpenSim .trc format |
-| `generate_report(data, cycles, stats, path)` | Generate a multi-page PDF clinical report |
-| `validate_biomechanical(data, cycles)` | Validate angles against physiological ranges |
+| `compute_angles(data)` | Compute sagittal joint angles |
+| `compute_frontal_angles(data)` | Compute frontal plane angles (requires depth) |
+| `detect_events(data, method)` | Detect gait events (15 methods incl. gaitkit) |
+| `event_consensus(data, methods)` | Multi-method voting for robust event detection |
+| `segment_cycles(data)` | Segment into individual gait cycles |
+| `analyze_gait(data, cycles)` | Compute spatio-temporal parameters |
+| **Clinical scores** | |
+| `gait_profile_score_2d(cycles)` | GPS-2D: overall gait deviation (sagittal + frontal) |
+| `sagittal_deviation_index(cycles)` | SDI: 0-120 index (100 = normal) |
+| `gait_variable_scores(cycles)` | Per-joint deviation vs normative |
+| `movement_analysis_profile(cycles)` | MAP barplot data |
+| **Quality** | |
+| `confidence_filter(data)` | Remove low-confidence landmarks |
+| `detect_outliers(data)` | Detect and interpolate spikes |
+| `data_quality_score(data)` | Composite quality score 0-100 |
+| `fill_gaps(data)` | Interpolate missing landmark gaps |
+| **Analysis** | |
+| `walking_speed(data, cycles)` | Estimated walking speed |
+| `step_length(data, cycles)` | Step/stride length estimation |
+| `stride_variability(data, cycles)` | CV of spatio-temporal parameters |
+| `arm_swing_analysis(data, cycles)` | Arm swing amplitude and asymmetry |
+| `segment_lengths(data)` | Anthropometric segment lengths |
+| `detect_pathologies(data, cycles)` | Pattern detection (equinus, antalgic, etc.) |
+| **Visualization** | |
+| `plot_summary(data, cycles, stats)` | Summary dashboard |
+| `plot_normative_comparison(data, cycles)` | Patient vs normative bands |
+| `plot_gvs_profile(gvs)` | Movement Analysis Profile barplot |
+| `render_skeleton_video(video, data, out)` | Skeleton overlay on video |
+| `render_stickfigure_animation(data, out)` | Anonymized stick figure GIF |
+| **Export** | |
+| `export_csv(data, dir, cycles, stats)` | CSV files |
+| `export_mot(data, path)` | OpenSim .mot kinematics |
+| `export_trc(data, path)` | OpenSim .trc markers |
+| `export_openpose_json(data, dir)` | OpenPose JSON for Pose2Sim |
+| `export_opensim_scale_setup(data, path)` | OpenSim Scale Tool XML |
+| `export_ik_setup(trc, path)` | OpenSim IK setup XML |
+| `to_dataframe(data, what)` | Pandas DataFrame |
+| `generate_report(data, cycles, stats, path)` | Multi-page clinical PDF report |
+| `validate_biomechanical(data, cycles)` | Validate against physiological ranges |
 
 ## Configuration
 
@@ -317,17 +519,36 @@ When using Sapiens with depth and segmentation:
 }
 ```
 
-## License
+## Acknowledgments
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+myogait is developed at the [Institut de Myologie](https://www.institut-myologie.org/), Paris, France, by the **PhysioEvalLab / IDMDataHub** team, with support from [AFM-Telethon](https://www.afm-telethon.fr/).
+
+<p align="center">
+  <a href="https://www.institut-myologie.org/">
+    <img src="https://www.institut-myologie.org/wp-content/themes/jesuspended-developer/img/logo-institut-myologie.svg" alt="Institut de Myologie" height="80">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.afm-telethon.fr/">
+    <img src="https://www.afm-telethon.fr/sites/default/files/logo_afm.png" alt="AFM-Telethon" height="80">
+  </a>
+</p>
 
 ## Citation
 
 If you use myogait in your research, please cite:
 
-```
-Fer, F. (2025). myogait: Markerless video-based gait analysis toolkit.
-Institut de Myologie. https://pypi.org/project/myogait/
+```bibtex
+@software{myogait,
+  author = {Fer, Frederic},
+  title = {myogait: Markerless video-based gait analysis toolkit},
+  year = {2024},
+  publisher = {GitHub},
+  url = {https://github.com/IDMDataHub/myogait}
+}
 ```
 
 A peer-reviewed publication is in preparation.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
