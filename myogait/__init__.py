@@ -18,15 +18,21 @@ Full pipeline with cycle analysis::
 
 Clinical scores::
 
-    from myogait import gait_profile_score_2d, gait_deviation_index_2d
+    from myogait import gait_profile_score_2d, sagittal_deviation_index
     gps = gait_profile_score_2d(cycles)
-    gdi = gait_deviation_index_2d(cycles)
+    sdi = sagittal_deviation_index(cycles)
+
+Video overlay::
+
+    from myogait import render_skeleton_video, render_stickfigure_animation
+    render_skeleton_video("video.mp4", data, "overlay.mp4", show_angles=True)
+    render_stickfigure_animation(data, "stickfigure.gif")
 
 Export::
 
-    from myogait import export_csv, export_mot, export_trc
+    from myogait import export_csv, export_mot, to_dataframe
     export_csv(data, "./output", cycles, stats)
-    export_mot(data, "kinematics.mot")
+    df = to_dataframe(data, what="angles")
 
 Validation::
 
@@ -36,14 +42,20 @@ Validation::
 
 __version__ = "0.3.0"
 
-from .extract import extract
+from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
     normalize,
     confidence_filter,
     detect_outliers,
     data_quality_score,
+    fill_gaps,
 )
-from .angles import compute_angles, compute_extended_angles, compute_frontal_angles
+from .angles import (
+    compute_angles,
+    compute_extended_angles,
+    compute_frontal_angles,
+    foot_progression_angle,
+)
 from .events import detect_events, list_event_methods, event_consensus, validate_events
 from .cycles import segment_cycles
 from .analysis import (
@@ -61,6 +73,11 @@ from .analysis import (
     detect_equinus,
     detect_antalgic,
     detect_parkinsonian,
+    segment_lengths,
+    instantaneous_cadence,
+    compute_rom_summary,
+    estimate_center_of_mass,
+    postural_sway,
 )
 from .normative import (
     get_normative_curve,
@@ -73,6 +90,7 @@ from .scores import (
     gait_variable_scores,
     gait_profile_score_2d,
     gait_deviation_index_2d,
+    sagittal_deviation_index,
     movement_analysis_profile,
 )
 from .schema import load_json, save_json, set_subject
@@ -80,14 +98,24 @@ from .plotting import (
     plot_angles, plot_cycles, plot_events, plot_summary, plot_phase_plane,
     plot_normative_comparison, plot_gvs_profile, plot_quality_dashboard,
     plot_longitudinal, plot_arm_swing,
+    plot_session_comparison, plot_cadence_profile, plot_rom_summary,
+    plot_butterfly, animate_normative_comparison,
 )
 from .report import generate_report, generate_longitudinal_report
-from .export import export_csv, export_mot, export_trc, export_excel, export_c3d
+from .export import (
+    export_csv, export_mot, export_trc, export_excel, export_c3d,
+    to_dataframe, export_summary_json,
+)
 from .validation import (
     validate_biomechanical,
     stratified_ranges,
     model_accuracy_info,
     validate_biomechanical_stratified,
+)
+from .video import (
+    render_skeleton_video,
+    render_skeleton_frame,
+    render_stickfigure_animation,
 )
 from .config import load_config, save_config, DEFAULT_CONFIG
 
@@ -98,16 +126,18 @@ __all__ = [
     "compute_angles",
     "compute_extended_angles",
     "compute_frontal_angles",
+    "foot_progression_angle",
     "detect_events",
     "list_event_methods",
     "event_consensus",
     "validate_events",
     "segment_cycles",
     "analyze_gait",
-    # Quality
+    # Quality & preprocessing
     "confidence_filter",
     "detect_outliers",
     "data_quality_score",
+    "fill_gaps",
     # Analysis functions
     "regularity_index",
     "harmonic_ratio",
@@ -122,6 +152,11 @@ __all__ = [
     "detect_equinus",
     "detect_antalgic",
     "detect_parkinsonian",
+    "segment_lengths",
+    "instantaneous_cadence",
+    "compute_rom_summary",
+    "estimate_center_of_mass",
+    "postural_sway",
     # Normative
     "get_normative_curve",
     "get_normative_band",
@@ -132,6 +167,7 @@ __all__ = [
     "gait_variable_scores",
     "gait_profile_score_2d",
     "gait_deviation_index_2d",
+    "sagittal_deviation_index",
     "movement_analysis_profile",
     # Schema
     "load_json",
@@ -148,6 +184,15 @@ __all__ = [
     "plot_quality_dashboard",
     "plot_longitudinal",
     "plot_arm_swing",
+    "plot_session_comparison",
+    "plot_cadence_profile",
+    "plot_rom_summary",
+    "plot_butterfly",
+    "animate_normative_comparison",
+    # Video
+    "render_skeleton_video",
+    "render_skeleton_frame",
+    "render_stickfigure_animation",
     # Report
     "generate_report",
     "generate_longitudinal_report",
@@ -157,6 +202,12 @@ __all__ = [
     "export_trc",
     "export_excel",
     "export_c3d",
+    "to_dataframe",
+    "export_summary_json",
+    # Extract features
+    "detect_sagittal_alignment",
+    "auto_crop_roi",
+    "select_person",
     # Validation
     "validate_biomechanical",
     "stratified_ranges",
