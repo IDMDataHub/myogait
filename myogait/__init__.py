@@ -40,7 +40,7 @@ Validation::
     report = validate_biomechanical(data, cycles)
 """
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
