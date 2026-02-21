@@ -52,6 +52,16 @@ Steps available:
       workflow for 3D markerless kinematics. J Open Source Softw.
       2022;7(77):4362. doi:10.21105/joss.04362
 
+    - filter_wavelet: Wavelet denoising via DWT coefficient thresholding.
+      Ref: Ismail AR, Asfour SS. Continuous wavelet transform application
+      to EMG signals during human gait. Conf Rec IEEE Eng Med Biol Soc.
+      1999.
+      Donoho DL. De-noising by soft-thresholding. IEEE Trans Inform Theory.
+      1995;41(3):613-627. doi:10.1109/18.382009
+      De Groote F, De Laet T, Jonkers I, De Schutter J. Kalman smoothing
+      of redundant kinematic data for marker-based human motion analysis.
+      J Biomech. 2008;41(14):2959-2969.
+
     - residual_analysis: Automatic cutoff frequency selection via
       Winter's residual analysis method.
       Ref: Winter DA. Biomechanics and Motor Control of Human Movement.
@@ -74,6 +84,12 @@ Steps available:
 
     - align_signals: Convenience wrapper that shifts a signal by the
       optimal cross-correlation lag and returns the aligned pair.
+
+    - procrustes_align: Procrustes superimposition (translation + scaling
+      + rotation) to align pose shapes across frames for shape comparison.
+      Ref: Dryden IL, Mardia KV. Statistical Shape Analysis. Wiley; 1998.
+      Gower JC. Generalized procrustes analysis. Psychometrika.
+      1975;40(1):33-51. doi:10.1007/BF02291478
 
 General filtering reference for human motion:
     Winter DA, Sidwall HG, Hobson DA. Measurement and reduction of
@@ -394,6 +410,112 @@ def filter_loess(
             logger.warning(f"LOESS filter failed for column {c}: {e}")
             # Fill NaN values but leave the signal unsmoothed
             df[c] = s.interpolate(limit_direction="both").bfill().ffill()
+    return df
+
+
+def filter_wavelet(
+    df: pd.DataFrame,
+    wavelet: str = "db4",
+    level: Optional[int] = None,
+    threshold_mode: str = "soft",
+    **kwargs,
+) -> pd.DataFrame:
+    """Wavelet denoising of kinematic signals.
+
+    Applies discrete wavelet transform (DWT) denoising using
+    coefficient thresholding. Effective for non-stationary signals
+    where frequency content changes over time.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Columns are coordinate signals (e.g., LEFT_HIP_x, LEFT_HIP_y).
+    wavelet : str
+        Wavelet family. Default "db4" (Daubechies 4).
+        Common choices: "db4", "sym4", "coif3".
+    level : int, optional
+        Decomposition level. Default: pywt.dwt_max_level(len(df), wavelet).
+    threshold_mode : str
+        "soft" or "hard" thresholding. Default "soft".
+
+    Returns
+    -------
+    pd.DataFrame
+        Denoised signals, same shape as input.
+
+    Raises
+    ------
+    ImportError
+        If PyWavelets (pywt) is not installed.
+
+    References
+    ----------
+    Ismail AR, Asfour SS. Continuous wavelet transform application
+    to EMG signals during human gait. Conf Rec IEEE Eng Med Biol Soc.
+    1999.
+    Donoho DL. De-noising by soft-thresholding. IEEE Trans Inform Theory.
+    1995;41(3):613-627. doi:10.1109/18.382009
+    """
+    try:
+        import pywt
+    except ImportError:
+        raise ImportError(
+            "PyWavelets is required for wavelet denoising. "
+            "Install it with: pip install PyWavelets"
+        )
+
+    df = df.copy()
+    n_original = len(df)
+
+    for col in df.columns:
+        signal = pd.to_numeric(df[col], errors="coerce")
+
+        # Skip all-NaN columns
+        if signal.isna().all():
+            continue
+
+        # Record NaN positions to restore later
+        nan_mask = signal.isna()
+
+        # Interpolate temporarily for DWT (needs contiguous data)
+        signal_filled = signal.interpolate(limit_direction="both").bfill().ffill()
+        # Ensure writable contiguous array for PyWavelets on pandas COW backends.
+        values = np.array(signal_filled.to_numpy(dtype=float), dtype=float, copy=True)
+
+        # Determine decomposition level
+        dec_level = level
+        if dec_level is None:
+            dec_level = pywt.dwt_max_level(len(values), wavelet)
+        if dec_level < 1:
+            dec_level = 1
+
+        # Compute DWT
+        coeffs = pywt.wavedec(values, wavelet, level=dec_level)
+
+        # Compute universal threshold (VisuShrink / Donoho)
+        # Noise estimation from finest detail coefficients via MAD
+        detail_finest = coeffs[-1]
+        sigma = np.median(np.abs(detail_finest)) / 0.6745
+        threshold = sigma * np.sqrt(2 * np.log(len(values)))
+
+        # Apply thresholding to detail coefficients only (not approximation)
+        thresholded_coeffs = [coeffs[0]]  # keep approximation unchanged
+        for detail in coeffs[1:]:
+            thresholded_coeffs.append(
+                pywt.threshold(detail, value=threshold, mode=threshold_mode)
+            )
+
+        # Reconstruct signal
+        denoised = pywt.waverec(thresholded_coeffs, wavelet)
+
+        # Truncate to original length (waverec may return extra sample)
+        denoised = denoised[:n_original]
+
+        # Restore original NaN positions
+        denoised = np.where(nan_mask.values, np.nan, denoised)
+
+        df[col] = denoised
+
     return df
 
 
@@ -1019,6 +1141,158 @@ def data_quality_score(data: dict) -> dict:
     return result
 
 
+# ── Cross-correlation alignment ──────────────────────────────────────
+
+
+def cross_correlation_lag(
+    signal_a: np.ndarray,
+    signal_b: np.ndarray,
+    max_lag: Optional[int] = None,
+) -> dict:
+    """Compute cross-correlation lag between two signals.
+
+    Finds the time shift that maximizes the normalized cross-correlation
+    between two 1D signals. Useful for temporal alignment of bilateral
+    gait signals or multi-trial synchronization.
+
+    Parameters
+    ----------
+    signal_a : np.ndarray
+        Reference signal (1D).
+    signal_b : np.ndarray
+        Signal to align (1D), same length as signal_a.
+    max_lag : int, optional
+        Maximum lag to search (in samples). Defaults to len//4.
+
+    Returns
+    -------
+    dict
+        Keys: optimal_lag (int), max_correlation (float),
+        correlation_curve (np.ndarray), lags (np.ndarray).
+
+    Raises
+    ------
+    ValueError
+        If the signals have different lengths, or if either contains NaN.
+
+    References
+    ----------
+    Winter DA. Biomechanics and Motor Control of Human Movement.
+    4th ed. Wiley; 2009.
+    Deluzio KJ, Astephen JL. Biomechanical features of gait waveform
+    data associated with knee osteoarthritis. Gait Posture.
+    2007;25(1):86-93. doi:10.1016/j.gaitpost.2006.01.007
+    """
+    signal_a = np.asarray(signal_a, dtype=float)
+    signal_b = np.asarray(signal_b, dtype=float)
+
+    if signal_a.ndim != 1 or signal_b.ndim != 1:
+        raise ValueError("Both signals must be 1D arrays.")
+
+    if len(signal_a) != len(signal_b):
+        raise ValueError(
+            f"Signals must have equal length, got {len(signal_a)} "
+            f"and {len(signal_b)}."
+        )
+
+    if np.any(np.isnan(signal_a)) or np.any(np.isnan(signal_b)):
+        raise ValueError("Signals must not contain NaN values.")
+
+    n = len(signal_a)
+    if max_lag is None:
+        max_lag = n // 4
+
+    # Full cross-correlation
+    full_corr = np.correlate(signal_a, signal_b, mode="full")
+
+    # Normalize by geometric mean of auto-correlations at lag 0
+    auto_a = float(np.dot(signal_a, signal_a))
+    auto_b = float(np.dot(signal_b, signal_b))
+    norm_factor = np.sqrt(auto_a * auto_b)
+    if norm_factor > 0:
+        full_corr = full_corr / norm_factor
+
+    # Lags array: full cross-correlation has length 2*n - 1
+    # Index 0 corresponds to lag -(n-1), index n-1 corresponds to lag 0
+    all_lags = np.arange(-(n - 1), n)
+
+    # Restrict to [-max_lag, +max_lag]
+    mask = (all_lags >= -max_lag) & (all_lags <= max_lag)
+    lags = all_lags[mask]
+    corr_curve = full_corr[mask]
+
+    # Find optimal lag.
+    # np.correlate convention: positive raw lag means signal_a is shifted
+    # right relative to signal_b.  We negate so that a positive optimal_lag
+    # means signal_b is delayed (must be shifted *back* to align).
+    best_idx = int(np.argmax(corr_curve))
+    optimal_lag = -int(lags[best_idx])
+    max_correlation = float(corr_curve[best_idx])
+
+    # Negate and reverse so lags array is ascending in the output convention
+    out_lags = -lags[::-1]
+    out_corr = corr_curve[::-1]
+
+    return {
+        "optimal_lag": optimal_lag,
+        "max_correlation": max_correlation,
+        "correlation_curve": out_corr,
+        "lags": out_lags,
+    }
+
+
+def align_signals(
+    signal_a: np.ndarray,
+    signal_b: np.ndarray,
+    max_lag: Optional[int] = None,
+) -> dict:
+    """Shift signal_b by the optimal cross-correlation lag and return the aligned pair.
+
+    Convenience wrapper around :func:`cross_correlation_lag` that applies
+    the detected shift and truncates both signals to the overlap region.
+
+    Parameters
+    ----------
+    signal_a : np.ndarray
+        Reference signal (1D).
+    signal_b : np.ndarray
+        Signal to align (1D), same length as signal_a.
+    max_lag : int, optional
+        Maximum lag to search (in samples). Defaults to len//4.
+
+    Returns
+    -------
+    dict
+        Keys: aligned_a (np.ndarray), aligned_b (np.ndarray),
+        optimal_lag (int), max_correlation (float).
+    """
+    result = cross_correlation_lag(signal_a, signal_b, max_lag=max_lag)
+    lag = result["optimal_lag"]
+
+    signal_a = np.asarray(signal_a, dtype=float)
+    signal_b = np.asarray(signal_b, dtype=float)
+    n = len(signal_a)
+
+    if lag > 0:
+        # signal_b leads: shift signal_b backward (drop first `lag` of b)
+        aligned_a = signal_a[:n - lag]
+        aligned_b = signal_b[lag:]
+    elif lag < 0:
+        # signal_a leads: shift signal_a backward (drop first `|lag|` of a)
+        aligned_a = signal_a[-lag:]
+        aligned_b = signal_b[:n + lag]
+    else:
+        aligned_a = signal_a.copy()
+        aligned_b = signal_b.copy()
+
+    return {
+        "aligned_a": aligned_a,
+        "aligned_b": aligned_b,
+        "optimal_lag": lag,
+        "max_correlation": result["max_correlation"],
+    }
+
+
 # ── Step registry ────────────────────────────────────────────────────
 
 
@@ -1030,6 +1304,7 @@ NORMALIZE_STEPS: Dict[str, Callable] = {
     "median": filter_median,
     "kalman": filter_kalman,
     "loess": filter_loess,
+    "wavelet": filter_wavelet,
     "center_on_torso": center_on_torso,
     "align_skeleton": align_skeleton,
     "correct_bilateral": correct_bilateral,
@@ -1402,5 +1677,218 @@ def fill_gaps(
 
     if report:
         data["gap_fill_report"] = report_data
+
+    return data
+
+
+# ── Procrustes alignment ─────────────────────────────────────────────
+
+
+def procrustes_align(
+    data: dict,
+    reference_frame: int = None,
+    landmarks: list = None,
+) -> dict:
+    """Procrustes alignment of pose landmarks across frames.
+
+    Applies optimal translation, scaling, and rotation to align
+    each frame's pose to a reference frame (or mean pose). This
+    removes position and size variability, isolating shape changes.
+
+    Parameters
+    ----------
+    data : dict
+        myogait data dict with ``data["frames"]`` containing landmarks.
+    reference_frame : int, optional
+        Index of the reference frame to align to. If None, uses the
+        mean shape (generalized Procrustes analysis).
+    landmarks : list of str, optional
+        Landmark names to use for alignment. Defaults to all available
+        landmarks in the first valid frame.
+
+    Returns
+    -------
+    dict
+        Modified data with aligned landmarks. Also adds
+        ``data["procrustes"]`` metadata: {"scale_factors": [...],
+        "rotation_angles": [...], "reference": "mean" or frame_idx}.
+
+    References
+    ----------
+    Dryden IL, Mardia KV. Statistical Shape Analysis. Wiley; 1998.
+    Gower JC. Generalized procrustes analysis. Psychometrika.
+    1975;40(1):33-51. doi:10.1007/BF02291478
+    """
+    data = copy.deepcopy(data)
+    frames = data.get("frames", [])
+
+    if len(frames) == 0:
+        data["procrustes"] = {
+            "scale_factors": [],
+            "rotation_angles": [],
+            "reference": "mean" if reference_frame is None else reference_frame,
+        }
+        return data
+
+    # Determine landmark names from first valid frame
+    if landmarks is None:
+        for f in frames:
+            lm = f.get("landmarks", {})
+            if lm:
+                landmarks = sorted(lm.keys())
+                break
+        if landmarks is None:
+            landmarks = []
+
+    if len(landmarks) == 0:
+        data["procrustes"] = {
+            "scale_factors": [],
+            "rotation_angles": [],
+            "reference": "mean" if reference_frame is None else reference_frame,
+        }
+        return data
+
+    n_landmarks = len(landmarks)
+    n_frames = len(frames)
+
+    # Extract shape matrices (n_landmarks x 2) per frame
+    shapes = []  # list of (matrix_or_None)
+    valid_indices = []
+    for i, f in enumerate(frames):
+        lm = f.get("landmarks", {})
+        mat = np.full((n_landmarks, 2), np.nan)
+        valid = True
+        for j, name in enumerate(landmarks):
+            coords = lm.get(name, {})
+            x = coords.get("x")
+            y = coords.get("y")
+            if x is None or y is None:
+                valid = False
+                break
+            xf, yf = float(x), float(y)
+            if np.isnan(xf) or np.isnan(yf):
+                valid = False
+                break
+            mat[j, 0] = xf
+            mat[j, 1] = yf
+        if valid:
+            shapes.append(mat)
+            valid_indices.append(i)
+        else:
+            shapes.append(None)
+
+    if len(valid_indices) == 0:
+        data["procrustes"] = {
+            "scale_factors": [],
+            "rotation_angles": [],
+            "reference": "mean" if reference_frame is None else reference_frame,
+        }
+        return data
+
+    def _center(shape):
+        """Center a shape by subtracting its centroid."""
+        centroid = shape.mean(axis=0)
+        return shape - centroid, centroid
+
+    def _centroid_size(shape):
+        """Compute centroid size: sqrt(sum of squared distances to centroid)."""
+        centered, _ = _center(shape)
+        return np.sqrt(np.sum(centered ** 2))
+
+    def _align_to_reference(target, reference):
+        """Align target shape to reference via Procrustes.
+
+        Returns aligned shape, scale factor, rotation angle.
+        Both inputs should already be centered.
+        """
+        # Scale to unit centroid size
+        scale_t = np.sqrt(np.sum(target ** 2))
+        scale_r = np.sqrt(np.sum(reference ** 2))
+
+        if scale_t < 1e-12:
+            return target.copy(), 1.0, 0.0
+
+        target_scaled = target / scale_t
+        reference_scaled = reference / scale_r if scale_r > 1e-12 else reference
+
+        # SVD for optimal rotation
+        M = reference_scaled.T @ target_scaled
+        U, S, Vt = np.linalg.svd(M)
+        # Rotation matrix: R = V @ U.T
+        R = Vt.T @ U.T
+
+        # Ensure proper rotation (det = +1), not reflection
+        if np.linalg.det(R) < 0:
+            Vt[-1, :] *= -1
+            R = Vt.T @ U.T
+
+        aligned = target_scaled @ R.T
+
+        # Rotation angle from the rotation matrix
+        angle = float(np.arctan2(R[1, 0], R[0, 0]))
+
+        return aligned, scale_t, angle
+
+    # Determine reference shape
+    if reference_frame is not None:
+        # Use specified frame as reference
+        if shapes[reference_frame] is None:
+            raise ValueError(
+                f"Reference frame {reference_frame} has missing landmarks."
+            )
+        ref_shape, _ = _center(shapes[reference_frame])
+        ref_scale = np.sqrt(np.sum(ref_shape ** 2))
+        if ref_scale > 1e-12:
+            ref_shape = ref_shape / ref_scale
+    else:
+        # Generalized Procrustes: iterative mean
+        # Start with first valid frame as reference
+        first_valid = valid_indices[0]
+        ref_shape, _ = _center(shapes[first_valid])
+        ref_scale = np.sqrt(np.sum(ref_shape ** 2))
+        if ref_scale > 1e-12:
+            ref_shape = ref_shape / ref_scale
+
+        for _iteration in range(10):
+            aligned_all = []
+            for idx in valid_indices:
+                centered, _ = _center(shapes[idx])
+                aligned, _, _ = _align_to_reference(centered, ref_shape)
+                aligned_all.append(aligned)
+
+            # Compute mean shape
+            new_ref = np.mean(aligned_all, axis=0)
+            new_ref_scale = np.sqrt(np.sum(new_ref ** 2))
+            if new_ref_scale > 1e-12:
+                new_ref = new_ref / new_ref_scale
+
+            # Check convergence
+            diff = np.sum((new_ref - ref_shape) ** 2)
+            ref_shape = new_ref
+            if diff < 1e-10:
+                break
+
+    # Align all valid frames to the final reference
+    scale_factors = [None] * n_frames
+    rotation_angles = [None] * n_frames
+
+    for idx in valid_indices:
+        centered, _ = _center(shapes[idx])
+        aligned, scale, angle = _align_to_reference(centered, ref_shape)
+
+        scale_factors[idx] = float(scale)
+        rotation_angles[idx] = float(angle)
+
+        # Write aligned coordinates back to frame landmarks
+        for j, name in enumerate(landmarks):
+            frames[idx]["landmarks"][name]["x"] = float(aligned[j, 0])
+            frames[idx]["landmarks"][name]["y"] = float(aligned[j, 1])
+
+    # Store metadata
+    data["procrustes"] = {
+        "scale_factors": scale_factors,
+        "rotation_angles": rotation_angles,
+        "reference": "mean" if reference_frame is None else reference_frame,
+    }
 
     return data

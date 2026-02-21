@@ -1656,6 +1656,10 @@ def animate_normative_comparison(
     from .normative import get_normative_band
     import matplotlib.animation as animation
 
+    fps = int(fps)
+    if fps <= 0:
+        raise ValueError(f"fps must be > 0, got {fps}")
+
     # Pick the first joint with available data
     joint = None
     patient_mean = None

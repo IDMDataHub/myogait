@@ -352,66 +352,67 @@ def extract(
     detected_count = 0
     log_interval = max(1, total_frames // 10)  # log every ~10%
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if max_frames is not None and frame_idx >= max_frames:
-            break
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if max_frames is not None and frame_idx >= max_frames:
+                break
 
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        result = extractor.process_frame(frame_rgb)
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            result = extractor.process_frame(frame_rgb)
 
-        # process_frame returns np.ndarray or dict with auxiliary data
-        auxiliary = None
-        if isinstance(result, dict):
-            lm = result.get("landmarks")
-            # Check for auxiliary keypoints (Goliath 308 or WholeBody 133)
-            for aux_key in ("auxiliary_goliath308", "auxiliary_wholebody133"):
-                aux = result.get(aux_key)
-                if aux is not None:
-                    auxiliary = aux
-                    break
-        else:
-            lm = result
+            # process_frame returns np.ndarray or dict with auxiliary data
+            auxiliary = None
+            if isinstance(result, dict):
+                lm = result.get("landmarks")
+                # Check for auxiliary keypoints (Goliath 308 or WholeBody 133)
+                for aux_key in ("auxiliary_goliath308", "auxiliary_wholebody133"):
+                    aux = result.get(aux_key)
+                    if aux is not None:
+                        auxiliary = aux
+                        break
+            else:
+                lm = result
 
-        if lm is not None:
-            detected_count += 1
-            if is_coco:
-                lm = lm.copy()
-                # Normalize pixel coords to [0,1] if needed
-                if lm[:, 0].max() > 1.5:  # likely pixel coordinates
-                    lm[:, 0] /= width
-                    lm[:, 1] /= height
-                lm = _coco_to_mediapipe(lm)
+            if lm is not None:
+                detected_count += 1
+                if is_coco:
+                    lm = lm.copy()
+                    # Normalize pixel coords to [0,1] if needed
+                    if lm[:, 0].max() > 1.5:  # likely pixel coordinates
+                        lm[:, 0] /= width
+                        lm[:, 1] /= height
+                    lm = _coco_to_mediapipe(lm)
 
-        raw_landmarks.append(lm)
-        auxiliary_list.append(auxiliary)
+            raw_landmarks.append(lm)
+            auxiliary_list.append(auxiliary)
 
-        # Run depth / seg on the same frame
-        depth_maps.append(
-            depth_estimator.process_frame(frame_rgb) if depth_estimator else None
-        )
-        seg_masks.append(
-            seg_estimator.process_frame(frame_rgb) if seg_estimator else None
-        )
+            # Run depth / seg on the same frame
+            depth_maps.append(
+                depth_estimator.process_frame(frame_rgb) if depth_estimator else None
+            )
+            seg_masks.append(
+                seg_estimator.process_frame(frame_rgb) if seg_estimator else None
+            )
 
-        frame_idx += 1
+            frame_idx += 1
 
-        if frame_idx % log_interval == 0:
-            pct = 100 * frame_idx / total_frames
-            det_pct = 100 * detected_count / frame_idx if frame_idx > 0 else 0
-            logger.info(f"  {frame_idx}/{total_frames} ({pct:.0f}%) — {det_pct:.0f}% detected")
+            if frame_idx % log_interval == 0:
+                pct = 100 * frame_idx / total_frames
+                det_pct = 100 * detected_count / frame_idx if frame_idx > 0 else 0
+                logger.info(f"  {frame_idx}/{total_frames} ({pct:.0f}%) — {det_pct:.0f}% detected")
 
-        if progress_callback and frame_idx % 10 == 0:
-            progress_callback(frame_idx / total_frames)
-
-    cap.release()
-    extractor.teardown()
-    if depth_estimator:
-        depth_estimator.teardown()
-    if seg_estimator:
-        seg_estimator.teardown()
+            if progress_callback and frame_idx % 10 == 0:
+                progress_callback(frame_idx / total_frames)
+    finally:
+        cap.release()
+        extractor.teardown()
+        if depth_estimator:
+            depth_estimator.teardown()
+        if seg_estimator:
+            seg_estimator.teardown()
 
     det_pct = 100 * detected_count / len(raw_landmarks) if raw_landmarks else 0
     logger.info(f"Extraction done: {detected_count}/{len(raw_landmarks)} frames detected ({det_pct:.0f}%)")

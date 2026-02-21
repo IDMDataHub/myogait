@@ -331,8 +331,14 @@ def render_stickfigure_animation(
     import matplotlib.pyplot as plt
     import matplotlib.animation as animation
 
+    format_lower = str(format).lower()
+    if format_lower not in {"gif", "mp4"}:
+        raise ValueError(f"Unsupported format: {format!r}. Use 'gif' or 'mp4'.")
+
     meta = data.get("meta", {})
-    anim_fps = fps if fps is not None else meta.get("fps", 30)
+    anim_fps = float(fps if fps is not None else meta.get("fps", 30))
+    if anim_fps <= 0:
+        raise ValueError(f"fps must be > 0, got {anim_fps}")
     frames_data = data.get("frames", [])
     n_frames = len(frames_data)
 
@@ -452,10 +458,10 @@ def render_stickfigure_animation(
         fig, _draw_frame, frames=n_frames, interval=interval, blit=False,
     )
 
-    if format.lower() == "gif":
+    if format_lower == "gif":
         writer_cls = animation.PillowWriter(fps=anim_fps)
         anim.save(output_path, writer=writer_cls)
-    elif format.lower() == "mp4":
+    elif format_lower == "mp4":
         try:
             writer_cls = animation.FFMpegWriter(fps=anim_fps)
             anim.save(output_path, writer=writer_cls)
@@ -475,9 +481,6 @@ def render_stickfigure_animation(
                 raise RuntimeError(
                     "Neither FFMpeg nor imageio are available for MP4 export."
                 )
-    else:
-        raise ValueError(f"Unsupported format: {format!r}. Use 'gif' or 'mp4'.")
-
     plt.close(fig)
     logger.info(f"Stick-figure animation saved to {output_path} ({n_frames} frames)")
     return output_path
