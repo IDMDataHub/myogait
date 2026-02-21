@@ -521,15 +521,28 @@ When using Sapiens with depth and segmentation:
 
 ## Acknowledgments
 
-myogait is developed at the [Institut de Myologie](https://www.institut-myologie.org/), Paris, France, by the **PhysioEvalLab / IDMDataHub** team, with support from [AFM-Telethon](https://www.afm-telethon.fr/).
+myogait is developed at the [Institut de Myologie](https://www.institut-myologie.org/) (Paris, France) by the **PhysioEvalLab / IDMDataHub** team.
+
+This work is supported by:
+- [AFM-Téléthon](https://www.afm-telethon.fr/) — French Muscular Dystrophy Association
+- [Fondation Myologie](https://www.fondation-myologie.org/) — Research foundation for muscle diseases
+- [Téléthon](https://www.telethon.fr/) — Annual fundraising event for rare disease research
 
 <p align="center">
   <a href="https://www.institut-myologie.org/">
-    <img src="https://www.institut-myologie.org/wp-content/themes/jesuspended-developer/img/logo-institut-myologie.svg" alt="Institut de Myologie" height="80">
+    <img src="https://www.institut-myologie.org/wp-content/themes/developer/assets/img/logo-institut-myologie.svg" alt="Institut de Myologie" height="80">
   </a>
   &nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://www.afm-telethon.fr/">
-    <img src="https://www.afm-telethon.fr/sites/default/files/logo_afm.png" alt="AFM-Telethon" height="80">
+    <img src="https://www.afm-telethon.fr/sites/default/files/logo_afm.png" alt="AFM-Téléthon" height="80">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.fondation-myologie.org/">
+    <img src="https://www.fondation-myologie.org/app/uploads/2024/11/Logo-Fondation-Myologie.svg" alt="Fondation Myologie" height="80">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.telethon.fr/">
+    <img src="https://upload.wikimedia.org/wikipedia/fr/thumb/0/0f/Telethon_logo.svg/320px-Telethon_logo.svg.png" alt="Téléthon" height="60">
   </a>
 </p>
 
