@@ -65,6 +65,16 @@ Steps available:
     - correct_bilateral: Correct right segments to match left reference.
     - correct_pixel_ratio: Fix non-square pixels (e.g. after MediaPipe resize).
 
+    - cross_correlation_lag: Cross-correlation lag for temporal alignment.
+      Ref: Winter DA. Biomechanics and Motor Control of Human Movement.
+      4th ed. Wiley; 2009.
+      Deluzio KJ, Astephen JL. Biomechanical features of gait waveform
+      data associated with knee osteoarthritis. Gait Posture.
+      2007;25(1):86-93. doi:10.1016/j.gaitpost.2006.01.007
+
+    - align_signals: Convenience wrapper that shifts a signal by the
+      optimal cross-correlation lag and returns the aligned pair.
+
 General filtering reference for human motion:
     Winter DA, Sidwall HG, Hobson DA. Measurement and reduction of
     noise in kinematics of locomotion. J Biomech. 1974;7(2):157-159.
