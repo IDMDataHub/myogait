@@ -1193,3 +1193,433 @@ def plot_arm_swing(
     ax2.grid(True, alpha=0.3)
     fig.tight_layout()
     return fig
+
+
+# ── New visualization functions ──────────────────────────────────────
+
+
+def plot_session_comparison(
+    session_a: dict,
+    session_b: dict,
+    joints: Optional[List[str]] = None,
+    figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Compare two walking sessions side by side.
+
+    Each session dict must contain ``'data'``, ``'cycles'``, ``'stats'``,
+    and ``'label'`` keys.  The figure shows a grid of 2 rows (left / right
+    side) by *len(joints)* columns, with the mean +/- 1 SD curves for each
+    session overlaid.
+
+    Parameters
+    ----------
+    session_a : dict
+        First session.  Keys: ``data``, ``cycles``, ``stats``, ``label``.
+    session_b : dict
+        Second session.  Same keys as *session_a*.
+    joints : list of str, optional
+        Joint names (default ``['hip', 'knee', 'ankle']``).
+    figsize : tuple, optional
+        Figure size ``(width, height)`` in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if joints is None:
+        joints = ["hip", "knee", "ankle"]
+
+    n_joints = len(joints)
+    if figsize is None:
+        figsize = (5 * n_joints, 8)
+
+    fig, axes = plt.subplots(2, n_joints, figsize=figsize, sharex=True)
+    if n_joints == 1:
+        axes = axes.reshape(2, 1)
+
+    x = np.linspace(0, 100, 101)
+    session_colors = ["#2171b5", "#ff7f0e"]  # blue, orange
+    sides = ["left", "right"]
+
+    for row, side in enumerate(sides):
+        for col, joint in enumerate(joints):
+            ax = axes[row, col]
+            for sess, color in zip([session_a, session_b], session_colors):
+                label = sess.get("label", "Session")
+                summary = sess["cycles"].get("summary", {}).get(side)
+                if summary is None:
+                    continue
+                mean = summary.get(f"{joint}_mean")
+                std = summary.get(f"{joint}_std")
+                if mean is None:
+                    continue
+                mean = np.array(mean)
+                std = np.array(std)
+                ax.plot(x, mean, color=color, linewidth=2, label=label)
+                ax.fill_between(x, mean - std, mean + std, color=color, alpha=0.15)
+
+            ax.set_title(f"{_JOINT_LABELS.get(joint, joint.capitalize())} — {side.capitalize()}")
+            ax.set_ylabel("Angle (deg)")
+            ax.grid(True, alpha=0.3)
+            if row == 0 and col == 0:
+                ax.legend(loc="upper right", fontsize=8)
+
+    for col in range(n_joints):
+        axes[-1, col].set_xlabel("% Gait Cycle")
+
+    fig.suptitle("Session Comparison", fontsize=13, fontweight="bold", y=1.0)
+    fig.tight_layout()
+    return fig
+
+
+def plot_cadence_profile(
+    data: dict,
+    figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Plot instantaneous cadence over time from heel-strike events.
+
+    Computes inter-heel-strike intervals and converts them to cadence
+    in steps per minute.  Displays a scatter + line plot with a mean
+    cadence reference line and a linear-regression trend line.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``events`` populated (``left_hs``,
+        ``right_hs``).
+    figsize : tuple, optional
+        Figure size ``(width, height)`` in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+
+    Raises
+    ------
+    ValueError
+        If *data* has no events.
+    """
+    events = data.get("events")
+    if events is None:
+        raise ValueError("No events in data. Run detect_events() first.")
+
+    if figsize is None:
+        figsize = (10, 5)
+
+    # Collect all HS events
+    all_hs = []
+    for hs in events.get("left_hs", []):
+        all_hs.append(hs["time"])
+    for hs in events.get("right_hs", []):
+        all_hs.append(hs["time"])
+    all_hs.sort()
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    if len(all_hs) < 2:
+        ax.text(0.5, 0.5, "Not enough heel strikes for cadence",
+                ha="center", va="center", transform=ax.transAxes)
+        fig.tight_layout()
+        return fig
+
+    # Compute instantaneous cadence
+    times = []
+    cadences = []
+    for i in range(1, len(all_hs)):
+        interval = all_hs[i] - all_hs[i - 1]
+        if interval > 0:
+            mid_time = (all_hs[i] + all_hs[i - 1]) / 2.0
+            cadence = 60.0 / interval
+            times.append(mid_time)
+            cadences.append(cadence)
+
+    times = np.array(times)
+    cadences = np.array(cadences)
+
+    # Scatter + line
+    ax.plot(times, cadences, marker="o", color=_COLORS["left"], linewidth=1,
+            markersize=5, label="Instantaneous cadence")
+
+    # Mean cadence
+    mean_cadence = float(np.mean(cadences))
+    ax.axhline(mean_cadence, color="gray", linestyle="--", linewidth=1.5,
+               label=f"Mean = {mean_cadence:.1f} steps/min")
+
+    # Linear regression trend
+    if len(times) >= 2:
+        coeffs = np.polyfit(times, cadences, 1)
+        trend = np.polyval(coeffs, times)
+        ax.plot(times, trend, color="red", linewidth=1.5, linestyle="-",
+                label="Trend")
+
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Cadence (steps/min)")
+    ax.set_title("Cadence Profile")
+    ax.legend(loc="upper right", fontsize=8)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_rom_summary(
+    rom_data: dict,
+    stratum: str = "adult",
+    figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Bar plot of range-of-motion per joint/side with normative bands.
+
+    Parameters
+    ----------
+    rom_data : dict
+        Dict keyed by ``'{joint}_{side}'`` (e.g. ``'hip_L'``), each value
+        a dict with ``'rom_mean'`` and ``'rom_std'``.
+    stratum : str
+        Normative stratum for reference bands (default ``'adult'``).
+    figsize : tuple, optional
+        Figure size ``(width, height)`` in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    from .normative import get_normative_curve
+
+    if figsize is None:
+        figsize = (10, 6)
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    joints = ["hip", "knee", "ankle"]
+    bar_width = 0.3
+    x_positions = np.arange(len(joints))
+
+    for offset, side_suffix, side_label, color in [
+        (-bar_width / 2, "_L", "Left", _COLORS["left"]),
+        (bar_width / 2, "_R", "Right", _COLORS["right"]),
+    ]:
+        means = []
+        stds = []
+        for joint in joints:
+            key = f"{joint}{side_suffix}"
+            entry = rom_data.get(key, {})
+            means.append(entry.get("rom_mean", 0.0))
+            stds.append(entry.get("rom_std", 0.0))
+        ax.bar(
+            x_positions + offset, means, bar_width,
+            yerr=stds, color=color, alpha=0.8,
+            capsize=4, label=side_label,
+        )
+
+    # Normative ROM bands (gray)
+    for i, joint in enumerate(joints):
+        try:
+            curve = get_normative_curve(joint, stratum)
+            norm_mean = np.array(curve["mean"])
+            norm_rom = float(np.max(norm_mean) - np.min(norm_mean))
+            norm_sd = np.array(curve["sd"])
+            norm_rom_upper = float(
+                np.max(norm_mean + norm_sd) - np.min(norm_mean - norm_sd)
+            )
+            ax.fill_between(
+                [i - 0.45, i + 0.45],
+                norm_rom - (norm_rom_upper - norm_rom) / 2,
+                norm_rom + (norm_rom_upper - norm_rom) / 2,
+                color="gray", alpha=0.2,
+                label="Normative range" if i == 0 else None,
+            )
+        except ValueError:
+            pass
+
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([_JOINT_LABELS.get(j, j.capitalize()) for j in joints])
+    ax.set_ylabel("Range of Motion (deg)")
+    ax.set_title(f"ROM Summary (vs {stratum} norms)")
+    ax.legend(loc="upper right", fontsize=8)
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_butterfly(
+    cycles: dict,
+    joint: str = "knee",
+    figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Butterfly plot: left and right cycles in mirrored sub-plots.
+
+    Upper subplot shows left-side cycles (individual + mean), lower
+    subplot shows right-side cycles with the y-axis inverted to create
+    a symmetric butterfly appearance.
+
+    Parameters
+    ----------
+    cycles : dict
+        Output of ``segment_cycles()``.
+    joint : str
+        Joint name (default ``'knee'``).
+    figsize : tuple, optional
+        Figure size ``(width, height)`` in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if figsize is None:
+        figsize = (10, 8)
+
+    fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=figsize, sharex=True)
+
+    x = np.linspace(0, 100, 101)
+    cycle_list = cycles.get("cycles", [])
+
+    for ax, side, color, color_light, invert in [
+        (ax_top, "left", _COLORS["left"], _COLORS["left_light"], False),
+        (ax_bot, "right", _COLORS["right"], _COLORS["right_light"], True),
+    ]:
+        side_cycles = [c for c in cycle_list if c["side"] == side]
+        curves = []
+        for c in side_cycles:
+            vals = c.get("angles_normalized", {}).get(joint)
+            if vals and len(vals) == 101:
+                curves.append(np.array(vals))
+
+        if curves:
+            curves_arr = np.array(curves)
+            mean_curve = np.mean(curves_arr, axis=0)
+            for curve in curves:
+                ax.plot(x, curve, color=color_light, linewidth=0.8, alpha=0.4)
+            ax.plot(x, mean_curve, color=color, linewidth=2.5,
+                    label=f"Mean {side.capitalize()} (n={len(curves)})")
+        else:
+            ax.text(0.5, 0.5, f"No {side} cycles",
+                    ha="center", va="center", transform=ax.transAxes)
+
+        if invert:
+            ax.invert_yaxis()
+
+        ax.set_ylabel("Angle (deg)")
+        ax.legend(loc="upper right", fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    ax_top.set_title(f"Butterfly Plot - {joint.capitalize()}")
+    ax_bot.set_xlabel("% Gait Cycle")
+    fig.tight_layout()
+    return fig
+
+
+def animate_normative_comparison(
+    cycles: dict,
+    stratum: str = "adult",
+    output_path: str = "normative.gif",
+    fps: int = 10,
+) -> str:
+    """Create an animated GIF of the patient curve vs normative band.
+
+    For each animation frame the normative band is drawn in full and
+    the patient curve is progressively revealed up to the current
+    percentage of the gait cycle, with a moving marker.
+
+    Parameters
+    ----------
+    cycles : dict
+        Output of ``segment_cycles()``.
+    stratum : str
+        Normative stratum (default ``'adult'``).
+    output_path : str
+        Path for the output GIF file (default ``'normative.gif'``).
+    fps : int
+        Frames per second for the GIF (default 10).
+
+    Returns
+    -------
+    str
+        The path of the saved GIF file.
+    """
+    from .normative import get_normative_band
+    import matplotlib.animation as animation
+
+    # Pick the first joint with available data
+    joint = None
+    patient_mean = None
+    for candidate in ["knee", "hip", "ankle"]:
+        for side in ("left", "right"):
+            summary = cycles.get("summary", {}).get(side)
+            if summary is None:
+                continue
+            vals = summary.get(f"{candidate}_mean")
+            if vals is not None:
+                joint = candidate
+                patient_mean = np.array(vals)
+                break
+        if joint is not None:
+            break
+
+    x = np.linspace(0, 100, 101)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    # Normative band
+    if joint is not None:
+        band = get_normative_band(joint, stratum, n_sd=1.0)
+        norm_upper = np.array(band["upper"])
+        norm_lower = np.array(band["lower"])
+        norm_mean = np.array(band["mean"])
+    else:
+        # Fallback: no data, still produce a minimal gif
+        norm_upper = np.zeros(101)
+        norm_lower = np.zeros(101)
+        norm_mean = np.zeros(101)
+        patient_mean = np.zeros(101)
+        joint = "knee"
+
+    # Static normative elements
+    ax.fill_between(x, norm_lower, norm_upper, color="#c0c0c0", alpha=0.5,
+                    label="Normative +/-1 SD")
+    ax.plot(x, norm_mean, color="black", linestyle="--", linewidth=1.5,
+            label="Normative mean")
+
+    line, = ax.plot([], [], color="red", linewidth=2, label="Patient")
+    point, = ax.plot([], [], "o", color="red", markersize=8)
+
+    ax.set_xlim(0, 100)
+    y_min = min(float(np.min(norm_lower)), float(np.min(patient_mean))) - 5
+    y_max = max(float(np.max(norm_upper)), float(np.max(patient_mean))) + 5
+    ax.set_ylim(y_min, y_max)
+    ax.set_xlabel("% Gait Cycle")
+    ax.set_ylabel("Angle (deg)")
+    ax.set_title(f"{_JOINT_LABELS.get(joint, joint.capitalize())} — Patient vs Normative ({stratum})")
+    ax.legend(loc="upper right", fontsize=8)
+    ax.grid(True, alpha=0.3)
+
+    def _init():
+        line.set_data([], [])
+        point.set_data([], [])
+        return line, point
+
+    def _update(frame_idx):
+        idx = frame_idx + 1  # 1..101
+        line.set_data(x[:idx], patient_mean[:idx])
+        point.set_data([x[idx - 1]], [patient_mean[idx - 1]])
+        return line, point
+
+    n_frames = 101
+    anim = animation.FuncAnimation(
+        fig, _update, init_func=_init,
+        frames=n_frames, interval=1000 // fps, blit=True,
+    )
+
+    # Try PillowWriter, fall back to saving individual frames
+    try:
+        writer = animation.PillowWriter(fps=fps)
+        anim.save(output_path, writer=writer)
+    except Exception:
+        logger.warning("PillowWriter unavailable, saving individual frames")
+        import os
+        base, _ = os.path.splitext(output_path)
+        for i in range(n_frames):
+            _update(i)
+            fig.savefig(f"{base}_frame{i:03d}.png")
+        output_path = f"{base}_frame000.png"
+
+    plt.close(fig)
+    return output_path
