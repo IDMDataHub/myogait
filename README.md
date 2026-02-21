@@ -191,6 +191,41 @@ data = run_single_trial_vicon_benchmark(
 # Results in data["experimental"]["vicon_benchmark"]
 ```
 
+### Experimental Single-Pair Benchmark Runner (AIM Only)
+
+You can run a full benchmark grid on one `(video, vicon_trial)` pair and
+generate:
+- one JSON per run (`<output_dir>/runs/*.json`)
+- one CSV summary (`<output_dir>/benchmark_summary.csv`)
+- one manifest (`<output_dir>/benchmark_manifest.json`)
+
+```python
+from myogait import run_single_pair_benchmark
+
+manifest = run_single_pair_benchmark(
+    video_path="video.mp4",
+    vicon_trial_dir="/path/to/trial_01_1",
+    output_dir="./benchmark_out",
+    benchmark_config={
+        "models": ["mediapipe", "yolo"],         # or "all"
+        "event_methods": "all",                  # or ["zeni", "gk_zeni", ...]
+        "normalization_variants": [
+            {"name": "none", "enabled": False, "kwargs": {}},
+            {"name": "butterworth", "enabled": True, "kwargs": {"filters": ["butterworth"]}},
+        ],
+        "degradation_variants": [
+            {"name": "none", "experimental": {"enabled": False}},
+            {"name": "lowres", "experimental": {"enabled": True, "downscale": 0.7, "target_fps": 15.0}},
+        ],
+        "continue_on_error": True,
+    },
+)
+
+print(manifest["summary_csv"])
+```
+
+This runner is experimental and intended only for AIM benchmark workflows.
+
 ### References
 
 - **Paper:** Rawal et al., *Sapiens: Foundation for Human Vision Models*, ECCV 2024 — [arXiv:2408.12569](https://arxiv.org/abs/2408.12569)
@@ -509,6 +544,7 @@ All functions operate on a single `data` dict that flows through the pipeline.
 | `segment_cycles(data)` | Segment into individual gait cycles |
 | `analyze_gait(data, cycles)` | Compute spatio-temporal parameters |
 | `run_single_trial_vicon_benchmark(data, trial_dir)` | Experimental VICON alignment + metrics (single trial) |
+| `run_single_pair_benchmark(video, trial_dir, output_dir, benchmark_config=None)` | Experimental benchmark grid runner (single video + single VICON trial) |
 | **Clinical scores** | |
 | `gait_profile_score_2d(cycles)` | GPS-2D: overall gait deviation (sagittal + frontal) |
 | `sagittal_deviation_index(cycles)` | SDI (Sagittal Deviation Index): z-score based 0-120 index (100 = normal). Not the GDI. |

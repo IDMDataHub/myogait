@@ -175,6 +175,35 @@ data = run_single_trial_vicon_benchmark(
 print(data["experimental"]["vicon_benchmark"]["metrics"].keys())
 ```
 
+### Experimental Single-Pair Benchmark Runner (AIM Only)
+
+```python
+from myogait import run_single_pair_benchmark
+
+manifest = run_single_pair_benchmark(
+    video_path="video.mp4",
+    vicon_trial_dir="/path/to/trial_01_1",
+    output_dir="./benchmark_out",
+    benchmark_config={
+        "models": ["mediapipe", "yolo"],     # or "all"
+        "event_methods": "all",
+        "normalization_variants": [
+            {"name": "none", "enabled": False, "kwargs": {}},
+            {"name": "bw", "enabled": True, "kwargs": {"filters": ["butterworth"]}},
+        ],
+        "degradation_variants": [
+            {"name": "none", "experimental": {"enabled": False}},
+            {"name": "robust_1", "experimental": {"enabled": True, "downscale": 0.7, "contrast": 0.8}},
+        ],
+        "continue_on_error": True,
+    },
+)
+
+print(manifest["summary_csv"])
+```
+
+This helper is experimental and should only be used for AIM benchmark studies.
+
 ### Quick Comparison
 
 ```python

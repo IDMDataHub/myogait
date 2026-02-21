@@ -146,6 +146,11 @@ from .experimental_vicon import (
     attach_vicon_experimental_block,
     run_single_trial_vicon_benchmark,
 )
+from .experimental_benchmark import (
+    DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG,
+    build_single_pair_benchmark_config,
+    run_single_pair_benchmark,
+)
 
 __all__ = [
     # Core pipeline
@@ -270,6 +275,9 @@ __all__ = [
     "compute_single_trial_benchmark_metrics",
     "attach_vicon_experimental_block",
     "run_single_trial_vicon_benchmark",
+    "DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG",
+    "build_single_pair_benchmark_config",
+    "run_single_pair_benchmark",
     # Meta
     "__version__",
 ]
