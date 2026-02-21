@@ -47,6 +47,16 @@ _SIDE_KEYS = {
     "trunk": ("trunk_angle", "trunk_angle"),  # same for both sides
 }
 
+# Frontal-plane angle keys that may be present in angle frames.
+# Each entry maps a summary key to the (left_key, right_key) in the raw
+# angle frame dict.  Keys where L/R share the same source use the same
+# string for both sides (e.g. pelvis_list is not side-specific).
+_FRONTAL_KEYS = {
+    "pelvis_list": ("pelvis_list", "pelvis_list"),
+    "hip_adduction": ("hip_adduction_L", "hip_adduction_R"),
+    "knee_valgus": ("knee_valgus_L", "knee_valgus_R"),
+}
+
 
 def _find_to_between(to_events: list, start_frame: int, end_frame: int) -> Optional[int]:
     """Find the first toe-off event between two heel strikes."""
@@ -93,6 +103,27 @@ def _extract_cycle_angles(
             x = np.arange(len(arr))
             arr[nans] = np.interp(x[nans], x[~nans], arr[~nans])
         result[joint] = arr
+
+    # Extract frontal-plane angles when present
+    for frontal_joint, (key_l, key_r) in _FRONTAL_KEYS.items():
+        key = key_l if side == "left" else key_r
+
+        values = []
+        for af in cycle_afs:
+            v = af.get(key)
+            if v is None:
+                values.append(np.nan)
+            else:
+                values.append(float(v))
+
+        arr = np.array(values)
+        nans = np.isnan(arr)
+        if nans.all():
+            continue
+        if nans.any():
+            x = np.arange(len(arr))
+            arr[nans] = np.interp(x[nans], x[~nans], arr[~nans])
+        result[frontal_joint] = arr
 
     if not result:
         return None
@@ -221,6 +252,7 @@ def segment_cycles(
 
         side_summary = {"n_cycles": len(side_cycles)}
 
+        # Sagittal joints
         for joint in _JOINT_KEYS:
             arrs = []
             for c in side_cycles:
@@ -233,6 +265,20 @@ def segment_cycles(
             stacked = np.stack(arrs)  # (n_cycles, n_points)
             side_summary[f"{joint}_mean"] = np.mean(stacked, axis=0).tolist()
             side_summary[f"{joint}_std"] = np.std(stacked, axis=0).tolist()
+
+        # Frontal-plane joints (only when present in cycle data)
+        for frontal_joint in _FRONTAL_KEYS:
+            arrs = []
+            for c in side_cycles:
+                vals = c["angles_normalized"].get(frontal_joint)
+                if vals is not None:
+                    arrs.append(np.array(vals))
+            if not arrs:
+                continue
+
+            stacked = np.stack(arrs)
+            side_summary[f"{frontal_joint}_mean"] = np.mean(stacked, axis=0).tolist()
+            side_summary[f"{frontal_joint}_std"] = np.std(stacked, axis=0).tolist()
 
         summary[side] = side_summary
 

@@ -66,6 +66,12 @@ ANGLE_RANGES = {
     "ankle_R": {"full": (-30, 30), "stance": (-15, 20), "swing": (-10, 10)},
     "trunk_angle": {"full": (-10, 20)},
     "pelvis_tilt": {"full": (-15, 15)},
+    # Frontal plane ranges (adult)
+    "pelvis_list": {"full": (-5, 10)},
+    "hip_adduction_L": {"full": (-5, 15)},
+    "hip_adduction_R": {"full": (-5, 15)},
+    "knee_valgus_L": {"full": (-5, 15)},
+    "knee_valgus_R": {"full": (-5, 15)},
 }
 
 # Spatio-temporal ranges — normal adult gait
@@ -435,6 +441,21 @@ def stratified_ranges(age=None, sex=None, speed=None) -> dict:
             angle_ranges["pelvis_tilt"]["full"][1] + 5,
         )
 
+        # Frontal plane: widen by +/-2 deg for elderly
+        angle_ranges["pelvis_list"]["full"] = (
+            angle_ranges["pelvis_list"]["full"][0] - 2,
+            angle_ranges["pelvis_list"]["full"][1] + 2,
+        )
+        for side in ("L", "R"):
+            angle_ranges[f"hip_adduction_{side}"]["full"] = (
+                angle_ranges[f"hip_adduction_{side}"]["full"][0] - 2,
+                angle_ranges[f"hip_adduction_{side}"]["full"][1] + 2,
+            )
+            angle_ranges[f"knee_valgus_{side}"]["full"] = (
+                angle_ranges[f"knee_valgus_{side}"]["full"][0] - 2,
+                angle_ranges[f"knee_valgus_{side}"]["full"][1] + 2,
+            )
+
         # Spatio-temporal: elderly walk slower, lower cadence
         st_ranges["cadence_steps_per_min"] = (60, 130)
         st_ranges["stride_time_mean_s"] = (0.9, 1.8)
@@ -477,6 +498,21 @@ def stratified_ranges(age=None, sex=None, speed=None) -> dict:
             angle_ranges["pelvis_tilt"]["full"][0] - 3,
             angle_ranges["pelvis_tilt"]["full"][1] + 3,
         )
+
+        # Frontal plane: widen by +/-3 deg for pediatric
+        angle_ranges["pelvis_list"]["full"] = (
+            angle_ranges["pelvis_list"]["full"][0] - 3,
+            angle_ranges["pelvis_list"]["full"][1] + 3,
+        )
+        for side in ("L", "R"):
+            angle_ranges[f"hip_adduction_{side}"]["full"] = (
+                angle_ranges[f"hip_adduction_{side}"]["full"][0] - 3,
+                angle_ranges[f"hip_adduction_{side}"]["full"][1] + 3,
+            )
+            angle_ranges[f"knee_valgus_{side}"]["full"] = (
+                angle_ranges[f"knee_valgus_{side}"]["full"][0] - 3,
+                angle_ranges[f"knee_valgus_{side}"]["full"][1] + 3,
+            )
 
         # Spatio-temporal: children have higher cadence, shorter strides
         st_ranges["cadence_steps_per_min"] = (100, 170)

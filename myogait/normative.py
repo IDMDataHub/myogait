@@ -1,8 +1,8 @@
 """Normative gait kinematic data for clinical comparison.
 
 Embedded mean +/- SD curves at 101 points (0-100% gait cycle) for
-sagittal-plane joint angles. Data derived from published normative
-databases.
+sagittal-plane and frontal-plane joint angles. Data derived from
+published normative databases.
 
 References:
     Perry J, Burnfield JM. Gait Analysis: Normal and Pathological
@@ -27,7 +27,10 @@ import numpy as np
 
 STRATA = ("adult", "elderly", "pediatric")
 
-_JOINTS = ("hip", "knee", "ankle", "trunk", "pelvis_sagittal")
+_JOINTS = (
+    "hip", "knee", "ankle", "trunk", "pelvis_sagittal",
+    "pelvis_obliquity", "hip_adduction", "knee_valgus",
+)
 
 _N_POINTS = 101
 
@@ -183,6 +186,76 @@ def _make_pelvis_sagittal_curve():
     return curve
 
 
+# ── Frontal plane curve generators ────────────────────────────────────
+
+
+def _make_pelvis_obliquity_curve():
+    """Generate adult pelvis obliquity (pelvic list) curve (101 points).
+
+    Shape: Sinusoidal pattern across the gait cycle with mean ~2 deg.
+    The pelvis drops on the swing side during single-limb support,
+    producing a sinusoidal oscillation of ~+/-3 deg around a small
+    positive offset.
+
+    Based on Perry & Burnfield (2010) Chapter 14 and Kadaba et al. (1990).
+    """
+    t = _GC / 100.0
+
+    # Sinusoidal pattern: one full cycle, mean ~2 deg, amplitude ~3 deg
+    curve = 2.0 + 3.0 * np.sin(2 * np.pi * t - 0.2)
+
+    return curve
+
+
+def _make_hip_adduction_curve():
+    """Generate adult hip adduction/abduction curve (101 points).
+
+    Shape: ~5 deg adduction in stance (weight-bearing creates valgus
+    moment), decreasing to ~2 deg in swing. Transitions occur around
+    toe-off (~60% GC) and initial contact.
+
+    Positive values = adduction, negative = abduction.
+
+    Based on Perry & Burnfield (2010) Fig. 14.5 and Kadaba et al. (1990).
+    """
+    t = _GC / 100.0
+
+    # Stance phase: ~5 deg adduction (0-60% GC)
+    # Swing phase: ~2 deg adduction (60-100% GC)
+    # Smooth transition using sigmoid-like blending
+    stance_component = 5.0 * np.exp(-((t - 0.30) ** 2) / (2 * 0.15 ** 2))
+    swing_component = 2.0 * np.exp(-((t - 0.80) ** 2) / (2 * 0.10 ** 2))
+
+    # Baseline offset
+    curve = 1.0 + stance_component + swing_component
+
+    return curve
+
+
+def _make_knee_valgus_curve():
+    """Generate adult knee valgus/varus curve (101 points).
+
+    Shape: ~3 deg valgus (positive) on average, with slight increase
+    during stance phase loading and decrease in swing.
+
+    Positive values = valgus, negative = varus.
+
+    Based on Perry & Burnfield (2010) Chapter 14.
+    """
+    t = _GC / 100.0
+
+    # Mean valgus ~3 deg with small oscillation
+    # Slightly higher valgus during loading response (~10% GC)
+    # and lower in swing
+    loading_bump = 2.0 * np.exp(-((t - 0.12) ** 2) / (2 * 0.05 ** 2))
+    midstance_dip = -1.0 * np.exp(-((t - 0.45) ** 2) / (2 * 0.08 ** 2))
+    swing_dip = -1.5 * np.exp(-((t - 0.80) ** 2) / (2 * 0.08 ** 2))
+
+    curve = 3.0 + loading_bump + midstance_dip + swing_dip
+
+    return curve
+
+
 # ── Variable SD helper ───────────────────────────────────────────────
 
 def _make_variable_sd(
@@ -252,6 +325,28 @@ def _build_normative_data():
     adult_trunk_sd = 3.0 * np.ones(_N_POINTS)
     adult_pelvis_sd = 2.5 * np.ones(_N_POINTS)
 
+    # Adult frontal plane curves
+    adult_pelvis_obliquity_mean = _make_pelvis_obliquity_curve()
+    adult_hip_adduction_mean = _make_hip_adduction_curve()
+    adult_knee_valgus_mean = _make_knee_valgus_curve()
+
+    # Frontal plane SDs -- variable across the cycle
+    adult_pelvis_obliquity_sd = _make_variable_sd(
+        baseline=2.0, peak=3.0,
+        bump_centers=[50.0],       # single-limb support transition
+        bump_widths=[10.0],
+    )
+    adult_hip_adduction_sd = _make_variable_sd(
+        baseline=3.0, peak=4.0,
+        bump_centers=[60.0],       # toe-off transition
+        bump_widths=[8.0],
+    )
+    adult_knee_valgus_sd = _make_variable_sd(
+        baseline=3.0, peak=4.0,
+        bump_centers=[12.0, 72.0], # loading response and swing
+        bump_widths=[6.0, 8.0],
+    )
+
     # Elderly: reduced ROM (~80% of adult), same shape
     # Scale about the mean of each curve
     def _scale_rom(curve, factor):
@@ -281,6 +376,27 @@ def _build_normative_data():
     elderly_trunk_sd = 3.0 * np.ones(_N_POINTS)
     elderly_pelvis_sd = 2.5 * np.ones(_N_POINTS)
 
+    # Elderly frontal plane curves: slightly different means, wider SD (+1)
+    elderly_pelvis_obliquity_mean = _scale_rom(adult_pelvis_obliquity_mean, 0.85)
+    elderly_hip_adduction_mean = _scale_rom(adult_hip_adduction_mean, 0.85)
+    elderly_knee_valgus_mean = _scale_rom(adult_knee_valgus_mean, 0.85)
+
+    elderly_pelvis_obliquity_sd = _make_variable_sd(
+        baseline=3.0, peak=4.0,          # +1 deg wider than adult
+        bump_centers=[50.0],
+        bump_widths=[10.0],
+    )
+    elderly_hip_adduction_sd = _make_variable_sd(
+        baseline=4.0, peak=5.0,          # +1 deg wider than adult
+        bump_centers=[60.0],
+        bump_widths=[8.0],
+    )
+    elderly_knee_valgus_sd = _make_variable_sd(
+        baseline=4.0, peak=5.0,          # +1 deg wider than adult
+        bump_centers=[12.0, 72.0],
+        bump_widths=[6.0, 8.0],
+    )
+
     # Pediatric: slightly increased ROM (~105% of adult), more variable
     pediatric_hip_mean = _scale_rom(adult_hip_mean, 1.05)
     pediatric_knee_mean = _scale_rom(adult_knee_mean, 1.05)
@@ -304,6 +420,28 @@ def _build_normative_data():
     pediatric_trunk_sd = 6.0 * np.ones(_N_POINTS)
     pediatric_pelvis_sd = 5.0 * np.ones(_N_POINTS)
 
+    # Pediatric frontal plane curves: slightly higher hip adduction, wider SD (+1.5)
+    pediatric_pelvis_obliquity_mean = _scale_rom(adult_pelvis_obliquity_mean, 1.05)
+    # Pediatric hip adduction: slightly higher (~1 deg more adduction)
+    pediatric_hip_adduction_mean = adult_hip_adduction_mean + 1.0
+    pediatric_knee_valgus_mean = _scale_rom(adult_knee_valgus_mean, 1.05)
+
+    pediatric_pelvis_obliquity_sd = _make_variable_sd(
+        baseline=3.5, peak=4.5,          # +1.5 deg wider than adult
+        bump_centers=[50.0],
+        bump_widths=[10.0],
+    )
+    pediatric_hip_adduction_sd = _make_variable_sd(
+        baseline=4.5, peak=5.5,          # +1.5 deg wider than adult
+        bump_centers=[60.0],
+        bump_widths=[8.0],
+    )
+    pediatric_knee_valgus_sd = _make_variable_sd(
+        baseline=4.5, peak=5.5,          # +1.5 deg wider than adult
+        bump_centers=[12.0, 72.0],
+        bump_widths=[6.0, 8.0],
+    )
+
     return {
         "adult": {
             "hip": {
@@ -325,6 +463,18 @@ def _build_normative_data():
             "pelvis_sagittal": {
                 "mean": adult_pelvis_mean.tolist(),
                 "sd": adult_pelvis_sd.tolist(),
+            },
+            "pelvis_obliquity": {
+                "mean": adult_pelvis_obliquity_mean.tolist(),
+                "sd": adult_pelvis_obliquity_sd.tolist(),
+            },
+            "hip_adduction": {
+                "mean": adult_hip_adduction_mean.tolist(),
+                "sd": adult_hip_adduction_sd.tolist(),
+            },
+            "knee_valgus": {
+                "mean": adult_knee_valgus_mean.tolist(),
+                "sd": adult_knee_valgus_sd.tolist(),
             },
         },
         "elderly": {
@@ -348,6 +498,18 @@ def _build_normative_data():
                 "mean": elderly_pelvis_mean.tolist(),
                 "sd": elderly_pelvis_sd.tolist(),
             },
+            "pelvis_obliquity": {
+                "mean": elderly_pelvis_obliquity_mean.tolist(),
+                "sd": elderly_pelvis_obliquity_sd.tolist(),
+            },
+            "hip_adduction": {
+                "mean": elderly_hip_adduction_mean.tolist(),
+                "sd": elderly_hip_adduction_sd.tolist(),
+            },
+            "knee_valgus": {
+                "mean": elderly_knee_valgus_mean.tolist(),
+                "sd": elderly_knee_valgus_sd.tolist(),
+            },
         },
         "pediatric": {
             "hip": {
@@ -370,6 +532,18 @@ def _build_normative_data():
                 "mean": pediatric_pelvis_mean.tolist(),
                 "sd": pediatric_pelvis_sd.tolist(),
             },
+            "pelvis_obliquity": {
+                "mean": pediatric_pelvis_obliquity_mean.tolist(),
+                "sd": pediatric_pelvis_obliquity_sd.tolist(),
+            },
+            "hip_adduction": {
+                "mean": pediatric_hip_adduction_mean.tolist(),
+                "sd": pediatric_hip_adduction_sd.tolist(),
+            },
+            "knee_valgus": {
+                "mean": pediatric_knee_valgus_mean.tolist(),
+                "sd": pediatric_knee_valgus_sd.tolist(),
+            },
         },
     }
 
@@ -386,7 +560,8 @@ def get_normative_curve(joint: str, stratum: str = "adult") -> dict:
     ----------
     joint : str
         One of: ``'hip'``, ``'knee'``, ``'ankle'``, ``'trunk'``,
-        ``'pelvis_sagittal'``.
+        ``'pelvis_sagittal'``, ``'pelvis_obliquity'``,
+        ``'hip_adduction'``, ``'knee_valgus'``.
     stratum : str
         One of: ``'adult'``, ``'elderly'``, ``'pediatric'``.
 

@@ -229,7 +229,7 @@ class TestListJoints:
             assert j in result
 
     def test_length(self):
-        assert len(list_joints()) == 5
+        assert len(list_joints()) == 8
 
 
 class TestListStrata:

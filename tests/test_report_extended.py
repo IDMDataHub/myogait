@@ -1,11 +1,13 @@
 """Extended tests for report i18n, new report pages, and C3D export."""
 
 import os
+
+import numpy as np
 import pytest
 
-from conftest import run_full_pipeline
+from conftest import run_full_pipeline, make_walking_data
 
-from myogait.report import generate_report, generate_longitudinal_report, _STRINGS
+from myogait.report import generate_report, generate_longitudinal_report, _STRINGS, _has_frontal_data
 from myogait.export import export_c3d
 
 
@@ -93,3 +95,53 @@ def test_export_c3d_import_error():
             sys.modules.pop("c3d", None)
         else:
             sys.modules["c3d"] = original
+
+
+# ── Frontal page in report ───────────────────────────────────────────
+
+
+def _add_frontal_angles_to_data(data):
+    """Add frontal angle keys to angle frames for testing."""
+    if data.get("angles") and data["angles"].get("frames"):
+        for i, af in enumerate(data["angles"]["frames"]):
+            t = i / max(len(data["angles"]["frames"]) - 1, 1)
+            af["pelvis_list"] = 2.0 + 3.0 * np.sin(2 * np.pi * t)
+            af["hip_adduction_L"] = 5.0 + 4.0 * np.sin(2 * np.pi * t)
+            af["hip_adduction_R"] = 4.8 + 4.0 * np.sin(2 * np.pi * t + 0.1)
+            af["knee_valgus_L"] = 1.0 + 2.0 * np.sin(2 * np.pi * t)
+            af["knee_valgus_R"] = 1.2 + 2.0 * np.sin(2 * np.pi * t + 0.1)
+
+
+def _pipeline_with_frontal():
+    """Run full pipeline with frontal angles injected."""
+    from myogait import normalize, compute_angles, detect_events, segment_cycles, analyze_gait
+    data = make_walking_data(300, 30.0)
+    normalize(data, filters=["butterworth"])
+    compute_angles(data, correction_factor=1.0, calibrate=False)
+    _add_frontal_angles_to_data(data)
+    detect_events(data)
+    cycles = segment_cycles(data)
+    stats = analyze_gait(data, cycles)
+    return data, cycles, stats
+
+
+def test_has_frontal_data_true():
+    """_has_frontal_data returns True when frontal keys are in summary."""
+    _data, cycles, _stats = _pipeline_with_frontal()
+    assert _has_frontal_data(cycles)
+
+
+def test_has_frontal_data_false(pipeline_data):
+    """_has_frontal_data returns False without frontal keys."""
+    _data, cycles, _stats = pipeline_data
+    assert not _has_frontal_data(cycles)
+
+
+def test_report_with_frontal_page(tmp_path):
+    """Report with frontal data should include frontal page and be larger."""
+    data, cycles, stats = _pipeline_with_frontal()
+    out = str(tmp_path / "report_frontal.pdf")
+    result = generate_report(data, cycles, stats, out, language="en")
+    assert os.path.isfile(result)
+    size_with_frontal = os.path.getsize(result)
+    assert size_with_frontal > 1000

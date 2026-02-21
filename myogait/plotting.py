@@ -517,11 +517,85 @@ def plot_phase_plane(
     return fig
 
 
+# Mapping from cycle summary frontal keys to normative joint names
+_FRONTAL_NORMATIVE_MAP = {
+    "pelvis_list": "pelvis_obliquity",
+    "hip_adduction": "hip_adduction",
+    "knee_valgus": "knee_valgus",
+}
+
+_FRONTAL_LABELS = {
+    "pelvis_list": "Pelvis Obliquity",
+    "hip_adduction": "Hip Adduction",
+    "knee_valgus": "Knee Valgus",
+}
+
+_SAGITTAL_JOINTS_DEFAULT = ["hip", "knee", "ankle", "trunk"]
+_FRONTAL_JOINTS_DEFAULT = ["pelvis_list", "hip_adduction", "knee_valgus"]
+
+
+def _plot_normative_panel(
+    ax,
+    joint: str,
+    summary: dict,
+    stratum: str,
+    normative_joint: Optional[str] = None,
+    label: Optional[str] = None,
+):
+    """Plot one joint panel: normative bands + patient overlay."""
+    from .normative import get_normative_band
+
+    x = np.linspace(0, 100, 101)
+    norm_key = normative_joint or joint
+
+    # Draw normative bands (skip gracefully if not available)
+    try:
+        band_2sd = get_normative_band(norm_key, stratum, n_sd=2.0)
+        band_1sd = get_normative_band(norm_key, stratum, n_sd=1.0)
+        norm_mean = np.array(band_1sd["mean"])
+
+        ax.fill_between(
+            x,
+            band_2sd["lower"], band_2sd["upper"],
+            color="#e0e0e0", alpha=0.5, label="+/-2 SD",
+        )
+        ax.fill_between(
+            x,
+            band_1sd["lower"], band_1sd["upper"],
+            color="#c0c0c0", alpha=0.5, label="+/-1 SD",
+        )
+        ax.plot(x, norm_mean, color="black", linestyle="--", linewidth=1.5,
+                label="Normative mean")
+    except (ValueError, KeyError):
+        pass  # no normative data for this joint
+
+    # Overlay patient curves for each side
+    for side in ("left", "right"):
+        side_summary = summary.get(side)
+        if side_summary is None:
+            continue
+        patient_mean = side_summary.get(f"{joint}_mean")
+        if patient_mean is None:
+            continue
+        patient_mean = np.array(patient_mean)
+        color = _COLORS["left"] if side == "left" else _COLORS["right"]
+        label_side = side.capitalize()
+        ax.plot(x, patient_mean, color=color, linewidth=2,
+                label=f"Patient ({label_side})")
+
+    display_label = label or _JOINT_LABELS.get(joint, _FRONTAL_LABELS.get(joint, joint.capitalize()))
+    ax.set_ylabel("Angle (deg)")
+    ax.set_title(f"{display_label} — vs Normative ({stratum})")
+    ax.legend(loc="upper right", fontsize=7)
+    ax.grid(True, alpha=0.3)
+
+
 def plot_normative_comparison(
     data: dict,
     cycles: dict,
     stratum: str = "adult",
     joints: Optional[List[str]] = None,
+    plane: str = "sagittal",
     figsize: Optional[tuple] = None,
 ) -> plt.Figure:
     """Plot patient normalized gait cycles overlaid on normative bands.
@@ -539,7 +613,12 @@ def plot_normative_comparison(
     stratum : str
         Normative stratum (default ``'adult'``).
     joints : list of str, optional
-        Joint names to plot (default: hip, knee, ankle, trunk).
+        Joint names to plot (default depends on *plane*).
+    plane : {'sagittal', 'frontal', 'both'}
+        Which plane(s) to plot (default ``'sagittal'``).
+        ``'sagittal'``: hip, knee, ankle, trunk.
+        ``'frontal'``: pelvis_list (obliquity), hip_adduction, knee_valgus.
+        ``'both'``: sagittal on top rows, frontal on bottom rows.
     figsize : tuple, optional
         Figure size ``(width, height)`` in inches.
 
@@ -547,66 +626,105 @@ def plot_normative_comparison(
     -------
     matplotlib.figure.Figure
     """
-    from .normative import get_normative_band
-
-    if joints is None:
-        joints = ["hip", "knee", "ankle", "trunk"]
-
-    n_plots = len(joints)
-    if figsize is None:
-        figsize = (12, 3 * n_plots)
-
-    fig, axes = plt.subplots(n_plots, 1, figsize=figsize, sharex=True)
-    if n_plots == 1:
-        axes = [axes]
-
-    x = np.linspace(0, 100, 101)
     summary = cycles.get("summary", {})
 
-    for ax, joint in zip(axes, joints):
-        # Draw normative bands
-        band_2sd = get_normative_band(joint, stratum, n_sd=2.0)
-        band_1sd = get_normative_band(joint, stratum, n_sd=1.0)
-        norm_mean = np.array(band_1sd["mean"])
+    if plane == "both":
+        sag_joints = joints if joints is not None else list(_SAGITTAL_JOINTS_DEFAULT)
+        fro_joints = list(_FRONTAL_JOINTS_DEFAULT)
+        n_sag = len(sag_joints)
+        n_fro = len(fro_joints)
+        n_plots = n_sag + n_fro
+        if figsize is None:
+            figsize = (12, 3 * n_plots)
 
-        ax.fill_between(
-            x,
-            band_2sd["lower"], band_2sd["upper"],
-            color="#e0e0e0", alpha=0.5, label="+/-2 SD",
-        )
-        ax.fill_between(
-            x,
-            band_1sd["lower"], band_1sd["upper"],
-            color="#c0c0c0", alpha=0.5, label="+/-1 SD",
-        )
-        ax.plot(x, norm_mean, color="black", linestyle="--", linewidth=1.5,
-                label="Normative mean")
+        fig, axes = plt.subplots(n_plots, 1, figsize=figsize, sharex=True)
+        if n_plots == 1:
+            axes = [axes]
 
-        # Overlay patient curves for each side
-        for side in ("left", "right"):
-            side_summary = summary.get(side)
-            if side_summary is None:
-                continue
-            patient_mean = side_summary.get(f"{joint}_mean")
-            if patient_mean is None:
-                continue
-            patient_mean = np.array(patient_mean)
-            color = _COLORS["left"] if side == "left" else _COLORS["right"]
-            label_side = side.capitalize()
-            ax.plot(x, patient_mean, color=color, linewidth=2,
-                    label=f"Patient ({label_side})")
+        # Sagittal rows
+        for ax, joint in zip(axes[:n_sag], sag_joints):
+            _plot_normative_panel(ax, joint, summary, stratum)
 
-        ax.set_ylabel("Angle (deg)")
-        ax.set_title(
-            f"{_JOINT_LABELS.get(joint, joint.capitalize())} "
-            f"— vs Normative ({stratum})"
-        )
-        ax.legend(loc="upper right", fontsize=7)
-        ax.grid(True, alpha=0.3)
+        # Frontal rows
+        for ax, joint in zip(axes[n_sag:], fro_joints):
+            norm_key = _FRONTAL_NORMATIVE_MAP.get(joint, joint)
+            _plot_normative_panel(ax, joint, summary, stratum,
+                                  normative_joint=norm_key)
 
-    axes[-1].set_xlabel("% Gait Cycle")
-    fig.tight_layout()
-    return fig
+        axes[-1].set_xlabel("% Gait Cycle")
+        fig.tight_layout()
+        return fig
+
+    elif plane == "frontal":
+        if joints is None:
+            joints = list(_FRONTAL_JOINTS_DEFAULT)
+        n_plots = len(joints)
+        if figsize is None:
+            figsize = (12, 3 * n_plots)
+
+        fig, axes = plt.subplots(n_plots, 1, figsize=figsize, sharex=True)
+        if n_plots == 1:
+            axes = [axes]
+
+        for ax, joint in zip(axes, joints):
+            norm_key = _FRONTAL_NORMATIVE_MAP.get(joint, joint)
+            _plot_normative_panel(ax, joint, summary, stratum,
+                                  normative_joint=norm_key)
+
+        axes[-1].set_xlabel("% Gait Cycle")
+        fig.tight_layout()
+        return fig
+
+    else:
+        # sagittal (default / backward-compatible path)
+        if joints is None:
+            joints = list(_SAGITTAL_JOINTS_DEFAULT)
+
+        n_plots = len(joints)
+        if figsize is None:
+            figsize = (12, 3 * n_plots)
+
+        fig, axes = plt.subplots(n_plots, 1, figsize=figsize, sharex=True)
+        if n_plots == 1:
+            axes = [axes]
+
+        for ax, joint in zip(axes, joints):
+            _plot_normative_panel(ax, joint, summary, stratum)
+
+        axes[-1].set_xlabel("% Gait Cycle")
+        fig.tight_layout()
+        return fig
+
+
+def plot_frontal_comparison(
+    cycles: dict,
+    stratum: str = "adult",
+    figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Convenience wrapper: plot frontal-plane normative comparison.
+
+    Calls :func:`plot_normative_comparison` with ``plane='frontal'``.
+
+    Parameters
+    ----------
+    cycles : dict
+        Output of ``segment_cycles()`` with ``summary`` populated.
+    stratum : str
+        Normative stratum (default ``'adult'``).
+    figsize : tuple, optional
+        Figure size ``(width, height)`` in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    return plot_normative_comparison(
+        data={},
+        cycles=cycles,
+        stratum=stratum,
+        plane="frontal",
+        figsize=figsize,
+    )
 
 
 def plot_gvs_profile(

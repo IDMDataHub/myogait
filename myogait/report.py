@@ -120,6 +120,7 @@ _STRINGS = {
         "left_knee_rom_cv": "Genou G ROM",
         "longitudinal_title": "Rapport longitudinal \u2014 Comparaison multi-sessions",
         "session": "Session",
+        "frontal_title": "Comparaison plan frontal",
     },
     "en": {
         "title": "Gait Analysis Report",
@@ -201,6 +202,7 @@ _STRINGS = {
         "left_knee_rom_cv": "Knee L ROM",
         "longitudinal_title": "Longitudinal Report \u2014 Multi-session Comparison",
         "session": "Session",
+        "frontal_title": "Frontal Plane Comparison",
     },
 }
 
@@ -562,6 +564,41 @@ def _page_normative(pdf, cycles: dict, data: dict, s: dict):
         plt.close(fig)
 
 
+def _has_frontal_data(cycles: dict) -> bool:
+    """Return True if any cycle summary contains frontal angle keys."""
+    summary = cycles.get("summary", {})
+    frontal_keys = ("pelvis_list_mean", "hip_adduction_mean", "knee_valgus_mean")
+    for side in ("left", "right"):
+        side_summary = summary.get(side, {})
+        for key in frontal_keys:
+            if key in side_summary:
+                return True
+    return False
+
+
+def _page_frontal(pdf, cycles: dict, data: dict, s: dict):
+    """Frontal angles normative comparison page."""
+    from .plotting import plot_normative_comparison
+
+    title = s.get("frontal_title", "Frontal Plane Comparison")
+    try:
+        fig = plot_normative_comparison(data, cycles, plane="frontal")
+        fig.suptitle(title, fontsize=14, fontweight="bold", y=0.99)
+        fig.tight_layout(rect=[0, 0, 1, 0.97])
+        pdf.savefig(fig, dpi=_DPI)
+        plt.close(fig)
+    except Exception:
+        logger.warning("Could not generate frontal comparison page")
+        fig = plt.figure(figsize=_FIG_SIZE)
+        ax = fig.add_subplot(111)
+        ax.axis("off")
+        ax.text(0.5, 0.5, s["no_data"], ha="center", va="center",
+                transform=ax.transAxes, fontsize=14)
+        fig.suptitle(title, fontsize=14, fontweight="bold")
+        pdf.savefig(fig, dpi=_DPI)
+        plt.close(fig)
+
+
 def _page_gvs(pdf, cycles: dict, data: dict, s: dict):
     """Page 8: GVS/MAP profile."""
     from .plotting import plot_gvs_profile
@@ -751,6 +788,8 @@ def generate_report(
         _page_normalized_cycles(pdf, cycles, "left", data, s)
         _page_normalized_cycles(pdf, cycles, "right", data, s)
         _page_normative(pdf, cycles, data, s)
+        if _has_frontal_data(cycles):
+            _page_frontal(pdf, cycles, data, s)
         _page_gvs(pdf, cycles, data, s)
         _page_quality(pdf, data, s)
         _page_detailed_text(pdf, data, cycles, stats, s)
