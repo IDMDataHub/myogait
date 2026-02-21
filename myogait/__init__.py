@@ -55,6 +55,7 @@ from .normalize import (
     auto_cutoff_frequency,
     cross_correlation_lag,
     align_signals,
+    procrustes_align,
 )
 from .angles import (
     compute_angles,
@@ -178,6 +179,7 @@ __all__ = [
     "auto_cutoff_frequency",
     "cross_correlation_lag",
     "align_signals",
+    "procrustes_align",
     # Analysis functions
     "regularity_index",
     "harmonic_ratio",

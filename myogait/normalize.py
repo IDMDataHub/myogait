@@ -1821,7 +1821,7 @@ def procrustes_align(
             Vt[-1, :] *= -1
             R = Vt.T @ U.T
 
-        aligned = target_scaled @ R.T
+        aligned = target_scaled @ R
 
         # Rotation angle from the rotation matrix
         angle = float(np.arctan2(R[1, 0], R[0, 0]))
