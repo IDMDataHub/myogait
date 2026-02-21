@@ -160,6 +160,21 @@ data = extract(
 )
 ```
 
+### Experimental VICON Alignment (AIM, Single Video)
+
+```python
+from myogait import run_single_trial_vicon_benchmark
+
+data = run_single_trial_vicon_benchmark(
+    data,
+    trial_dir="/path/to/trial_01_1",
+    vicon_fps=200.0,
+    max_lag_seconds=10.0,
+)
+
+print(data["experimental"]["vicon_benchmark"]["metrics"].keys())
+```
+
 ### Quick Comparison
 
 ```python

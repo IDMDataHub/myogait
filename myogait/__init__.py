@@ -138,6 +138,14 @@ from .experimental import (
     build_video_degradation_config,
     apply_video_degradation,
 )
+from .experimental_vicon import (
+    load_vicon_trial_mat,
+    estimate_vicon_offset_seconds,
+    align_vicon_to_myogait,
+    compute_single_trial_benchmark_metrics,
+    attach_vicon_experimental_block,
+    run_single_trial_vicon_benchmark,
+)
 
 __all__ = [
     # Core pipeline
@@ -256,6 +264,12 @@ __all__ = [
     "VIDEO_DEGRADATION_DEFAULTS",
     "build_video_degradation_config",
     "apply_video_degradation",
+    "load_vicon_trial_mat",
+    "estimate_vicon_offset_seconds",
+    "align_vicon_to_myogait",
+    "compute_single_trial_benchmark_metrics",
+    "attach_vicon_experimental_block",
+    "run_single_trial_vicon_benchmark",
     # Meta
     "__version__",
 ]

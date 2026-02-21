@@ -172,6 +172,25 @@ myogait extract video.mp4 \
   --exp-perspective-y 0.1
 ```
 
+### Experimental VICON Alignment (Single Video)
+
+For AIM benchmark workflows, you can align one myogait result with one VICON
+trial and attach ground-truth comparison metrics to the JSON.
+This is experimental and disabled by default in the standard pipeline.
+
+```python
+from myogait import run_single_trial_vicon_benchmark
+
+data = run_single_trial_vicon_benchmark(
+    data,                               # myogait result dict
+    trial_dir="/path/to/trial_01_1",   # contains *.mat files
+    vicon_fps=200.0,
+    max_lag_seconds=10.0,
+)
+
+# Results in data["experimental"]["vicon_benchmark"]
+```
+
 ### References
 
 - **Paper:** Rawal et al., *Sapiens: Foundation for Human Vision Models*, ECCV 2024 — [arXiv:2408.12569](https://arxiv.org/abs/2408.12569)
@@ -489,6 +508,7 @@ All functions operate on a single `data` dict that flows through the pipeline.
 | `event_consensus(data, methods)` | Multi-method voting for robust event detection |
 | `segment_cycles(data)` | Segment into individual gait cycles |
 | `analyze_gait(data, cycles)` | Compute spatio-temporal parameters |
+| `run_single_trial_vicon_benchmark(data, trial_dir)` | Experimental VICON alignment + metrics (single trial) |
 | **Clinical scores** | |
 | `gait_profile_score_2d(cycles)` | GPS-2D: overall gait deviation (sagittal + frontal) |
 | `sagittal_deviation_index(cycles)` | SDI (Sagittal Deviation Index): z-score based 0-120 index (100 = normal). Not the GDI. |

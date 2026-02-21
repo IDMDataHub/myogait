@@ -72,6 +72,13 @@ DEFAULT_CONFIG = {
         "weight_kg": None,
         "pathology": None,
     },
+    "experimental_vicon": {
+        "enabled": False,
+        "scope": "AIM benchmark only",
+        "trial_dir": None,
+        "vicon_fps": 200.0,
+        "max_lag_seconds": 10.0,
+    },
 }
 
 
