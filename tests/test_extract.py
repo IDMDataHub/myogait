@@ -4,14 +4,17 @@ import pytest
 import numpy as np
 import pandas as pd
 from pathlib import Path
+import tomllib
 
 
 # ── Import / API ──────────────────────────────────────────────────────
 
 def test_import():
     import myogait
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
     assert hasattr(myogait, "__version__")
-    assert myogait.__version__ == "0.3.1"
+    assert myogait.__version__ == expected
 
 
 def test_public_api():
@@ -921,7 +924,9 @@ def test_plot_phase_plane():
 
 def test_version_updated():
     import myogait
-    assert myogait.__version__ == "0.3.1"
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+    assert myogait.__version__ == expected
 
 
 # ── Goliath 308 / Sapiens ───────────────────────────────────────────
