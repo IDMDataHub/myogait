@@ -1,83 +1,83 @@
-# myogait — Tutorial complet
+# myogait — Complete Tutorial
 
-Guide pratique couvrant tous les cas d'usage de myogait, de l'extraction vidéo
-à l'export OpenSim, avec des exemples de code reproductibles.
+A practical guide covering all myogait use cases, from video extraction
+to OpenSim export, with reproducible code examples.
 
 ---
 
-## Table des matières
+## Table of Contents
 
 1. [Installation](#1-installation)
-2. [Pipeline de base](#2-pipeline-de-base)
-3. [Choix du backend de pose](#3-choix-du-backend-de-pose)
-4. [Qualité des données](#4-qualité-des-données)
-5. [Angles articulaires](#5-angles-articulaires)
-6. [Détection des événements de marche](#6-détection-des-événements-de-marche)
-7. [Segmentation en cycles](#7-segmentation-en-cycles)
-8. [Analyse spatio-temporelle](#8-analyse-spatio-temporelle)
-9. [Scores cliniques (GPS-2D, SDI, GVS)](#9-scores-cliniques)
-10. [Comparaison normative](#10-comparaison-normative)
-11. [Visualisation et plots](#11-visualisation-et-plots)
-12. [Vidéo annotée et stick figure](#12-vidéo-annotée-et-stick-figure)
-13. [Rapport PDF clinique](#13-rapport-pdf-clinique)
-14. [Export vers OpenSim](#14-export-vers-opensim)
-15. [Export vers Pose2Sim](#15-export-vers-pose2sim)
-16. [Export multi-formats](#16-export-multi-formats)
-17. [Analyse frontale (avec profondeur)](#17-analyse-frontale)
-18. [Détection de pathologies](#18-détection-de-pathologies)
-19. [Analyse longitudinale multi-sessions](#19-analyse-longitudinale)
-20. [Utilisation en ligne de commande (CLI)](#20-cli)
-21. [Configuration YAML](#21-configuration-yaml)
-22. [Cas d'usage cliniques](#22-cas-dusage-cliniques)
+2. [Basic Pipeline](#2-basic-pipeline)
+3. [Choosing a Pose Backend](#3-choosing-a-pose-backend)
+4. [Data Quality](#4-data-quality)
+5. [Joint Angles](#5-joint-angles)
+6. [Gait Event Detection](#6-gait-event-detection)
+7. [Cycle Segmentation](#7-cycle-segmentation)
+8. [Spatiotemporal Analysis](#8-spatiotemporal-analysis)
+9. [Clinical Scores (GPS-2D, SDI, GVS)](#9-clinical-scores)
+10. [Normative Comparison](#10-normative-comparison)
+11. [Visualization and Plots](#11-visualization-and-plots)
+12. [Annotated Video and Stick Figure](#12-annotated-video-and-stick-figure)
+13. [Clinical PDF Report](#13-clinical-pdf-report)
+14. [Export to OpenSim](#14-export-to-opensim)
+15. [Export to Pose2Sim](#15-export-to-pose2sim)
+16. [Multi-Format Export](#16-multi-format-export)
+17. [Frontal Plane Analysis (with Depth)](#17-frontal-plane-analysis)
+18. [Pathology Detection](#18-pathology-detection)
+19. [Longitudinal Multi-Session Analysis](#19-longitudinal-analysis)
+20. [Command-Line Interface (CLI)](#20-cli)
+21. [YAML Configuration](#21-yaml-configuration)
+22. [Clinical Use Cases](#22-clinical-use-cases)
 
 ---
 
 ## 1. Installation
 
-### Installation de base
+### Basic Installation
 
 ```bash
 pip install myogait
 ```
 
-Ceci installe myogait avec ses dépendances obligatoires : numpy, pandas, scipy,
-opencv, matplotlib, et **gaitkit** (détection d'événements).
+This installs myogait with its required dependencies: numpy, pandas, scipy,
+opencv, matplotlib, and **gaitkit** (event detection).
 
-### Avec un backend de pose
+### With a Pose Backend
 
 ```bash
-# MediaPipe — léger, CPU uniquement, 33 landmarks
+# MediaPipe — lightweight, CPU only, 33 landmarks
 pip install myogait[mediapipe]
 
-# YOLO — rapide, GPU supporté, 17 keypoints COCO
+# YOLO — fast, GPU supported, 17 COCO keypoints
 pip install myogait[yolo]
 
-# Sapiens — Meta AI, profondeur + segmentation
+# Sapiens — Meta AI, depth + segmentation
 pip install myogait[sapiens]
 
 # ViTPose — state-of-the-art accuracy
 pip install myogait[vitpose]
 
-# RTMW — 133 keypoints (corps entier + mains + visage)
+# RTMW — 133 keypoints (full body + hands + face)
 pip install myogait[rtmw]
 
-# Tout installer
+# Install everything
 pip install myogait[all]
 ```
 
-### Vérification
+### Verification
 
 ```python
 import myogait
 print(myogait.__version__)  # 0.3.0
-print(len(myogait.__all__))  # 90+ fonctions publiques
+print(len(myogait.__all__))  # 90+ public functions
 ```
 
 ---
 
-## 2. Pipeline de base
+## 2. Basic Pipeline
 
-Le pipeline complet en 6 étapes :
+The complete pipeline in 6 steps:
 
 ```python
 from myogait import (
@@ -85,36 +85,36 @@ from myogait import (
     detect_events, segment_cycles, analyze_gait
 )
 
-# Étape 1 : Extraction des landmarks depuis la vidéo
-data = extract("marche_sagittale.mp4", model="mediapipe")
-print(f"{len(data['frames'])} frames extraites à {data['meta']['fps']} FPS")
+# Step 1: Extract landmarks from the video
+data = extract("sagittal_walk.mp4", model="mediapipe")
+print(f"{len(data['frames'])} frames extracted at {data['meta']['fps']} FPS")
 
-# Étape 2 : Filtrage et normalisation
+# Step 2: Filtering and normalization
 data = normalize(data, filters=["butterworth"])
 
-# Étape 3 : Calcul des angles articulaires
+# Step 3: Compute joint angles
 data = compute_angles(data)
-print(f"Angles : {list(data['angles']['frames'][0].keys())}")
+print(f"Angles: {list(data['angles']['frames'][0].keys())}")
 
-# Étape 4 : Détection des événements (heel strike, toe off)
+# Step 4: Detect events (heel strike, toe off)
 data = detect_events(data, method="gk_bike")
 n_hs = len(data["events"]["left_hs"]) + len(data["events"]["right_hs"])
-print(f"{n_hs} heel strikes détectés")
+print(f"{n_hs} heel strikes detected")
 
-# Étape 5 : Segmentation en cycles de marche
+# Step 5: Segment into gait cycles
 cycles = segment_cycles(data)
 
-# Étape 6 : Analyse spatio-temporelle
+# Step 6: Spatiotemporal analysis
 stats = analyze_gait(data, cycles)
-print(f"Cadence : {stats['cadence']:.1f} pas/min")
-print(f"Vitesse : {stats['speed']:.2f} m/s")
-print(f"Temps de stance : {stats['stance_pct']:.1f}%")
+print(f"Cadence: {stats['cadence']:.1f} steps/min")
+print(f"Speed: {stats['speed']:.2f} m/s")
+print(f"Stance time: {stats['stance_pct']:.1f}%")
 ```
 
-### Le dictionnaire `data`
+### The `data` Dictionary
 
-Toutes les fonctions opèrent sur un dictionnaire `data` qui s'enrichit à
-chaque étape :
+All functions operate on a `data` dictionary that is progressively enriched
+at each step:
 
 ```python
 data = {
@@ -137,73 +137,73 @@ data = {
 
 ---
 
-## 3. Choix du backend de pose
+## 3. Choosing a Pose Backend
 
-### Comparaison rapide
+### Quick Comparison
 
 ```python
-# MediaPipe — le plus simple, bon pour le prototypage
+# MediaPipe — simplest option, good for prototyping
 data = extract("video.mp4", model="mediapipe")
 
-# YOLO — rapide et robuste
+# YOLO — fast and robust
 data = extract("video.mp4", model="yolo")
 
-# Sapiens — le plus précis + profondeur monoculaire
+# Sapiens — most accurate + monocular depth
 data = extract("video.mp4", model="sapiens-top", with_depth=True, with_seg=True)
 
-# ViTPose — excellent compromis précision/vitesse
+# ViTPose — excellent accuracy/speed trade-off
 data = extract("video.mp4", model="vitpose-large")
 
-# RTMW — 133 keypoints (corps, mains, visage)
+# RTMW — 133 keypoints (body, hands, face)
 data = extract("video.mp4", model="rtmw")
 ```
 
-### Informations sur la précision des modèles
+### Model Accuracy Information
 
 ```python
 from myogait import model_accuracy_info
 
 info = model_accuracy_info("mediapipe")
-print(f"MAE : {info['mae_px']} px")
-print(f"PCK@0.5 : {info['pck_05']}")
-print(f"Référence : {info['reference']}")
+print(f"MAE: {info['mae_px']} px")
+print(f"PCK@0.5: {info['pck_05']}")
+print(f"Reference: {info['reference']}")
 ```
 
 ---
 
-## 4. Qualité des données
+## 4. Data Quality
 
-### Filtrage par confiance
+### Confidence Filtering
 
 ```python
 from myogait import confidence_filter, detect_outliers, data_quality_score
 
-# Supprimer les landmarks avec confiance < 30%
+# Remove landmarks with confidence < 30%
 data = confidence_filter(data, threshold=0.3)
 
-# Détecter et interpoler les outliers (z-score > 3)
+# Detect and interpolate outliers (z-score > 3)
 data = detect_outliers(data, z_thresh=3.0)
 
-# Score de qualité global (0-100)
+# Overall quality score (0-100)
 quality = data_quality_score(data)
-print(f"Score qualité : {quality['score']}/100")
-print(f"Taux de détection : {quality['detection_rate']:.1%}")
-print(f"Jitter moyen : {quality['jitter']:.4f}")
+print(f"Quality score: {quality['score']}/100")
+print(f"Detection rate: {quality['detection_rate']:.1%}")
+print(f"Mean jitter: {quality['jitter']:.4f}")
 ```
 
-### Comblement des gaps
+### Gap Filling
 
 ```python
 from myogait import fill_gaps
 
-# Interpolation linéaire des gaps courts (max 10 frames)
+# Linear interpolation for short gaps (max 10 frames)
 data = fill_gaps(data, method="linear", max_gap_frames=10)
 
-# Interpolation spline pour les gaps plus longs
+# Spline interpolation for longer gaps
 data = fill_gaps(data, method="spline", max_gap_frames=20)
 ```
 
-### Dashboard qualité
+### Quality Dashboard
 
 ```python
 from myogait import plot_quality_dashboard
@@ -214,30 +214,30 @@ fig.savefig("quality_dashboard.png", dpi=150)
 
 ---
 
-## 5. Angles articulaires
+## 5. Joint Angles
 
-### Angles sagittaux (standard)
+### Sagittal Angles (Standard)
 
 ```python
 from myogait import compute_angles
 
 data = compute_angles(data)
 
-# Accès aux angles par frame
+# Access angles per frame
 frame_0 = data["angles"]["frames"][0]
-print(f"Hip L : {frame_0['hip_L']:.1f}°")
-print(f"Knee L : {frame_0['knee_L']:.1f}°")
-print(f"Ankle L : {frame_0['ankle_L']:.1f}°")
-print(f"Trunk : {frame_0['trunk_angle']:.1f}°")
-print(f"Pelvis tilt : {frame_0['pelvis_tilt']:.1f}°")
+print(f"Hip L: {frame_0['hip_L']:.1f}°")
+print(f"Knee L: {frame_0['knee_L']:.1f}°")
+print(f"Ankle L: {frame_0['ankle_L']:.1f}°")
+print(f"Trunk: {frame_0['trunk_angle']:.1f}°")
+print(f"Pelvis tilt: {frame_0['pelvis_tilt']:.1f}°")
 ```
 
-**Convention ISB :**
-- Hip : flexion (+), extension (-)
-- Knee : 0° = extension complète, flexion (+)
-- Ankle : dorsiflexion (+), plantarflexion (-)
+**ISB Convention:**
+- Hip: flexion (+), extension (-)
+- Knee: 0° = full extension, flexion (+)
+- Ankle: dorsiflexion (+), plantarflexion (-)
 
-### Angles étendus (bras, tête)
+### Extended Angles (Arms, Head)
 
 ```python
 from myogait import compute_extended_angles
@@ -245,12 +245,12 @@ from myogait import compute_extended_angles
 data = compute_extended_angles(data)
 
 frame_0 = data["angles"]["frames"][0]
-print(f"Shoulder flex L : {frame_0['shoulder_flex_L']:.1f}°")
-print(f"Elbow flex L : {frame_0['elbow_flex_L']:.1f}°")
-print(f"Head angle : {frame_0['head_angle']:.1f}°")
+print(f"Shoulder flex L: {frame_0['shoulder_flex_L']:.1f}°")
+print(f"Elbow flex L: {frame_0['elbow_flex_L']:.1f}°")
+print(f"Head angle: {frame_0['head_angle']:.1f}°")
 ```
 
-### Angles frontaux (nécessite profondeur)
+### Frontal Angles (Requires Depth)
 
 ```python
 from myogait import compute_frontal_angles
@@ -261,13 +261,13 @@ data = normalize(data, filters=["butterworth"])
 data = compute_angles(data)
 data = compute_frontal_angles(data)
 
-# Angles frontaux disponibles
+# Available frontal angles
 frame_0 = data["angles_frontal"]["frames"][0]
-print(f"Pelvis obliquity : {frame_0.get('pelvis_list', 'N/A')}°")
-print(f"Hip adduction L : {frame_0.get('hip_adduction_L', 'N/A')}°")
+print(f"Pelvis obliquity: {frame_0.get('pelvis_list', 'N/A')}°")
+print(f"Hip adduction L: {frame_0.get('hip_adduction_L', 'N/A')}°")
 ```
 
-### Angle de progression du pied
+### Foot Progression Angle
 
 ```python
 from myogait import foot_progression_angle
@@ -277,79 +277,79 @@ data = foot_progression_angle(data)
 
 ---
 
-## 6. Détection des événements de marche
+## 6. Gait Event Detection
 
-### Méthodes disponibles
+### Available Methods
 
 ```python
 from myogait import list_event_methods
 
 methods = list_event_methods()
 print(methods)
-# Méthodes intégrées : zeni, velocity, crossing, oconnor
-# Méthodes gaitkit :   gk_bike, gk_zeni, gk_oconnor, gk_hreljac,
-#                      gk_mickelborough, gk_ghoussayni, gk_vancanneyt,
-#                      gk_dgei, gk_ensemble
+# Built-in methods: zeni, velocity, crossing, oconnor
+# gaitkit methods:   gk_bike, gk_zeni, gk_oconnor, gk_hreljac,
+#                    gk_mickelborough, gk_ghoussayni, gk_vancanneyt,
+#                    gk_dgei, gk_ensemble
 ```
 
-### Détection simple
+### Simple Detection
 
 ```python
 from myogait import detect_events
 
-# gk_bike : Bayesian BIS — meilleur F1 score (0.80)
+# gk_bike: Bayesian BIS — best F1 score (0.80)
 data = detect_events(data, method="gk_bike")
 
-# Méthode classique (Zeni 2008)
+# Classic method (Zeni 2008)
 data = detect_events(data, method="zeni")
 
-# O'Connor (vélocité du talon)
+# O'Connor (heel velocity)
 data = detect_events(data, method="oconnor")
 ```
 
-### Consensus multi-méthodes
+### Multi-Method Consensus
 
 ```python
 from myogait import event_consensus
 
-# Vote majoritaire entre 3 détecteurs
+# Majority vote across 3 detectors
 data = event_consensus(
     data,
     methods=["gk_bike", "gk_zeni", "gk_oconnor"],
-    tolerance=3  # tolérance en frames
+    tolerance=3  # tolerance in frames
 )
-print(f"Méthode : {data['events']['method']}")  # "consensus"
-print(f"Nombre de méthodes : {data['events']['n_methods']}")
+print(f"Method: {data['events']['method']}")  # "consensus"
+print(f"Number of methods: {data['events']['n_methods']}")
 ```
 
-### Ensemble gaitkit (pondéré par F1 benchmark)
+### gaitkit Ensemble (Weighted by F1 Benchmark)
 
 ```python
-# Utilise les poids benchmark pour combiner les détecteurs
+# Uses benchmark weights to combine detectors
 data = detect_events(data, method="gk_ensemble")
 ```
 
-### Validation des événements
+### Event Validation
 
 ```python
 from myogait import validate_events
 
-# Vérification de plausibilité biomécanique
+# Biomechanical plausibility check
 report = validate_events(data)
-print(f"Événements valides : {report['valid']}")
+print(f"Valid events: {report['valid']}")
 ```
 
 ---
 
-## 7. Segmentation en cycles
+## 7. Cycle Segmentation
 
 ```python
 from myogait import segment_cycles
 
 cycles = segment_cycles(data)
 
-# Structure des cycles
-print(f"Nombre de cycles : {len(cycles['cycles'])}")
+# Cycle structure
+print(f"Number of cycles: {len(cycles['cycles'])}")
 for c in cycles["cycles"]:
     print(f"  Cycle {c['cycle_id']} ({c['side']}): "
           f"frames {c['start_frame']}-{c['end_frame']}, "
@@ -358,22 +358,22 @@ for c in cycles["cycles"]:
 
 ---
 
-## 8. Analyse spatio-temporelle
+## 8. Spatiotemporal Analysis
 
-### Paramètres de base
+### Basic Parameters
 
 ```python
 from myogait import analyze_gait
 
 stats = analyze_gait(data, cycles)
-print(f"Cadence : {stats['cadence']:.1f} pas/min")
-print(f"Vitesse : {stats['speed']:.2f} m/s")
-print(f"Temps de stride : {stats['stride_time']:.3f} s")
-print(f"Stance % : {stats['stance_pct']:.1f}%")
-print(f"Indice de symétrie : {stats['symmetry_index']:.2f}")
+print(f"Cadence: {stats['cadence']:.1f} steps/min")
+print(f"Speed: {stats['speed']:.2f} m/s")
+print(f"Stride time: {stats['stride_time']:.3f} s")
+print(f"Stance %: {stats['stance_pct']:.1f}%")
+print(f"Symmetry index: {stats['symmetry_index']:.2f}")
 ```
 
-### Paramètres avancés
+### Advanced Parameters
 
 ```python
 from myogait import (
@@ -382,51 +382,51 @@ from myogait import (
     instantaneous_cadence, compute_rom_summary
 )
 
-# Temps d'appui unipodal
+# Single support time
 sst = single_support_time(data, cycles)
 
-# Clearance du pied pendant le swing
+# Foot clearance during swing
 tc = toe_clearance(data, cycles)
 
-# Variabilité (CV) des paramètres spatio-temporels
+# Variability (CV) of spatiotemporal parameters
 var = stride_variability(data, cycles)
-print(f"CV stride time : {var['stride_time_cv']:.1%}")
+print(f"CV stride time: {var['stride_time_cv']:.1%}")
 
-# Analyse du balancement des bras
+# Arm swing analysis
 arms = arm_swing_analysis(data, cycles)
-print(f"Amplitude bras L : {arms['amplitude_L']:.1f}°")
-print(f"Asymétrie : {arms['asymmetry']:.2f}")
+print(f"Arm amplitude L: {arms['amplitude_L']:.1f}°")
+print(f"Asymmetry: {arms['asymmetry']:.2f}")
 
-# Paramètres adimensionnels (Hof 1996)
+# Dimensionless parameters (Hof 1996)
 norm = speed_normalized_params(data, cycles, height_m=1.75)
-print(f"Froude : {norm['froude']:.3f}")
+print(f"Froude: {norm['froude']:.3f}")
 
-# Longueurs segmentaires
+# Segment lengths
 segs = segment_lengths(data)
-print(f"Fémur L : {segs['left_femur']['mean']:.3f}")
+print(f"Femur L: {segs['left_femur']['mean']:.3f}")
 
-# Cadence instantanée
+# Instantaneous cadence
 cad = instantaneous_cadence(data)
 
-# Résumé des ROM par articulation
+# ROM summary by joint
 rom = compute_rom_summary(data, cycles)
 ```
 
 ---
 
-## 9. Scores cliniques
+## 9. Clinical Scores
 
-### GPS-2D (Gait Profile Score adapté 2D)
+### GPS-2D (2D-Adapted Gait Profile Score)
 
 ```python
 from myogait import gait_profile_score_2d
 
 gps = gait_profile_score_2d(cycles)
-print(f"GPS-2D : {gps['gps']:.1f}°")
-print(f"Note : {gps['note']}")
-# GPS < 5° : marche normale
-# GPS 5-10° : déviation légère
-# GPS > 10° : déviation significative
+print(f"GPS-2D: {gps['gps']:.1f}°")
+print(f"Rating: {gps['note']}")
+# GPS < 5°: normal gait
+# GPS 5-10°: mild deviation
+# GPS > 10°: significant deviation
 ```
 
 ### SDI (Sagittal Deviation Index)
@@ -441,20 +441,20 @@ capture and uses a PCA-based algorithm. For the standard 3D GDI, use a full
 from myogait import sagittal_deviation_index
 
 sdi = sagittal_deviation_index(cycles)
-print(f"SDI : {sdi['sdi']:.1f}")
-# SDI = 100 : marche normale
-# SDI < 80 : déviation significative
-# SDI > 100 : au-dessus de la normale (peu fréquent)
+print(f"SDI: {sdi['sdi']:.1f}")
+# SDI = 100: normal gait
+# SDI < 80: significant deviation
+# SDI > 100: above normal (uncommon)
 ```
 
-### GVS (Gait Variable Scores — par articulation)
+### GVS (Gait Variable Scores — Per Joint)
 
 ```python
 from myogait import gait_variable_scores
 
 gvs = gait_variable_scores(cycles)
 for joint, score in gvs["scores"].items():
-    status = "OK" if score < 5.0 else "DÉVIÉ"
+    status = "OK" if score < 5.0 else "DEVIATED"
     print(f"  {joint}: {score:.1f}° [{status}]")
 ```
 
@@ -465,68 +465,68 @@ from myogait import movement_analysis_profile, plot_gvs_profile
 
 map_data = movement_analysis_profile(cycles)
 
-# Visualisation
+# Visualization
 fig = plot_gvs_profile(gvs)
 fig.savefig("movement_analysis_profile.png", dpi=150)
 ```
 
-### Avec variables frontales
+### With Frontal Variables
 
 ```python
-# Si les angles frontaux sont disponibles dans les cycles
+# If frontal angles are available in the cycles
 gps = gait_profile_score_2d(cycles, include_frontal=True)
 sdi = sagittal_deviation_index(cycles, include_frontal=True)
-print(f"GPS (sagittal + frontal) : {gps['gps']:.1f}°")
+print(f"GPS (sagittal + frontal): {gps['gps']:.1f}°")
 ```
 
 ---
 
-## 10. Comparaison normative
+## 10. Normative Comparison
 
-### Courbes normatives disponibles
+### Available Normative Curves
 
 ```python
 from myogait import list_joints, list_strata, get_normative_curve, get_normative_band
 
-# Articulations disponibles
+# Available joints
 print(list_joints())
 # ['hip_flexion', 'knee_flexion', 'ankle_dorsiflexion',
 #  'trunk_flexion', 'pelvis_tilt',
 #  'pelvis_obliquity', 'hip_adduction', 'knee_valgus']
 
-# Strates d'âge
+# Age strata
 print(list_strata())
 # ['adult', 'elderly', 'pediatric']
 
-# Courbe normative (101 points, 0-100% du cycle)
+# Normative curve (101 points, 0-100% of the cycle)
 mean, sd = get_normative_curve("hip_flexion", stratum="adult")
 
-# Bande normative (mean ± 1 SD)
+# Normative band (mean +/- 1 SD)
 mean, lower, upper = get_normative_band("knee_flexion", stratum="elderly")
 ```
 
-### Plot de comparaison
+### Comparison Plot
 
 ```python
 from myogait import plot_normative_comparison
 
-# Plan sagittal uniquement
+# Sagittal plane only
 fig = plot_normative_comparison(data, cycles, plane="sagittal")
 fig.savefig("sagittal_vs_normative.png", dpi=150)
 
-# Plan frontal uniquement
+# Frontal plane only
 fig = plot_normative_comparison(data, cycles, plane="frontal")
 
-# Les deux plans
+# Both planes
 fig = plot_normative_comparison(data, cycles, plane="both", stratum="adult")
 fig.savefig("full_normative_comparison.png", dpi=150)
 ```
 
 ---
 
-## 11. Visualisation et plots
+## 11. Visualization and Plots
 
-### Dashboard de synthèse
+### Summary Dashboard
 
 ```python
 from myogait import plot_summary
@@ -535,21 +535,21 @@ fig = plot_summary(data, cycles, stats)
 fig.savefig("dashboard.png", dpi=150)
 ```
 
-### Angles articulaires
+### Joint Angles
 
 ```python
 from myogait import plot_angles, plot_cycles
 
-# Angles bruts sur tout l'enregistrement
+# Raw angles across the entire recording
 fig = plot_angles(data)
-fig.savefig("angles_bruts.png", dpi=150)
+fig.savefig("raw_angles.png", dpi=150)
 
-# Cycles superposés et moyennés
+# Overlaid and averaged cycles
 fig = plot_cycles(data, cycles)
 fig.savefig("cycles.png", dpi=150)
 ```
 
-### Événements de marche
+### Gait Events
 
 ```python
 from myogait import plot_events
@@ -558,7 +558,7 @@ fig = plot_events(data)
 fig.savefig("events.png", dpi=150)
 ```
 
-### Diagramme de phase
+### Phase Diagram
 
 ```python
 from myogait import plot_phase_plane
@@ -567,7 +567,7 @@ fig = plot_phase_plane(data, cycles)
 fig.savefig("phase_plane.png", dpi=150)
 ```
 
-### Profil de cadence
+### Cadence Profile
 
 ```python
 from myogait import plot_cadence_profile, instantaneous_cadence
@@ -577,7 +577,7 @@ fig = plot_cadence_profile(data, cad)
 fig.savefig("cadence_profile.png", dpi=150)
 ```
 
-### ROM summary
+### ROM Summary
 
 ```python
 from myogait import plot_rom_summary, compute_rom_summary
@@ -587,7 +587,7 @@ fig = plot_rom_summary(rom)
 fig.savefig("rom_summary.png", dpi=150)
 ```
 
-### Butterfly plot (symétrie L/R)
+### Butterfly Plot (L/R Symmetry)
 
 ```python
 from myogait import plot_butterfly
@@ -596,7 +596,7 @@ fig = plot_butterfly(data, cycles)
 fig.savefig("butterfly.png", dpi=150)
 ```
 
-### Balancement des bras
+### Arm Swing
 
 ```python
 from myogait import plot_arm_swing
@@ -607,65 +607,65 @@ fig.savefig("arm_swing.png", dpi=150)
 
 ---
 
-## 12. Vidéo annotée et stick figure
+## 12. Annotated Video and Stick Figure
 
-### Skeleton overlay sur la vidéo
+### Skeleton Overlay on Video
 
 ```python
 from myogait import render_skeleton_video
 
-# Overlay avec angles et événements
+# Overlay with angles and events
 render_skeleton_video(
-    "marche.mp4", data, "marche_overlay.mp4",
+    "walk.mp4", data, "walk_overlay.mp4",
     show_angles=True, show_events=True
 )
 ```
 
-### Stick figure anonymisée
+### Anonymized Stick Figure
 
 ```python
 from myogait import render_stickfigure_animation
 
-# GIF animé
+# Animated GIF
 render_stickfigure_animation(data, "stickfigure.gif")
 
-# Avec tracé de trajectoire
+# With trajectory trail
 render_stickfigure_animation(data, "stickfigure_trail.gif", show_trail=True)
 
-# Avec segmentation en cycles
+# With cycle segmentation
 render_stickfigure_animation(data, "stickfigure_cycles.gif", cycles=cycles)
 ```
 
 ---
 
-## 13. Rapport PDF clinique
+## 13. Clinical PDF Report
 
-### Rapport standard
+### Standard Report
 
 ```python
 from myogait import generate_report
 
-# Rapport en français
+# Report in French
 generate_report(data, cycles, stats, "rapport_marche.pdf", language="fr")
 
-# Rapport en anglais
+# Report in English
 generate_report(data, cycles, stats, "gait_report.pdf", language="en")
 ```
 
-Le rapport contient :
-- Page de synthèse (paramètres spatio-temporels)
-- Angles articulaires par cycle
-- Comparaison normative (sagittal)
-- Comparaison frontale (si données disponibles)
+The report includes:
+- Summary page (spatiotemporal parameters)
+- Joint angles per cycle
+- Normative comparison (sagittal)
+- Frontal comparison (if data available)
 - GVS profile
-- Dashboard qualité
+- Quality dashboard
 
-### Rapport longitudinal (multi-sessions)
+### Longitudinal Report (Multi-Session)
 
 ```python
 from myogait import generate_longitudinal_report
 
-# Comparer plusieurs sessions
+# Compare multiple sessions
 sessions = {
     "2024-01-15": (data_1, cycles_1, stats_1),
     "2024-04-20": (data_2, cycles_2, stats_2),
@@ -676,48 +676,48 @@ generate_longitudinal_report(sessions, "evolution.pdf", language="fr")
 
 ---
 
-## 14. Export vers OpenSim
+## 14. Export to OpenSim
 
-### Fichier .trc (marqueurs)
+### .trc File (Markers)
 
 ```python
 from myogait import export_trc
 
-# Export avec conversion d'unités basée sur la taille
+# Export with unit conversion based on height
 export_trc(data, "markers.trc", opensim_model="gait2392")
 
-# Avec profondeur Sapiens pour les coordonnées Z
+# With Sapiens depth for Z coordinates
 export_trc(data, "markers_3d.trc", use_depth=True, depth_scale=1.0)
 
-# Sans taille → coordonnées normalisées
+# Without height -> normalized coordinates
 export_trc(data, "markers_norm.trc")
 ```
 
-### Fichier .mot (cinématique)
+### .mot File (Kinematics)
 
 ```python
 from myogait import export_mot
 
-# Angles articulaires + translations du pelvis
+# Joint angles + pelvis translations
 export_mot(data, "kinematics.mot")
 ```
 
-### Setup Scale Tool
+### Scale Tool Setup
 
 ```python
 from myogait import export_opensim_scale_setup
 
-# Génère le XML pour OpenSim Scale Tool
+# Generate the XML for the OpenSim Scale Tool
 data["subject"] = {"weight_kg": 75.0, "height_m": 1.75, "name": "Patient01"}
 export_opensim_scale_setup(
     data, "scale_setup.xml",
     model_file="gait2392_simbody.osim",
     output_model="scaled_model.osim",
-    static_frames=(0, 30)  # frames pour la pose statique
+    static_frames=(0, 30)  # frames for the static pose
 )
 ```
 
-### Setup Inverse Kinematics
+### Inverse Kinematics Setup
 
 ```python
 from myogait import export_ik_setup
@@ -730,7 +730,7 @@ export_ik_setup(
 )
 ```
 
-### Setup MocoTrack
+### MocoTrack Setup
 
 ```python
 from myogait import export_moco_setup
@@ -742,7 +742,7 @@ export_moco_setup(
 )
 ```
 
-### Pipeline OpenSim complet
+### Full OpenSim Pipeline
 
 ```python
 from myogait import (
@@ -751,14 +751,14 @@ from myogait import (
     export_opensim_scale_setup, export_ik_setup
 )
 
-# 1. Pipeline myogait
-data = extract("marche.mp4", model="sapiens-top", with_depth=True)
+# 1. myogait pipeline
+data = extract("walk.mp4", model="sapiens-top", with_depth=True)
 data = normalize(data, filters=["butterworth"])
 data = compute_angles(data)
 data = detect_events(data, method="gk_bike")
 data["subject"] = {"weight_kg": 72.0, "height_m": 1.78, "name": "Subject01"}
 
-# 2. Export fichiers OpenSim
+# 2. Export OpenSim files
 export_trc(data, "subject01.trc", opensim_model="gait2392", use_depth=True)
 export_mot(data, "subject01.mot")
 
@@ -768,32 +768,32 @@ export_opensim_scale_setup(data, "scale.xml", model_file="gait2392.osim",
 export_ik_setup("subject01.trc", "ik.xml", model_file="subject01_scaled.osim",
                 output_motion="subject01_ik.mot")
 
-# 4. Lancer dans OpenSim (via opensim-cmd ou l'API Python opensim)
+# 4. Run in OpenSim (via opensim-cmd or the opensim Python API)
 # opensim-cmd run-tool scale.xml
 # opensim-cmd run-tool ik.xml
 ```
 
 ---
 
-## 15. Export vers Pose2Sim
+## 15. Export to Pose2Sim
 
-Pose2Sim utilise des fichiers JSON au format OpenPose pour la triangulation
-multi-caméras. myogait peut servir de front-end d'extraction.
+Pose2Sim uses OpenPose-format JSON files for multi-camera triangulation.
+myogait can serve as an extraction front-end.
 
 ```python
 from myogait import extract, export_openpose_json
 
-# Extraction depuis chaque caméra
+# Extract from each camera
 for cam in ["cam1.mp4", "cam2.mp4", "cam3.mp4", "cam4.mp4"]:
     data = extract(cam, model="mediapipe")
     cam_name = cam.replace(".mp4", "")
     export_openpose_json(data, f"./pose2sim/{cam_name}/", model="BODY_25")
 
-# Résultat : 1 fichier JSON par frame par caméra
-# Structure compatible Pose2Sim pour triangulation → OpenSim
+# Result: 1 JSON file per frame per camera
+# Pose2Sim-compatible structure for triangulation -> OpenSim
 ```
 
-### Formats supportés
+### Supported Formats
 
 ```python
 # COCO 17 keypoints
@@ -808,7 +808,7 @@ export_openpose_json(data, "./output/", model="HALPE_26")
 
 ---
 
-## 16. Export multi-formats
+## 16. Multi-Format Export
 
 ### CSV
 
@@ -816,7 +816,7 @@ export_openpose_json(data, "./output/", model="HALPE_26")
 from myogait import export_csv
 
 export_csv(data, "./csv_output/", cycles, stats)
-# Crée : angles.csv, events.csv, spatiotemporal.csv, landmarks.csv
+# Creates: angles.csv, events.csv, spatiotemporal.csv, landmarks.csv
 ```
 
 ### Excel
@@ -824,8 +824,8 @@ export_csv(data, "./csv_output/", cycles, stats)
 ```python
 from myogait import export_excel
 
-export_excel(data, "analyse_marche.xlsx", cycles, stats)
-# Un onglet par type de données
+export_excel(data, "gait_analysis.xlsx", cycles, stats)
+# One sheet per data type
 ```
 
 ### Pandas DataFrame
@@ -833,21 +833,21 @@ export_excel(data, "analyse_marche.xlsx", cycles, stats)
 ```python
 from myogait import to_dataframe
 
-# Angles articulaires
+# Joint angles
 df_angles = to_dataframe(data, what="angles")
 print(df_angles.head())
 
-# Landmarks bruts
+# Raw landmarks
 df_lm = to_dataframe(data, what="landmarks")
 
-# Événements
+# Events
 df_ev = to_dataframe(data, what="events")
 
-# Tout
+# Everything
 df_all = to_dataframe(data, what="all")
 ```
 
-### JSON compact
+### Compact JSON
 
 ```python
 from myogait import export_summary_json
@@ -855,20 +855,20 @@ from myogait import export_summary_json
 export_summary_json(data, cycles, stats, "summary.json")
 ```
 
-### C3D (optionnel)
+### C3D (Optional)
 
 ```python
 from myogait import export_c3d
 
-# Nécessite : pip install myogait[c3d]
+# Requires: pip install myogait[c3d]
 export_c3d(data, "markers.c3d")
 ```
 
 ---
 
-## 17. Analyse frontale
+## 17. Frontal Plane Analysis
 
-L'analyse frontale nécessite des données de profondeur (Sapiens).
+Frontal plane analysis requires depth data (Sapiens).
 
 ```python
 from myogait import (
@@ -877,30 +877,30 @@ from myogait import (
     gait_profile_score_2d, plot_normative_comparison
 )
 
-# Extraction avec profondeur
-data = extract("marche.mp4", model="sapiens-top", with_depth=True)
+# Extraction with depth
+data = extract("walk.mp4", model="sapiens-top", with_depth=True)
 data = normalize(data, filters=["butterworth"])
 
-# Angles sagittaux ET frontaux
+# Sagittal AND frontal angles
 data = compute_angles(data)
 data = compute_frontal_angles(data)
 
-# Pipeline standard
+# Standard pipeline
 data = detect_events(data, method="gk_bike")
 cycles = segment_cycles(data)
 
-# GPS incluant les variables frontales
+# GPS including frontal variables
 gps = gait_profile_score_2d(cycles, include_frontal=True)
-print(f"GPS (sagittal + frontal) : {gps['gps']:.1f}°")
+print(f"GPS (sagittal + frontal): {gps['gps']:.1f}°")
 
-# Visualisation des deux plans
+# Visualization of both planes
 fig = plot_normative_comparison(data, cycles, plane="both")
 fig.savefig("sagittal_frontal_comparison.png", dpi=150)
 ```
 
 ---
 
-## 18. Détection de pathologies
+## 18. Pathology Detection
 
 ```python
 from myogait import (
@@ -908,38 +908,38 @@ from myogait import (
     detect_antalgic, detect_parkinsonian
 )
 
-# Détection automatique multi-patterns
+# Automatic multi-pattern detection
 pathologies = detect_pathologies(data, cycles)
 for name, detected in pathologies.items():
     if detected:
-        print(f"  ⚠ {name} détecté")
+        print(f"  Warning: {name} detected")
 
-# Détections spécifiques
+# Specific detections
 equinus = detect_equinus(cycles)
-# → True si dorsiflexion ≤ 0° pendant le stance
+# -> True if dorsiflexion <= 0 degrees during stance
 
 antalgic = detect_antalgic(cycles)
-# → True si asymétrie stance > 55% d'un côté
+# -> True if stance asymmetry > 55% on one side
 
 parkinsonian = detect_parkinsonian(data, cycles)
-# → True si stride court + arm swing réduit + cadence élevée
+# -> True if short stride + reduced arm swing + high cadence
 ```
 
 ---
 
-## 19. Analyse longitudinale
+## 19. Longitudinal Analysis
 
-### Comparaison de sessions
+### Session Comparison
 
 ```python
 from myogait import plot_session_comparison, plot_longitudinal
 
-# Comparer deux sessions (avant / après traitement)
-fig = plot_session_comparison(cycles_avant, cycles_apres,
-                               labels=["Avant", "Après"])
+# Compare two sessions (before / after treatment)
+fig = plot_session_comparison(cycles_before, cycles_after,
+                               labels=["Before", "After"])
 fig.savefig("comparison.png", dpi=150)
 
-# Évolution longitudinale (GPS, cadence, symétrie)
+# Longitudinal trends (GPS, cadence, symmetry)
 sessions_data = [
     {"date": "2024-01", "gps": 8.2, "cadence": 95, "symmetry": 0.85},
     {"date": "2024-04", "gps": 6.5, "cadence": 102, "symmetry": 0.91},
@@ -953,38 +953,38 @@ fig.savefig("longitudinal.png", dpi=150)
 
 ## 20. CLI
 
-### Pipeline complet
+### Full Pipeline
 
 ```bash
-# MediaPipe (défaut)
-myogait run marche.mp4
+# MediaPipe (default)
+myogait run walk.mp4
 
-# Sapiens avec profondeur
-myogait run marche.mp4 -m sapiens-top --with-depth
+# Sapiens with depth
+myogait run walk.mp4 -m sapiens-top --with-depth
 
 # ViTPose
-myogait run marche.mp4 -m vitpose-large
+myogait run walk.mp4 -m vitpose-large
 ```
 
-### Extraction seule
+### Extraction Only
 
 ```bash
-myogait extract marche.mp4 -m sapiens-quick --with-depth --with-seg
+myogait extract walk.mp4 -m sapiens-quick --with-depth --with-seg
 ```
 
-### Analyse d'un JSON existant
+### Analyze an Existing JSON
 
 ```bash
-myogait analyze resultat.json --csv --pdf --language fr
+myogait analyze result.json --csv --pdf --language fr
 ```
 
-### Batch processing
+### Batch Processing
 
 ```bash
-myogait batch *.mp4 -o resultats/ -m mediapipe
+myogait batch *.mp4 -o results/ -m mediapipe
 ```
 
-### Téléchargement de modèles
+### Model Download
 
 ```bash
 myogait download --list
@@ -994,7 +994,7 @@ myogait download sapiens-depth-1b
 
 ---
 
-## 21. Configuration YAML
+## 21. YAML Configuration
 
 ```python
 from myogait import load_config, save_config
@@ -1002,7 +1002,7 @@ from myogait import load_config, save_config
 config = load_config("pipeline.yaml")
 ```
 
-Exemple de fichier `pipeline.yaml` :
+Example `pipeline.yaml` file:
 
 ```yaml
 extraction:
@@ -1035,17 +1035,17 @@ export:
 
 ---
 
-## 22. Cas d'usage cliniques
+## 22. Clinical Use Cases
 
-### Cas 1 : Suivi post-opératoire
+### Case 1: Post-Operative Follow-Up
 
-Un patient opéré du genou. Évaluation de la récupération à J+30, J+90, J+180.
+A patient who underwent knee surgery. Recovery assessment at D+30, D+90, D+180.
 
 ```python
 from myogait import *
 
-dates = ["J+30", "J+90", "J+180"]
-videos = ["j30.mp4", "j90.mp4", "j180.mp4"]
+dates = ["D+30", "D+90", "D+180"]
+videos = ["d30.mp4", "d90.mp4", "d180.mp4"]
 results = {}
 
 for date, video in zip(dates, videos):
@@ -1064,39 +1064,39 @@ for date, video in zip(dates, videos):
         "cadence": stats["cadence"],
         "speed": stats["speed"],
     }
-    generate_report(data, cycles, stats, f"rapport_{date}.pdf", language="fr")
+    generate_report(data, cycles, stats, f"report_{date}.pdf", language="fr")
 
-# Tableau de suivi
+# Follow-up table
 for date, r in results.items():
     print(f"{date}: GPS={r['gps']:.1f}° SDI={r['sdi']:.0f} "
-          f"Cadence={r['cadence']:.0f} Vitesse={r['speed']:.2f}")
+          f"Cadence={r['cadence']:.0f} Speed={r['speed']:.2f}")
 ```
 
-### Cas 2 : Screening neuromusculaire (Duchenne)
+### Case 2: Neuromuscular Screening (Duchenne)
 
 ```python
 data = extract("duchenne_patient.mp4", model="sapiens-top", with_depth=True)
 data = normalize(data, filters=["butterworth"])
 data = compute_angles(data)
-data = compute_extended_angles(data)  # bras, tête
+data = compute_extended_angles(data)  # arms, head
 data = detect_events(data, method="gk_ensemble")
 cycles = segment_cycles(data)
 stats = analyze_gait(data, cycles)
 
-# Score GPS avec strate pédiatrique
+# GPS score with pediatric stratum
 from myogait import select_stratum
 stratum = select_stratum(age=12)  # "pediatric"
 gps = gait_profile_score_2d(cycles)
 
-# Détection patterns
+# Pattern detection
 pathologies = detect_pathologies(data, cycles)
 arms = arm_swing_analysis(data, cycles)
 
-# Rapport complet
-generate_report(data, cycles, stats, "rapport_duchenne.pdf", language="fr")
+# Full report
+generate_report(data, cycles, stats, "duchenne_report.pdf", language="fr")
 ```
 
-### Cas 3 : Recherche — export pour OpenSim et analyse statistique
+### Case 3: Research — Export for OpenSim and Statistical Analysis
 
 ```python
 import pandas as pd
@@ -1114,17 +1114,17 @@ for video in subjects:
     stats = analyze_gait(data, cycles)
     gps = gait_profile_score_2d(cycles)
 
-    # Export OpenSim
+    # OpenSim export
     name = video.replace(".mp4", "")
     export_trc(data, f"{name}.trc", opensim_model="gait2392")
     export_mot(data, f"{name}.mot")
 
-    # Collecter stats
+    # Collect stats
     stats["subject"] = name
     stats["gps"] = gps["gps"]
     all_stats.append(stats)
 
-# DataFrame pour analyse statistique
+# DataFrame for statistical analysis
 df = pd.DataFrame(all_stats)
 df.to_csv("group_stats.csv", index=False)
 print(df[["subject", "cadence", "speed", "gps"]].to_string())
@@ -1132,20 +1132,20 @@ print(df[["subject", "cadence", "speed", "gps"]].to_string())
 
 ---
 
-## Ressources
+## Resources
 
-- **GitHub** : https://github.com/IDMDataHub/myogait
-- **PyPI** : https://pypi.org/project/myogait/
-- **gaitkit** : https://github.com/IDMDataHub/gaitkit
-- **Institut de Myologie** : https://www.institut-myologie.org/
-- **Fondation Myologie** : https://www.fondation-myologie.org/
-- **AFM-Téléthon** : https://www.afm-telethon.fr/
-- **Téléthon** : https://www.telethon.fr/
+- **GitHub**: https://github.com/IDMDataHub/myogait
+- **PyPI**: https://pypi.org/project/myogait/
+- **gaitkit**: https://github.com/IDMDataHub/gaitkit
+- **Institut de Myologie**: https://www.institut-myologie.org/
+- **Fondation Myologie**: https://www.fondation-myologie.org/
+- **AFM-Téléthon**: https://www.afm-telethon.fr/
+- **Téléthon**: https://www.telethon.fr/
 
 ---
 
-*myogait est développé par Frederic Fer au sein du PhysioEvalLab,
-[Institut de Myologie](https://www.institut-myologie.org/), Paris, avec le
-soutien de l'[AFM-Téléthon](https://www.afm-telethon.fr/), de la
-[Fondation Myologie](https://www.fondation-myologie.org/) et du
+*myogait is developed by Frederic Fer at PhysioEvalLab,
+[Institut de Myologie](https://www.institut-myologie.org/), Paris, with the
+support of [AFM-Téléthon](https://www.afm-telethon.fr/), the
+[Fondation Myologie](https://www.fondation-myologie.org/), and
 [Téléthon](https://www.telethon.fr/).*

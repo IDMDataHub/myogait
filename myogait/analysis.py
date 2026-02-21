@@ -298,7 +298,7 @@ def _detect_flags(stats: dict) -> List[str]:
     elif cadence > 140:
         flags.append(f"High cadence: {cadence:.0f} steps/min (normal: 100-120)")
 
-    # Stance prolongée
+    # Prolonged stance
     for side in ("left", "right"):
         stance = st.get(f"stance_pct_{side}")
         if stance is not None and stance > 70:

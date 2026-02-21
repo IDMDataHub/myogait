@@ -21,15 +21,15 @@ print(f"   -> {n} frames, {fps:.1f} fps, {w}x{h}")
 print(f"   -> Detection: {det}/{n} frames ({100*det/n:.0f}%)")
 print(f"   -> Direction: {data['extraction']['direction_detected']}")
 print(f"   -> Keypoint format: {data['extraction']['keypoint_format']}")
-print(f"   -> Temps: {t1-t0:.1f}s\n")
+print(f"   -> Time: {t1-t0:.1f}s\n")
 
-# 2. NORMALISATION
-print("2. Normalisation (butterworth)...")
+# 2. NORMALIZATION
+print("2. Normalization (butterworth)...")
 data = mg.normalize(data, filters=["butterworth"])
 print(f"   -> Steps: {data['normalization']['steps_applied']}\n")
 
 # 3. ANGLES
-print("3. Calcul des angles...")
+print("3. Angle computation...")
 data = mg.compute_angles(data, method="sagittal_vertical_axis")
 # Check a middle frame
 mid = n // 2
@@ -38,10 +38,10 @@ print(f"   -> Frame {mid}: hip_L={af['hip_L']}, knee_L={af['knee_L']}, ankle_L={
 print(f"   -> Trunk: {af['trunk_angle']}, Pelvis: {af['pelvis_tilt']}")
 # Count non-None angles
 non_none = sum(1 for a in data["angles"]["frames"] if a["hip_L"] is not None)
-print(f"   -> Angles valides: {non_none}/{n} frames\n")
+print(f"   -> Valid angles: {non_none}/{n} frames\n")
 
 # 4. EVENTS
-print("4. Detection des events (Zeni)...")
+print("4. Event detection (Zeni)...")
 data = mg.detect_events(data, method="zeni")
 ev = data["events"]
 lhs = len(ev["left_hs"])
@@ -54,33 +54,33 @@ print(f"   -> Total events: {total_ev}\n")
 
 # 5. CYCLES
 if total_ev >= 4:
-    print("5. Segmentation des cycles...")
+    print("5. Cycle segmentation...")
     try:
         cycles = mg.segment_cycles(data)
         nc = len(cycles["cycles"])
-        print(f"   -> {nc} cycles detectes")
+        print(f"   -> {nc} cycles detected")
         for c in cycles["cycles"][:3]:
             print(f"      Cycle {c['cycle_id']} ({c['side']}): {c['duration']:.3f}s, stance={c['stance_pct']:.1f}%")
 
-        # 6. ANALYSE
-        print("\n6. Analyse de la marche...")
+        # 6. ANALYSIS
+        print("\n6. Gait analysis...")
         stats = mg.analyze_gait(data, cycles)
         sp = stats["spatiotemporal"]
-        print(f"   -> Cadence: {sp['cadence_steps_per_min']:.1f} pas/min")
+        print(f"   -> Cadence: {sp['cadence_steps_per_min']:.1f} steps/min")
         print(f"   -> Cycles: {sp['n_cycles_total']}")
 
         # 7. VALIDATION
-        print("\n7. Validation biomecanique...")
+        print("\n7. Biomechanical validation...")
         report = mg.validate_biomechanical(data, cycles)
         s = report["summary"]
-        print(f"   -> Valide: {report['valid']}")
+        print(f"   -> Valid: {report['valid']}")
         print(f"   -> Violations: {s['total']}")
 
         # 8. EXPORT
         print("\n8. Exports...")
         with tempfile.TemporaryDirectory() as td:
             files = mg.export_csv(data, td, cycles, stats)
-            print(f"   -> CSV: {len(files)} fichiers")
+            print(f"   -> CSV: {len(files)} files")
             mg.export_mot(data, os.path.join(td, "gait.mot"))
             print(f"   -> MOT: OK")
 
@@ -91,12 +91,12 @@ if total_ev >= 4:
         print("   -> plot_summary: OK")
 
     except Exception as e:
-        print(f"   -> Erreur cycles/analyse: {e}")
+        print(f"   -> Error cycles/analysis: {e}")
 else:
-    print("5. Pas assez d'events pour segmenter des cycles")
+    print("5. Not enough events to segment cycles")
     cycles = None
 
 print()
 t_total = time.time() - t0
-print(f"=== PIPELINE YOLO COMPLET EN {t_total:.1f}s ===")
-print("YOLO fonctionne de bout en bout.")
+print(f"=== YOLO PIPELINE COMPLETE IN {t_total:.1f}s ===")
+print("YOLO works end-to-end.")
