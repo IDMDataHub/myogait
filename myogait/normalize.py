@@ -738,12 +738,17 @@ def residual_analysis(
 def _find_knee_frequency(freqs: np.ndarray, res_dict: dict) -> float:
     """Find the frequency where the residual curve departs from linearity.
 
-    Fits a regression line to the upper half of the residual curve (high-
-    frequency region, which is approximately linear because only noise is
-    being removed).  Walking down from high to low frequency, the first
-    point whose residual exceeds the regression prediction by more than
-    one standard error of the fit is identified as the knee / optimal
-    cutoff.
+    Uses a piecewise linear approach inspired by Winter (2009):
+
+    1. Fit a regression line to the high-frequency tail (upper quarter)
+       of the residual curve, where the relationship is approximately
+       linear because only noise is being removed.
+    2. Extrapolate that line to all frequencies.
+    3. Compute the deviation of the actual residual from this line at
+       each frequency.
+    4. The optimal cutoff is the frequency where the deviation first
+       exceeds a threshold (5 % of the total residual range), scanning
+       from high to low frequency.
 
     Parameters
     ----------
@@ -763,35 +768,38 @@ def _find_knee_frequency(freqs: np.ndarray, res_dict: dict) -> float:
     if n < 4:
         return float(freqs[n // 2])
 
-    # Fit line to upper half of curve (high-freq region)
-    upper_start = n // 2
+    # Fit line to the upper quarter of the curve (high-freq tail)
+    upper_start = n * 3 // 4
+    if n - upper_start < 2:
+        upper_start = max(n // 2, 0)
     x_upper = freqs[upper_start:]
     y_upper = residuals[upper_start:]
 
-    if len(x_upper) < 2 or np.std(y_upper) < 1e-15:
+    if len(x_upper) < 2:
         return float(freqs[n // 2])
 
-    # Linear regression on the upper portion
+    res_range = float(residuals.max() - residuals.min())
+    if res_range < 1e-15:
+        # Flat curve -- no meaningful distinction
+        return float(freqs[n // 2])
+
+    # Linear regression on the tail portion
     coeffs = np.polyfit(x_upper, y_upper, 1)
     slope, intercept = coeffs[0], coeffs[1]
 
-    # Predicted values and standard error of the fit in the upper region
-    y_pred_upper = slope * x_upper + intercept
-    se = float(np.sqrt(np.mean((y_upper - y_pred_upper) ** 2)))
-
-    if se < 1e-15:
-        # Residual curve is essentially flat; pick middle frequency
-        return float(freqs[n // 2])
-
-    # Walk from high frequency toward low: find where residual departs
-    # from the regression line by more than one SE
+    # Extrapolate the tail line to all frequencies
     predicted_all = slope * freqs + intercept
+
+    # Deviation: how much the actual residual exceeds the tail line
     deviations = residuals - predicted_all
 
-    # Scan from the highest freq downward; find first freq where
-    # the deviation exceeds the threshold
+    # Threshold: 5 % of the total residual range
+    threshold = 0.05 * res_range
+
+    # Scan from high frequency toward low; find the first frequency
+    # where the deviation crosses the threshold
     for i in range(n - 1, -1, -1):
-        if deviations[i] > se:
+        if deviations[i] > threshold:
             return float(freqs[i])
 
     # Fallback: return lowest candidate
