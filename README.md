@@ -554,7 +554,8 @@ If you use myogait in your research, please cite:
 @software{myogait,
   author = {Fer, Frederic},
   title = {myogait: Markerless video-based gait analysis toolkit},
-  year = {2024},
+  year = {2025},
+  institution = {Institut de Myologie, Paris, France},
   publisher = {GitHub},
   url = {https://github.com/IDMDataHub/myogait}
 }
