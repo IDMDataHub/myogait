@@ -121,6 +121,21 @@ def validate_biomechanical(
     """
     if not isinstance(data, dict):
         raise TypeError("data must be a dict")
+
+    # Auto-switch to stratified validation when subject context is available.
+    # This preserves backward compatibility while reducing misuse of generic
+    # adult ranges in pediatric/elderly cohorts.
+    subject = data.get("subject", {}) if isinstance(data.get("subject", {}), dict) else {}
+    age = subject.get("age")
+    sex = subject.get("sex")
+    speed = subject.get("speed")
+    if age is not None or sex is not None or speed is not None:
+        report = validate_biomechanical_stratified(
+            data, cycles=cycles, age=age, sex=sex, speed=speed
+        )
+        report["mode"] = "stratified_auto"
+        return report
+
     violations = []
 
     # Validate angles
