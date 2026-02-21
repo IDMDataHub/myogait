@@ -21,6 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 
@@ -52,9 +53,9 @@ dev = ["pytest>=7.0", "openpyxl>=3.1", "pyyaml>=6.0", "build>=1.0", "twine>=5.0"
 myogait = "myogait.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/fferr/myogait"
-Repository = "https://github.com/fferr/myogait"
-"Bug Tracker" = "https://github.com/fferr/myogait/issues"
+Homepage = "https://github.com/IDMDataHub/myogait"
+Repository = "https://github.com/IDMDataHub/myogait"
+"Bug Tracker" = "https://github.com/IDMDataHub/myogait/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
