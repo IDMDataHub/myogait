@@ -76,10 +76,19 @@ from .scores import (
     movement_analysis_profile,
 )
 from .schema import load_json, save_json, set_subject
-from .plotting import plot_angles, plot_cycles, plot_events, plot_summary, plot_phase_plane
-from .report import generate_report
-from .export import export_csv, export_mot, export_trc, export_excel
-from .validation import validate_biomechanical
+from .plotting import (
+    plot_angles, plot_cycles, plot_events, plot_summary, plot_phase_plane,
+    plot_normative_comparison, plot_gvs_profile, plot_quality_dashboard,
+    plot_longitudinal, plot_arm_swing,
+)
+from .report import generate_report, generate_longitudinal_report
+from .export import export_csv, export_mot, export_trc, export_excel, export_c3d
+from .validation import (
+    validate_biomechanical,
+    stratified_ranges,
+    model_accuracy_info,
+    validate_biomechanical_stratified,
+)
 from .config import load_config, save_config, DEFAULT_CONFIG
 
 __all__ = [
@@ -134,15 +143,25 @@ __all__ = [
     "plot_events",
     "plot_summary",
     "plot_phase_plane",
+    "plot_normative_comparison",
+    "plot_gvs_profile",
+    "plot_quality_dashboard",
+    "plot_longitudinal",
+    "plot_arm_swing",
     # Report
     "generate_report",
+    "generate_longitudinal_report",
     # Export
     "export_csv",
     "export_mot",
     "export_trc",
     "export_excel",
+    "export_c3d",
     # Validation
     "validate_biomechanical",
+    "stratified_ranges",
+    "model_accuracy_info",
+    "validate_biomechanical_stratified",
     # Config
     "load_config",
     "save_config",
