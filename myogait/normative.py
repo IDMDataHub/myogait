@@ -183,6 +183,43 @@ def _make_pelvis_sagittal_curve():
     return curve
 
 
+# ── Variable SD helper ───────────────────────────────────────────────
+
+def _make_variable_sd(
+    baseline: float,
+    peak: float,
+    bump_centers: list,
+    bump_widths: list,
+) -> np.ndarray:
+    """Create a 101-point SD curve that varies smoothly over the gait cycle.
+
+    Uses additive Gaussian bumps on top of a constant *baseline* so
+    that transitions are smooth (no step discontinuities).
+
+    Parameters
+    ----------
+    baseline : float
+        Minimum SD value, used across most of the cycle.
+    peak : float
+        Maximum SD value at the center of a bump.
+    bump_centers : list of float
+        Percent-of-gait-cycle locations of the bump peaks.
+    bump_widths : list of float
+        Standard deviations (in %-GC) of each Gaussian bump.
+
+    Returns
+    -------
+    np.ndarray
+        Array of shape (101,) with SD values.
+    """
+    sd = baseline * np.ones(_N_POINTS)
+    amplitude = peak - baseline
+    for center, width in zip(bump_centers, bump_widths):
+        bump = amplitude * np.exp(-0.5 * ((_GC - center) / width) ** 2)
+        sd = sd + bump
+    return sd
+
+
 # ── Build normative data at module load ──────────────────────────────
 
 def _build_normative_data():
@@ -194,12 +231,26 @@ def _build_normative_data():
     adult_trunk_mean = _make_trunk_curve()
     adult_pelvis_mean = _make_pelvis_sagittal_curve()
 
-    # Adult SD values
-    adult_hip_sd = 5.0 * np.ones(_N_POINTS)
-    adult_knee_sd = 5.0 * np.ones(_N_POINTS)
-    adult_ankle_sd = 3.0 * np.ones(_N_POINTS)
+    # Adult SD values -- vary across the gait cycle using smooth
+    # Gaussian bumps to model regions of higher inter-subject
+    # variability (transitions, swing phase, push-off, etc.).
+    adult_hip_sd = _make_variable_sd(
+        baseline=4.0, peak=7.0,
+        bump_centers=[5.0, 60.0],   # 0-10% extremes and pre-swing / terminal extension
+        bump_widths=[5.0, 5.0],
+    )
+    adult_knee_sd = _make_variable_sd(
+        baseline=5.0, peak=8.0,
+        bump_centers=[75.0],        # swing phase (65-85% GC)
+        bump_widths=[10.0],
+    )
+    adult_ankle_sd = _make_variable_sd(
+        baseline=3.0, peak=5.0,
+        bump_centers=[60.0],        # push-off (55-65% GC)
+        bump_widths=[5.0],
+    )
     adult_trunk_sd = 3.0 * np.ones(_N_POINTS)
-    adult_pelvis_sd = 3.0 * np.ones(_N_POINTS)
+    adult_pelvis_sd = 2.5 * np.ones(_N_POINTS)
 
     # Elderly: reduced ROM (~80% of adult), same shape
     # Scale about the mean of each curve
@@ -214,11 +265,21 @@ def _build_normative_data():
     elderly_trunk_mean = _scale_rom(adult_trunk_mean, 0.85)  # trunk less affected
     elderly_pelvis_mean = _scale_rom(adult_pelvis_mean, 0.85)
 
-    elderly_hip_sd = 5.0 * np.ones(_N_POINTS)
-    elderly_knee_sd = 5.0 * np.ones(_N_POINTS)
-    elderly_ankle_sd = 3.0 * np.ones(_N_POINTS)
+    # Elderly SDs: same shape as adult (variable across cycle)
+    elderly_hip_sd = _make_variable_sd(
+        baseline=4.0, peak=7.0,
+        bump_centers=[5.0, 60.0], bump_widths=[5.0, 5.0],
+    )
+    elderly_knee_sd = _make_variable_sd(
+        baseline=5.0, peak=8.0,
+        bump_centers=[75.0], bump_widths=[10.0],
+    )
+    elderly_ankle_sd = _make_variable_sd(
+        baseline=3.0, peak=5.0,
+        bump_centers=[60.0], bump_widths=[5.0],
+    )
     elderly_trunk_sd = 3.0 * np.ones(_N_POINTS)
-    elderly_pelvis_sd = 3.0 * np.ones(_N_POINTS)
+    elderly_pelvis_sd = 2.5 * np.ones(_N_POINTS)
 
     # Pediatric: slightly increased ROM (~105% of adult), more variable
     pediatric_hip_mean = _scale_rom(adult_hip_mean, 1.05)
@@ -227,11 +288,21 @@ def _build_normative_data():
     pediatric_trunk_mean = _scale_rom(adult_trunk_mean, 1.05)
     pediatric_pelvis_mean = _scale_rom(adult_pelvis_mean, 1.05)
 
-    pediatric_hip_sd = 7.0 * np.ones(_N_POINTS)
-    pediatric_knee_sd = 7.0 * np.ones(_N_POINTS)
-    pediatric_ankle_sd = 6.0 * np.ones(_N_POINTS)
+    # Pediatric SDs: higher baseline, same bump pattern
+    pediatric_hip_sd = _make_variable_sd(
+        baseline=6.0, peak=9.0,
+        bump_centers=[5.0, 60.0], bump_widths=[5.0, 5.0],
+    )
+    pediatric_knee_sd = _make_variable_sd(
+        baseline=6.0, peak=10.0,
+        bump_centers=[75.0], bump_widths=[10.0],
+    )
+    pediatric_ankle_sd = _make_variable_sd(
+        baseline=5.0, peak=7.0,
+        bump_centers=[60.0], bump_widths=[5.0],
+    )
     pediatric_trunk_sd = 6.0 * np.ones(_N_POINTS)
-    pediatric_pelvis_sd = 6.0 * np.ones(_N_POINTS)
+    pediatric_pelvis_sd = 5.0 * np.ones(_N_POINTS)
 
     return {
         "adult": {

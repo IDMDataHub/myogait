@@ -140,17 +140,66 @@ def _estimate_foot_landmarks(frame: dict) -> dict:
 
 
 def _unwrap_angles(values: list) -> list:
-    """Unwrap angle series to remove ±180 discontinuities, recenter on median."""
+    """Unwrap angle series to remove ±180 discontinuities.
+
+    Does NOT recenter on median -- the absolute anatomical reference
+    must be preserved.  Recentering, if needed, is handled solely by
+    neutral calibration (which by default only touches ankle joints).
+    """
     arr = np.array(values, dtype=float)
     mask = ~np.isnan(arr)
     if mask.sum() < 2:
         return values
     unwrapped = np.degrees(np.unwrap(np.radians(arr[mask])))
-    median = np.median(unwrapped)
-    unwrapped -= median
     result = arr.copy()
     result[mask] = unwrapped
     return result.tolist()
+
+
+def _detect_walking_direction(data: dict) -> str:
+    """Detect walking direction from hip center horizontal displacement.
+
+    Analyses the mean horizontal displacement of the hip center
+    (average of LEFT_HIP and RIGHT_HIP x-coordinates) across all
+    frames.  If x increases over time the subject walks left-to-right
+    (in image coordinates); if it decreases the subject walks
+    right-to-left.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated.
+
+    Returns
+    -------
+    str
+        ``"left_to_right"`` or ``"right_to_left"``.
+    """
+    frames = data.get("frames", [])
+    if len(frames) < 2:
+        return "left_to_right"
+
+    xs = []
+    for frame in frames:
+        lm = frame.get("landmarks", {})
+        lh = lm.get("LEFT_HIP")
+        rh = lm.get("RIGHT_HIP")
+        if (lh is not None and rh is not None
+                and lh.get("x") is not None and rh.get("x") is not None
+                and not np.isnan(lh["x"]) and not np.isnan(rh["x"])):
+            xs.append((lh["x"] + rh["x"]) / 2.0)
+
+    if len(xs) < 2:
+        return "left_to_right"
+
+    # Use the overall displacement (last quarter vs first quarter) to be
+    # robust to noise.
+    n = len(xs)
+    q = max(1, n // 4)
+    mean_start = float(np.mean(xs[:q]))
+    mean_end = float(np.mean(xs[-q:]))
+
+    return "left_to_right" if mean_end >= mean_start else "right_to_left"
 
 
 def _extract_landmark_positions(frame: dict) -> dict:
@@ -371,8 +420,22 @@ def compute_angles(
     method_func = ANGLE_METHODS[method]
     model = data.get("extraction", {}).get("model", "mediapipe")
 
+    # Detect walking direction (only relevant for sagittal_vertical_axis)
+    walking_direction = _detect_walking_direction(data)
+    logger.info("Detected walking direction: %s", walking_direction)
+
     # Compute per-frame angles
     angle_frames = [method_func(frame, model) for frame in data["frames"]]
+
+    # If the subject walks right-to-left the sagittal_vertical_axis
+    # hip sign is mirrored.  Invert so that flexion stays positive.
+    if walking_direction == "right_to_left" and method == "sagittal_vertical_axis":
+        for af in angle_frames:
+            for side in ("L", "R"):
+                key = f"hip_{side}"
+                v = af.get(key)
+                if v is not None and not np.isnan(v):
+                    af[key] = -v
 
     # Apply correction factor
     if correction_factor != 1.0:
@@ -417,6 +480,7 @@ def compute_angles(
         "calibrated": calibrate,
         "calibration_frames": calibration_frames if calibrate else None,
         "calibration_joints": calibration_joints if calibrate else [],
+        "walking_direction": walking_direction,
         "joints": ["hip_L", "hip_R", "knee_L", "knee_R", "ankle_L", "ankle_R"],
         "extra": ["trunk_angle", "pelvis_tilt"],
         "frames": angle_frames,
@@ -827,3 +891,46 @@ def compute_extended_angles(data: dict) -> dict:
                 af[key] = None
 
     return data
+
+
+def foot_progression_angle(data: dict) -> dict:
+    """Compute foot progression angle (heel-to-toe vs horizontal).
+
+    The foot progression angle (FPA) is the angle between the
+    heel-to-toe vector and the horizontal axis.  Positive values
+    indicate external rotation (out-toeing), negative values indicate
+    internal rotation (in-toeing).
+
+    Uses LEFT_HEEL -> LEFT_FOOT_INDEX and RIGHT_HEEL -> RIGHT_FOOT_INDEX.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated.
+
+    Returns
+    -------
+    dict
+        ``{"foot_angle_L": [...], "foot_angle_R": [...]}``, where each
+        list has one entry per frame (degrees, or ``None`` if landmarks
+        are missing).
+    """
+    frames = data.get("frames", [])
+    foot_angle_L = []
+    foot_angle_R = []
+
+    for frame in frames:
+        for side, result_list in [("LEFT", foot_angle_L), ("RIGHT", foot_angle_R)]:
+            heel = _get_xy(frame, f"{side}_HEEL")
+            toe = _get_xy(frame, f"{side}_FOOT_INDEX")
+            if heel is not None and toe is not None:
+                vec = toe - heel
+                # atan2(y, x) -- but y is inverted in image coords so
+                # we use -y to get the real-world angle.  Positive angle
+                # means the toe points outward (external rotation).
+                angle = np.degrees(np.arctan2(-vec[1], vec[0]))
+                result_list.append(float(angle))
+            else:
+                result_list.append(None)
+
+    return {"foot_angle_L": foot_angle_L, "foot_angle_R": foot_angle_R}

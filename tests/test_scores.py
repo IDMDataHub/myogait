@@ -1,5 +1,7 @@
 """Tests for myogait.scores -- clinical gait deviation scores."""
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -9,6 +11,7 @@ from myogait.scores import (
     gait_variable_scores,
     gait_profile_score_2d,
     gait_deviation_index_2d,
+    sagittal_deviation_index,
     movement_analysis_profile,
 )
 from myogait.normative import get_normative_curve
@@ -289,3 +292,90 @@ class TestScoresMissingSummary:
     def test_gvs_not_dict_raises(self):
         with pytest.raises(TypeError):
             gait_variable_scores("not a dict")
+
+
+# ── sagittal_deviation_index (E2 fix) ───────────────────────────────
+
+
+class TestSagittalDeviationIndexExists:
+    """sagittal_deviation_index should exist and work."""
+
+    def test_function_exists(self):
+        """sagittal_deviation_index should be importable."""
+        assert callable(sagittal_deviation_index)
+
+    def test_returns_dict(self, pipeline_cycles):
+        result = sagittal_deviation_index(pipeline_cycles)
+        assert isinstance(result, dict)
+
+    def test_has_required_keys(self, pipeline_cycles):
+        result = sagittal_deviation_index(pipeline_cycles)
+        for key in ("gdi_2d_left", "gdi_2d_right", "gdi_2d_overall", "note"):
+            assert key in result, f"Missing key: {key}"
+
+    def test_note_mentions_sagittal(self, pipeline_cycles):
+        """Note should mention Sagittal Deviation Index, not claim to be GDI."""
+        result = sagittal_deviation_index(pipeline_cycles)
+        assert "Sagittal Deviation Index" in result["note"]
+        assert "NOT" in result["note"]
+
+
+class TestGDI2DIsDeprecatedAlias:
+    """gait_deviation_index_2d should still work but emit a deprecation warning."""
+
+    def test_alias_returns_same_result(self, normative_cycles):
+        """Alias should return the same result as the new name."""
+        direct = sagittal_deviation_index(normative_cycles)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            alias = gait_deviation_index_2d(normative_cycles)
+        assert direct == alias
+
+    def test_alias_emits_deprecation_warning(self, normative_cycles):
+        """Calling the alias should raise DeprecationWarning."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            gait_deviation_index_2d(normative_cycles)
+            deprecation_warnings = [
+                x for x in w if issubclass(x.category, DeprecationWarning)
+            ]
+            assert len(deprecation_warnings) >= 1
+
+
+class TestSDIClamped:
+    """SDI values should be clamped between 0 and 120."""
+
+    def test_normative_clamped_upper(self, normative_cycles):
+        """Normative data: SDI should not exceed 120."""
+        result = sagittal_deviation_index(normative_cycles)
+        for key in ("gdi_2d_left", "gdi_2d_right", "gdi_2d_overall"):
+            val = result[key]
+            if val is not None:
+                assert val <= 120.0, f"{key} = {val} exceeds upper clamp"
+
+    def test_pathological_clamped_lower(self, pathological_cycles):
+        """Pathological data: SDI should not go below 0."""
+        result = sagittal_deviation_index(pathological_cycles)
+        for key in ("gdi_2d_left", "gdi_2d_right", "gdi_2d_overall"):
+            val = result[key]
+            if val is not None:
+                assert val >= 0.0, f"{key} = {val} below lower clamp"
+
+    def test_extreme_deviation_clamped_at_zero(self):
+        """With extreme deviation (100 deg offset), SDI should be clamped at 0."""
+        summary = {}
+        for side in ("left", "right"):
+            side_data = {"n_cycles": 5}
+            for joint in ("hip", "knee", "ankle", "trunk"):
+                norm = get_normative_curve(joint, "adult")
+                shifted = [v + 100.0 for v in norm["mean"]]
+                side_data[f"{joint}_mean"] = shifted
+                side_data[f"{joint}_std"] = list(norm["sd"])
+            summary[side] = side_data
+        cycles = {"cycles": [], "summary": summary}
+        result = sagittal_deviation_index(cycles)
+        for key in ("gdi_2d_left", "gdi_2d_right", "gdi_2d_overall"):
+            val = result[key]
+            if val is not None:
+                assert val >= 0.0, f"{key} = {val} below zero"
+                assert val <= 120.0, f"{key} = {val} exceeds 120"

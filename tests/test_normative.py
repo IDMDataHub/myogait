@@ -246,3 +246,92 @@ class TestListStrata:
 
     def test_length(self):
         assert len(list_strata()) == 3
+
+
+# ── Variable SD tests (E3 fix) ──────────────────────────────────────
+
+
+class TestVariableSD:
+    """After the E3 fix, SDs should vary across the gait cycle for
+    hip, knee, and ankle (not constant)."""
+
+    def test_hip_sd_not_constant(self):
+        """Adult hip SD should not be the same value everywhere."""
+        result = get_normative_curve("hip", "adult")
+        sd = np.array(result["sd"])
+        assert sd.max() > sd.min(), "Hip SD is constant -- expected variation"
+
+    def test_knee_sd_not_constant(self):
+        """Adult knee SD should not be the same value everywhere."""
+        result = get_normative_curve("knee", "adult")
+        sd = np.array(result["sd"])
+        assert sd.max() > sd.min(), "Knee SD is constant -- expected variation"
+
+    def test_ankle_sd_not_constant(self):
+        """Adult ankle SD should not be the same value everywhere."""
+        result = get_normative_curve("ankle", "adult")
+        sd = np.array(result["sd"])
+        assert sd.max() > sd.min(), "Ankle SD is constant -- expected variation"
+
+    def test_trunk_sd_constant(self):
+        """Trunk SD can remain constant (acceptable)."""
+        result = get_normative_curve("trunk", "adult")
+        sd = np.array(result["sd"])
+        np.testing.assert_allclose(sd, sd[0], atol=1e-10)
+
+    def test_pelvis_sd_constant(self):
+        """Pelvis SD can remain constant (acceptable)."""
+        result = get_normative_curve("pelvis_sagittal", "adult")
+        sd = np.array(result["sd"])
+        np.testing.assert_allclose(sd, sd[0], atol=1e-10)
+
+    def test_hip_sd_higher_at_extremes(self):
+        """Hip SD should be higher at cycle extremes (near 0% and 55-65%)
+        than at mid-stance (40-50%)."""
+        result = get_normative_curve("hip", "adult")
+        sd = np.array(result["sd"])
+        mid_stance_sd = np.mean(sd[40:51])   # 40-50% GC
+        extreme_sd = np.mean(sd[0:11])        # 0-10% GC
+        assert extreme_sd > mid_stance_sd, (
+            f"Extreme SD ({extreme_sd:.2f}) should exceed mid-stance SD ({mid_stance_sd:.2f})"
+        )
+
+    def test_knee_sd_higher_in_swing(self):
+        """Knee SD should be higher in swing phase (65-85%) than stance."""
+        result = get_normative_curve("knee", "adult")
+        sd = np.array(result["sd"])
+        stance_sd = np.mean(sd[20:50])    # mid-stance
+        swing_sd = np.mean(sd[65:86])     # swing phase
+        assert swing_sd > stance_sd, (
+            f"Swing SD ({swing_sd:.2f}) should exceed stance SD ({stance_sd:.2f})"
+        )
+
+    def test_ankle_sd_higher_at_pushoff(self):
+        """Ankle SD should be higher at push-off (55-65%) than baseline."""
+        result = get_normative_curve("ankle", "adult")
+        sd = np.array(result["sd"])
+        baseline_sd = np.mean(sd[20:40])    # mid-stance baseline
+        pushoff_sd = np.mean(sd[55:66])     # push-off region
+        assert pushoff_sd > baseline_sd, (
+            f"Push-off SD ({pushoff_sd:.2f}) should exceed baseline SD ({baseline_sd:.2f})"
+        )
+
+    def test_all_sd_positive(self):
+        """All SD values must be strictly positive for all joints/strata."""
+        for joint in ["hip", "knee", "ankle", "trunk", "pelvis_sagittal"]:
+            for stratum in ["adult", "elderly", "pediatric"]:
+                result = get_normative_curve(joint, stratum)
+                sd = np.array(result["sd"])
+                assert np.all(sd > 0), f"{joint}/{stratum}: found non-positive SD"
+
+    def test_elderly_sd_varies(self):
+        """Elderly hip SD should also vary (not constant)."""
+        result = get_normative_curve("hip", "elderly")
+        sd = np.array(result["sd"])
+        assert sd.max() > sd.min()
+
+    def test_pediatric_sd_varies(self):
+        """Pediatric hip SD should also vary (not constant)."""
+        result = get_normative_curve("hip", "pediatric")
+        sd = np.array(result["sd"])
+        assert sd.max() > sd.min()

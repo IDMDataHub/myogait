@@ -1,11 +1,11 @@
-"""Clinical gait scores: GVS, GPS-2D, GDI-2D, MAP.
+"""Clinical gait scores: GVS, GPS-2D, Sagittal Deviation Index, MAP.
 
 Computes standardized gait deviation scores by comparing patient
 kinematic curves to normative data.
 
-IMPORTANT: The GPS-2D and GDI-2D scores are 2D sagittal-plane
-adaptations using 4 variables. They are NOT equivalent to the
-standard 9-variable, 3-plane GPS/GDI (Baker et al. 2009,
+IMPORTANT: The GPS-2D and Sagittal Deviation Index scores are 2D
+sagittal-plane adaptations using 4 variables. They are NOT equivalent
+to the standard 9-variable, 3-plane GPS/GDI (Baker et al. 2009,
 Schwartz & Rozumalski 2008). Use for screening only.
 
 Standard GPS/GDI require 3D motion capture with:
@@ -24,6 +24,8 @@ References:
     comprehensive index of gait pathology. Gait Posture.
     2008;28(3):351-357. doi:10.1016/j.gaitpost.2008.05.001
 """
+
+import warnings
 
 import numpy as np
 
@@ -189,18 +191,24 @@ def gait_profile_score_2d(cycles: dict, stratum: str = "adult") -> dict:
     return gps
 
 
-def gait_deviation_index_2d(cycles: dict, stratum: str = "adult") -> dict:
-    """Compute 2D sagittal-plane Gait Deviation Index.
+def sagittal_deviation_index(cycles: dict, stratum: str = "adult") -> dict:
+    """Compute the myogait Sagittal Deviation Index (SDI).
 
-    GDI-2D is a scaled index where normal gait scores approximately
+    This is a myogait-specific 2D sagittal-plane deviation index.
+    It is **NOT** the GDI of Schwartz & Rozumalski (2008), which
+    requires 9 kinematic variables from 3D motion capture.
+
+    The SDI is a scaled index where normal gait scores approximately
     100 and pathological gait scores below 100:
 
-        GDI-2D = 100 - 10 * (GPS-2D - ref_gps) / ref_sd
+        SDI = 100 - 10 * (GPS-2D - ref_gps) / ref_sd
 
-    where ``ref_gps`` and ``ref_sd`` are estimated from the normative
-    SD values. For a normal population, GPS-2D should equal
-    approximately the mean SD of the normative curves (because each
-    subject deviates by ~1 SD on average).
+    where ``ref_gps`` is the expected GPS-2D for a normative subject
+    (mean of per-joint normative SDs) and ``ref_sd`` is the mean of
+    those normative SDs (i.e. derived from real normative data rather
+    than an arbitrary fraction).
+
+    The result is clamped to [0, 120].
 
     Parameters
     ----------
@@ -215,25 +223,26 @@ def gait_deviation_index_2d(cycles: dict, stratum: str = "adult") -> dict:
         Keys: ``'gdi_2d_left'``, ``'gdi_2d_right'``,
         ``'gdi_2d_overall'``, ``'note'``.
 
-    References
-    ----------
-    Schwartz & Rozumalski (2008). Adapted for 2D sagittal-plane
-    analysis.
+    Notes
+    -----
+    This score was previously named ``gait_deviation_index_2d``.
+    That name is kept as a deprecated alias for backwards
+    compatibility.
     """
     gps = gait_profile_score_2d(cycles, stratum)
 
     # Reference GPS: the expected GPS-2D for a normal subject.
     # A normal subject's curve deviates from the population mean by
     # ~1 SD on average, so ref_gps approx mean(SD) across joints.
-    ref_sds = []
+    norm_sds = {}
     for joint in _SCORE_JOINTS:
         norm = get_normative_curve(joint, stratum)
-        ref_sds.append(np.mean(norm["sd"]))
-    ref_gps = float(np.mean(ref_sds))  # expected GPS for normal subject
+        norm_sds[joint] = float(np.mean(norm["sd"]))
+    ref_gps = float(np.mean(list(norm_sds.values())))  # expected GPS for normal subject
 
-    # Reference SD: inter-subject variability of GPS itself (~2-3 deg)
-    # Estimated as half the mean SD (conservative estimate)
-    ref_sd = ref_gps * 0.5
+    # Reference SD: derived from the normative SDs themselves
+    # (mean of per-joint normative SD values)
+    ref_sd = float(np.mean(list(norm_sds.values())))
     if ref_sd < 0.5:
         ref_sd = 0.5  # floor to avoid division issues
 
@@ -243,18 +252,35 @@ def gait_deviation_index_2d(cycles: dict, stratum: str = "adult") -> dict:
         gdi_key = key.replace("gps_2d", "gdi_2d")
         if gps_val is not None:
             gdi = 100.0 - 10.0 * (gps_val - ref_gps) / ref_sd
+            # Clamp to [0, 120] -- no negative or astronomic values
+            gdi = float(np.clip(gdi, 0.0, 120.0))
             result[gdi_key] = round(gdi, 1)
         else:
             result[gdi_key] = None
 
     result["note"] = (
-        "2D sagittal-plane adaptation of the Gait Deviation Index "
-        "(Schwartz & Rozumalski 2008). Normal gait scores ~100; "
-        "pathological gait scores below 100. Not equivalent to the "
-        "standard 9-variable 3-plane GDI. Use for screening only."
+        "myogait Sagittal Deviation Index (SDI): a 2D sagittal-plane "
+        "deviation index using 4 variables (hip, knee, ankle, trunk). "
+        "Normal gait scores ~100; pathological gait scores below 100. "
+        "This is NOT the GDI of Schwartz & Rozumalski (2008). "
+        "Use for screening only."
     )
 
     return result
+
+
+def gait_deviation_index_2d(cycles: dict, stratum: str = "adult") -> dict:
+    """Deprecated alias for :func:`sagittal_deviation_index`.
+
+    .. deprecated::
+        Use :func:`sagittal_deviation_index` instead.
+    """
+    warnings.warn(
+        "gait_deviation_index_2d is deprecated; use sagittal_deviation_index instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return sagittal_deviation_index(cycles, stratum)
 
 
 def movement_analysis_profile(cycles: dict, stratum: str = "adult") -> dict:

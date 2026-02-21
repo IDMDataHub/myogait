@@ -1,8 +1,9 @@
 """Tests for extended angle functions in angles.py.
 
 Tests cover head angle, arm angles, pelvis sagittal tilt,
-depth-enhanced angles, frontal-plane angles, and the
-compute_extended_angles() public API.
+depth-enhanced angles, frontal-plane angles, walking direction
+detection, foot progression angle, unwrap-without-median fix,
+and the compute_extended_angles() public API.
 """
 
 import copy
@@ -27,9 +28,12 @@ from myogait.angles import (
     _arm_angles,
     _pelvis_sagittal_tilt,
     _depth_enhanced_angles,
+    _detect_walking_direction,
+    _unwrap_angles,
     compute_frontal_angles,
     compute_extended_angles,
     compute_angles,
+    foot_progression_angle,
 )
 
 
@@ -324,3 +328,168 @@ class TestComputeFrontalAngles:
             if f["hip_abduction_L"] is not None
         )
         assert non_none > 0
+
+
+# ── _unwrap_angles (E1 fix) ─────────────────────────────────────────
+
+
+class TestUnwrapAnglesNoMedianRecenter:
+    """After the E1 fix, _unwrap_angles must NOT recenter on the median."""
+
+    def test_preserves_absolute_reference(self):
+        """A constant series at 30 deg should stay at 30 deg, not be zeroed."""
+        vals = [30.0] * 20
+        result = _unwrap_angles(vals)
+        # Should still be 30, not shifted to 0
+        np.testing.assert_allclose(result, 30.0, atol=1e-6)
+
+    def test_preserves_offset_hip_signal(self):
+        """A hip signal oscillating around 15 deg should keep that offset."""
+        t = np.linspace(0, 2 * np.pi, 100)
+        signal = 15.0 + 10.0 * np.sin(t)  # oscillates 5..25
+        result = _unwrap_angles(signal.tolist())
+        result_arr = np.array(result)
+        # The mean should still be around 15, not shifted to 0
+        assert abs(np.mean(result_arr) - 15.0) < 2.0
+
+    def test_unwrap_removes_discontinuity(self):
+        """Unwrap should still fix +-180 jumps."""
+        vals = [170.0, 175.0, 179.0, -179.0, -175.0, -170.0]
+        result = _unwrap_angles(vals)
+        arr = np.array(result)
+        # After unwrap the series should be monotonically increasing
+        diffs = np.diff(arr)
+        assert np.all(diffs > 0), "Unwrap did not remove the discontinuity"
+
+    def test_nan_handling(self):
+        """NaN values should pass through unchanged."""
+        vals = [10.0, float('nan'), 12.0]
+        result = _unwrap_angles(vals)
+        assert np.isnan(result[1])
+        assert not np.isnan(result[0])
+        assert not np.isnan(result[2])
+
+
+# ── _detect_walking_direction (W1) ──────────────────────────────────
+
+
+class TestDetectWalkingDirection:
+
+    def test_left_to_right(self):
+        """Hip center x increasing => left_to_right."""
+        data = _make_direction_data(start_x=0.2, end_x=0.8)
+        assert _detect_walking_direction(data) == "left_to_right"
+
+    def test_right_to_left(self):
+        """Hip center x decreasing => right_to_left."""
+        data = _make_direction_data(start_x=0.8, end_x=0.2)
+        assert _detect_walking_direction(data) == "right_to_left"
+
+    def test_stationary_defaults_left_to_right(self):
+        """No displacement => left_to_right (default)."""
+        data = _make_direction_data(start_x=0.5, end_x=0.5)
+        assert _detect_walking_direction(data) == "left_to_right"
+
+    def test_empty_frames_defaults(self):
+        """No frames => left_to_right (default)."""
+        data = {"frames": []}
+        assert _detect_walking_direction(data) == "left_to_right"
+
+    def test_single_frame_defaults(self):
+        """Only one frame => left_to_right (default)."""
+        data = {"frames": [{"landmarks": {
+            "LEFT_HIP": {"x": 0.5, "y": 0.5},
+            "RIGHT_HIP": {"x": 0.5, "y": 0.5},
+        }}]}
+        assert _detect_walking_direction(data) == "left_to_right"
+
+    def test_direction_stored_in_angles(self):
+        """compute_angles should store walking_direction in data['angles']."""
+        data = make_walking_data(n_frames=60)
+        compute_angles(data, correction_factor=1.0, calibrate=False)
+        assert "walking_direction" in data["angles"]
+        assert data["angles"]["walking_direction"] in (
+            "left_to_right", "right_to_left"
+        )
+
+
+def _make_direction_data(start_x, end_x, n_frames=50):
+    """Build minimal data with hip center moving from start_x to end_x."""
+    frames = []
+    for i in range(n_frames):
+        frac = i / max(n_frames - 1, 1)
+        x = start_x + (end_x - start_x) * frac
+        frames.append({
+            "frame_idx": i,
+            "time_s": i / 30.0,
+            "landmarks": {
+                "LEFT_HIP": {"x": x - 0.01, "y": 0.5, "visibility": 1.0},
+                "RIGHT_HIP": {"x": x + 0.01, "y": 0.5, "visibility": 1.0},
+            },
+        })
+    return {"frames": frames}
+
+
+# ── foot_progression_angle (Feature 16) ─────────────────────────────
+
+
+class TestFootProgressionAngle:
+
+    def test_returns_both_sides(self):
+        """Result should have foot_angle_L and foot_angle_R keys."""
+        data = make_walking_data(n_frames=30)
+        result = foot_progression_angle(data)
+        assert "foot_angle_L" in result
+        assert "foot_angle_R" in result
+        assert len(result["foot_angle_L"]) == 30
+        assert len(result["foot_angle_R"]) == 30
+
+    def test_values_are_numeric(self):
+        """Angles should be numeric (float) or None."""
+        data = make_walking_data(n_frames=30)
+        result = foot_progression_angle(data)
+        for val in result["foot_angle_L"]:
+            assert val is None or isinstance(val, float)
+
+    def test_straight_ahead_foot(self):
+        """A foot pointing perfectly horizontally (toe to the right of heel)
+        should give angle near 0 degrees."""
+        data = {
+            "frames": [{
+                "frame_idx": 0,
+                "landmarks": {
+                    "LEFT_HEEL": {"x": 0.4, "y": 0.8, "visibility": 1.0},
+                    "LEFT_FOOT_INDEX": {"x": 0.5, "y": 0.8, "visibility": 1.0},
+                    "RIGHT_HEEL": {"x": 0.4, "y": 0.8, "visibility": 1.0},
+                    "RIGHT_FOOT_INDEX": {"x": 0.5, "y": 0.8, "visibility": 1.0},
+                },
+            }],
+        }
+        result = foot_progression_angle(data)
+        # Horizontal foot => angle ~0
+        assert abs(result["foot_angle_L"][0]) < 5.0
+        assert abs(result["foot_angle_R"][0]) < 5.0
+
+    def test_missing_landmarks_gives_none(self):
+        """Missing heel or toe landmarks should produce None."""
+        data = {
+            "frames": [{
+                "frame_idx": 0,
+                "landmarks": {
+                    "LEFT_HEEL": {"x": 0.4, "y": 0.8, "visibility": 1.0},
+                    # LEFT_FOOT_INDEX missing
+                    "RIGHT_HEEL": {"x": 0.4, "y": 0.8, "visibility": 1.0},
+                    "RIGHT_FOOT_INDEX": {"x": 0.5, "y": 0.8, "visibility": 1.0},
+                },
+            }],
+        }
+        result = foot_progression_angle(data)
+        assert result["foot_angle_L"][0] is None
+        assert result["foot_angle_R"][0] is not None
+
+    def test_empty_data(self):
+        """Empty frames should return empty lists."""
+        data = {"frames": []}
+        result = foot_progression_angle(data)
+        assert result["foot_angle_L"] == []
+        assert result["foot_angle_R"] == []
