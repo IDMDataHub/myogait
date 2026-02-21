@@ -16,6 +16,16 @@ plot_summary
     Multi-panel summary figure.
 plot_phase_plane
     Joint angle vs angular velocity phase diagram.
+plot_normative_comparison
+    Plot patient cycles overlaid on normative mean +/- SD bands.
+plot_gvs_profile
+    Horizontal barplot of GVS per joint (MAP visualization).
+plot_quality_dashboard
+    Multi-panel data quality dashboard.
+plot_longitudinal
+    Plot a metric across multiple sessions over time.
+plot_arm_swing
+    Plot shoulder flexion L/R over gait cycle and amplitude per cycle.
 """
 
 import logging
@@ -503,5 +513,683 @@ def plot_phase_plane(
     ax.axhline(0, color="black", linewidth=0.5)
     ax.axvline(0, color="black", linewidth=0.5)
     ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_normative_comparison(
+    data: dict,
+    cycles: dict,
+    stratum: str = "adult",
+    joints: Optional[List[str]] = None,
+    figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Plot patient normalized gait cycles overlaid on normative bands.
+
+    One subplot per joint shows the patient's mean curve (blue) against
+    the normative mean (black dashed) with +/-1 SD (light gray) and
+    +/-2 SD (lighter gray) bands.  X-axis: 0--100%% gait cycle.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict (used for metadata).
+    cycles : dict
+        Output of ``segment_cycles()`` with ``summary`` populated.
+    stratum : str
+        Normative stratum (default ``'adult'``).
+    joints : list of str, optional
+        Joint names to plot (default: hip, knee, ankle, trunk).
+    figsize : tuple, optional
+        Figure size ``(width, height)`` in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    from .normative import get_normative_band
+
+    if joints is None:
+        joints = ["hip", "knee", "ankle", "trunk"]
+
+    n_plots = len(joints)
+    if figsize is None:
+        figsize = (12, 3 * n_plots)
+
+    fig, axes = plt.subplots(n_plots, 1, figsize=figsize, sharex=True)
+    if n_plots == 1:
+        axes = [axes]
+
+    x = np.linspace(0, 100, 101)
+    summary = cycles.get("summary", {})
+
+    for ax, joint in zip(axes, joints):
+        # Draw normative bands
+        band_2sd = get_normative_band(joint, stratum, n_sd=2.0)
+        band_1sd = get_normative_band(joint, stratum, n_sd=1.0)
+        norm_mean = np.array(band_1sd["mean"])
+
+        ax.fill_between(
+            x,
+            band_2sd["lower"], band_2sd["upper"],
+            color="#e0e0e0", alpha=0.5, label="+/-2 SD",
+        )
+        ax.fill_between(
+            x,
+            band_1sd["lower"], band_1sd["upper"],
+            color="#c0c0c0", alpha=0.5, label="+/-1 SD",
+        )
+        ax.plot(x, norm_mean, color="black", linestyle="--", linewidth=1.5,
+                label="Normative mean")
+
+        # Overlay patient curves for each side
+        for side in ("left", "right"):
+            side_summary = summary.get(side)
+            if side_summary is None:
+                continue
+            patient_mean = side_summary.get(f"{joint}_mean")
+            if patient_mean is None:
+                continue
+            patient_mean = np.array(patient_mean)
+            color = _COLORS["left"] if side == "left" else _COLORS["right"]
+            label_side = side.capitalize()
+            ax.plot(x, patient_mean, color=color, linewidth=2,
+                    label=f"Patient ({label_side})")
+
+        ax.set_ylabel("Angle (deg)")
+        ax.set_title(
+            f"{_JOINT_LABELS.get(joint, joint.capitalize())} "
+            f"— vs Normative ({stratum})"
+        )
+        ax.legend(loc="upper right", fontsize=7)
+        ax.grid(True, alpha=0.3)
+
+    axes[-1].set_xlabel("% Gait Cycle")
+    fig.tight_layout()
+    return fig
+
+
+def plot_gvs_profile(
+    cycles: dict,
+    stratum: str = "adult",
+    figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Horizontal barplot of GVS per joint (Movement Analysis Profile).
+
+    Left-side bars extend to the left, right-side bars extend to
+    the right.  Bars are colored green (<5 deg), orange (5--10 deg),
+    or red (>10 deg).  A vertical line marks the overall GPS-2D.
+
+    Parameters
+    ----------
+    cycles : dict
+        Output of ``segment_cycles()`` with ``summary`` populated.
+    stratum : str
+        Normative stratum (default ``'adult'``).
+    figsize : tuple, optional
+        Figure size ``(width, height)`` in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    from .scores import movement_analysis_profile
+
+    map_data = movement_analysis_profile(cycles, stratum)
+    joints = map_data["joints"]
+    left_vals = map_data["left"]
+    right_vals = map_data["right"]
+    gps_2d = map_data["gps_2d"]
+
+    n_joints = len(joints)
+    if figsize is None:
+        figsize = (10, max(4, n_joints * 1.2))
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    def _bar_color(val):
+        """Return color based on GVS magnitude."""
+        if val is None:
+            return "#999999"
+        if val < 5:
+            return "#2ca02c"   # green
+        elif val <= 10:
+            return "#ff7f0e"   # orange
+        else:
+            return "#d62728"   # red
+
+    y_positions = np.arange(n_joints)
+
+    # Left side: bars extend to the left (negative direction)
+    for i, (joint, val) in enumerate(zip(joints, left_vals)):
+        bar_val = -(val if val is not None else 0)
+        ax.barh(
+            y_positions[i] + 0.15, bar_val, height=0.3,
+            color=_bar_color(val), edgecolor="white", linewidth=0.5,
+        )
+        if val is not None:
+            ax.text(bar_val - 0.3, y_positions[i] + 0.15, f"{val:.1f}",
+                    ha="right", va="center", fontsize=8)
+
+    # Right side: bars extend to the right (positive direction)
+    for i, (joint, val) in enumerate(zip(joints, right_vals)):
+        bar_val = val if val is not None else 0
+        ax.barh(
+            y_positions[i] - 0.15, bar_val, height=0.3,
+            color=_bar_color(val), edgecolor="white", linewidth=0.5,
+        )
+        if val is not None:
+            ax.text(bar_val + 0.3, y_positions[i] - 0.15, f"{val:.1f}",
+                    ha="left", va="center", fontsize=8)
+
+    # GPS-2D vertical line
+    if gps_2d is not None:
+        ax.axvline(gps_2d, color="black", linestyle="-", linewidth=1.5,
+                   label=f"GPS-2D = {gps_2d:.1f} deg")
+        ax.axvline(-gps_2d, color="black", linestyle="-", linewidth=1.5)
+
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels([_JOINT_LABELS.get(j, j.capitalize()) for j in joints])
+    ax.set_xlabel("GVS (deg)")
+    ax.set_title("Movement Analysis Profile (MAP)")
+    ax.axvline(0, color="gray", linewidth=0.5)
+
+    # Legend for sides
+    ax.text(0.02, 0.98, "Left", transform=ax.transAxes,
+            fontsize=9, fontweight="bold", va="top", ha="left",
+            color=_COLORS["left"])
+    ax.text(0.98, 0.98, "Right", transform=ax.transAxes,
+            fontsize=9, fontweight="bold", va="top", ha="right",
+            color=_COLORS["right"])
+
+    if gps_2d is not None:
+        ax.legend(loc="lower right", fontsize=8)
+    ax.grid(True, axis="x", alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_quality_dashboard(
+    data: dict,
+    figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Multi-panel data quality dashboard.
+
+    Four panels show:
+      1. Detection rate per landmark over time (heatmap-like).
+      2. Per-frame confidence score (line plot).
+      3. Gap locations (scatter of missing frames).
+      4. Overall quality score (text display).
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated.
+    figsize : tuple, optional
+        Figure size ``(width, height)`` in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    from .normalize import data_quality_score
+
+    quality = data_quality_score(data)
+    frames = data.get("frames", [])
+    n_frames = len(frames)
+
+    if figsize is None:
+        figsize = (14, 10)
+
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    ax1, ax2 = axes[0]
+    ax3, ax4 = axes[1]
+
+    # Collect landmark names from first frame with landmarks
+    landmark_names = []
+    for f in frames:
+        lm = f.get("landmarks", {})
+        if lm:
+            landmark_names = sorted(lm.keys())
+            break
+
+    # Panel 1: Detection rate per landmark over time (heatmap-like)
+    if landmark_names and n_frames > 0:
+        n_bins = min(50, n_frames)
+        bin_size = max(1, n_frames // n_bins)
+        # Select key landmarks for readability
+        key_landmarks = [
+            name for name in landmark_names
+            if any(part in name for part in
+                   ["HIP", "KNEE", "ANKLE", "SHOULDER", "HEEL"])
+        ]
+        if not key_landmarks:
+            key_landmarks = landmark_names[:10]
+
+        detection_matrix = np.zeros((len(key_landmarks), n_bins))
+        for bi in range(n_bins):
+            start = bi * bin_size
+            end = min(start + bin_size, n_frames)
+            for li, lm_name in enumerate(key_landmarks):
+                detected = 0
+                total = 0
+                for fi in range(start, end):
+                    lm = frames[fi].get("landmarks", {}).get(lm_name, {})
+                    xv = lm.get("x")
+                    yv = lm.get("y")
+                    total += 1
+                    if (xv is not None and yv is not None
+                            and not np.isnan(xv) and not np.isnan(yv)):
+                        detected += 1
+                detection_matrix[li, bi] = (
+                    detected / total if total > 0 else 0
+                )
+
+        im = ax1.imshow(
+            detection_matrix, aspect="auto", cmap="RdYlGn",
+            vmin=0, vmax=1, interpolation="nearest",
+        )
+        ax1.set_yticks(range(len(key_landmarks)))
+        ax1.set_yticklabels(
+            [n.replace("_", " ") for n in key_landmarks], fontsize=6,
+        )
+        ax1.set_xlabel("Time bin")
+        ax1.set_title("Detection Rate per Landmark")
+        plt.colorbar(im, ax=ax1, label="Detection rate", shrink=0.8)
+    else:
+        ax1.text(
+            0.5, 0.5, "No frame data",
+            ha="center", va="center", transform=ax1.transAxes,
+        )
+        ax1.set_title("Detection Rate per Landmark")
+
+    # Panel 2: Confidence score per frame (line plot)
+    if n_frames > 0:
+        confidences = [f.get("confidence", 0.0) or 0.0 for f in frames]
+        frame_indices = list(range(n_frames))
+        ax2.plot(
+            frame_indices, confidences,
+            color=_COLORS["left"], linewidth=0.8, alpha=0.8,
+        )
+        ax2.set_xlabel("Frame")
+        ax2.set_ylabel("Confidence")
+        ax2.set_ylim(-0.05, 1.05)
+        ax2.set_title("Per-frame Confidence")
+        ax2.grid(True, alpha=0.3)
+        mean_conf = float(np.mean(confidences))
+        ax2.axhline(
+            mean_conf, color=_COLORS["right"], linestyle="--",
+            linewidth=1, label=f"Mean = {mean_conf:.2f}",
+        )
+        ax2.legend(loc="lower right", fontsize=8)
+    else:
+        ax2.text(
+            0.5, 0.5, "No frame data",
+            ha="center", va="center", transform=ax2.transAxes,
+        )
+        ax2.set_title("Per-frame Confidence")
+
+    # Panel 3: Gap locations (scatter)
+    gap_frames_list = []
+    if n_frames > 0:
+        for fi, f in enumerate(frames):
+            lm = f.get("landmarks", {})
+            all_nan = True
+            for name, coords in lm.items():
+                xv = coords.get("x")
+                yv = coords.get("y")
+                if (xv is not None and yv is not None
+                        and not np.isnan(xv) and not np.isnan(yv)):
+                    all_nan = False
+                    break
+            if all_nan and len(lm) > 0:
+                gap_frames_list.append(fi)
+
+        if gap_frames_list:
+            ax3.scatter(
+                gap_frames_list, [1] * len(gap_frames_list),
+                marker="|", color=_COLORS["to"], s=50, alpha=0.8,
+            )
+            ax3.set_ylim(0, 2)
+        else:
+            ax3.text(
+                0.5, 0.5, "No gaps detected",
+                ha="center", va="center", transform=ax3.transAxes,
+                fontsize=10, color="green",
+            )
+        ax3.set_xlabel("Frame")
+        ax3.set_title(f"Gap Locations ({len(gap_frames_list)} gap frames)")
+        ax3.set_yticks([])
+        ax3.grid(True, axis="x", alpha=0.3)
+    else:
+        ax3.text(
+            0.5, 0.5, "No frame data",
+            ha="center", va="center", transform=ax3.transAxes,
+        )
+        ax3.set_title("Gap Locations")
+
+    # Panel 4: Overall quality score (gauge/text)
+    ax4.axis("off")
+    overall = quality.get("overall_score", 0.0)
+
+    if overall >= 80:
+        score_color = "#2ca02c"
+        score_label = "GOOD"
+    elif overall >= 50:
+        score_color = "#ff7f0e"
+        score_label = "FAIR"
+    else:
+        score_color = "#d62728"
+        score_label = "POOR"
+
+    ax4.text(
+        0.5, 0.65, f"{overall:.0f}",
+        ha="center", va="center", transform=ax4.transAxes,
+        fontsize=48, fontweight="bold", color=score_color,
+    )
+    ax4.text(
+        0.5, 0.45, f"Quality: {score_label}",
+        ha="center", va="center", transform=ax4.transAxes,
+        fontsize=16, color=score_color,
+    )
+
+    details = (
+        f"Detection rate: {quality.get('detection_rate', 0):.1%}\n"
+        f"Mean confidence: {quality.get('mean_confidence', 0):.2f}\n"
+        f"Gap percentage: {quality.get('gap_pct', 0):.1%}\n"
+        f"Jitter score: {quality.get('jitter_score', 0):.4f}"
+    )
+    ax4.text(
+        0.5, 0.15, details,
+        ha="center", va="center", transform=ax4.transAxes,
+        fontsize=9, fontfamily="monospace",
+        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.3),
+    )
+    ax4.set_title("Overall Quality Score")
+
+    fig.suptitle(
+        "Data Quality Dashboard",
+        fontsize=13, fontweight="bold", y=0.99,
+    )
+    fig.tight_layout()
+    return fig
+
+
+def plot_longitudinal(
+    sessions: List[Dict],
+    metric: str = "gps_2d_overall",
+    figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Plot a gait metric across multiple sessions over time.
+
+    Parameters
+    ----------
+    sessions : list of dict
+        Each dict must have ``'date'`` (str, e.g. ``'2024-01-15'``)
+        and ``'stats'`` (output of ``analyze_gait()``).
+        Supported metrics:
+        - ``'gps_2d_overall'``, ``'gps_2d_left'``, ``'gps_2d_right'``
+        - ``'cadence'`` (from ``spatiotemporal.cadence_steps_per_min``)
+        - ``'symmetry'`` (from ``symmetry.overall_si``)
+    metric : str
+        Metric key (default ``'gps_2d_overall'``).
+    figsize : tuple, optional
+        Figure size ``(width, height)`` in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if figsize is None:
+        figsize = (10, 5)
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    dates = []
+    values = []
+    errors = []
+
+    _metric_extractors = {
+        "gps_2d_overall": lambda s: s.get("gps_2d_overall"),
+        "gps_2d_left": lambda s: s.get("gps_2d_left"),
+        "gps_2d_right": lambda s: s.get("gps_2d_right"),
+        "cadence": lambda s: s.get(
+            "spatiotemporal", {}
+        ).get("cadence_steps_per_min"),
+        "symmetry": lambda s: s.get("symmetry", {}).get("overall_si"),
+    }
+
+    extractor = _metric_extractors.get(metric)
+    if extractor is None:
+        extractor = lambda s: s.get(metric)  # noqa: E731
+
+    for session in sessions:
+        date = session.get("date", "")
+        stats = session.get("stats", {})
+        val = extractor(stats)
+        err = session.get("error")
+
+        dates.append(date)
+        values.append(val)
+        errors.append(err)
+
+    # Filter out None values for plotting
+    valid_idx = [i for i, v in enumerate(values) if v is not None]
+    if not valid_idx:
+        ax.text(
+            0.5, 0.5, f"No data for metric '{metric}'",
+            ha="center", va="center", transform=ax.transAxes,
+        )
+        fig.tight_layout()
+        return fig
+
+    plot_dates = [dates[i] for i in valid_idx]
+    plot_values = [values[i] for i in valid_idx]
+    plot_errors = [errors[i] for i in valid_idx]
+
+    has_errors = any(e is not None for e in plot_errors)
+    if has_errors:
+        yerr = [e if e is not None else 0 for e in plot_errors]
+        ax.errorbar(
+            range(len(plot_dates)), plot_values, yerr=yerr,
+            marker="o", color=_COLORS["left"], linewidth=2,
+            markersize=8, capsize=4, capthick=1.5,
+        )
+    else:
+        ax.plot(
+            range(len(plot_dates)), plot_values,
+            marker="o", color=_COLORS["left"], linewidth=2,
+            markersize=8,
+        )
+
+    ax.set_xticks(range(len(plot_dates)))
+    ax.set_xticklabels(plot_dates, rotation=45, ha="right", fontsize=9)
+
+    _metric_labels = {
+        "gps_2d_overall": "GPS-2D Overall (deg)",
+        "gps_2d_left": "GPS-2D Left (deg)",
+        "gps_2d_right": "GPS-2D Right (deg)",
+        "cadence": "Cadence (steps/min)",
+        "symmetry": "Symmetry Index (%)",
+    }
+    ylabel = _metric_labels.get(metric, metric)
+    ax.set_ylabel(ylabel)
+    ax.set_xlabel("Session")
+    ax.set_title(f"Longitudinal Trend: {ylabel}")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_arm_swing(
+    data: dict,
+    cycles: dict,
+    figsize: Optional[tuple] = None,
+) -> plt.Figure:
+    """Plot arm swing kinematics over gait cycles.
+
+    Top subplot: left and right shoulder flexion (or wrist x as
+    fallback) over the normalized gait cycle (mean +/- SD).
+    Bottom subplot: per-cycle amplitude bar chart comparing L vs R.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``angles`` and ``frames`` populated.
+    cycles : dict
+        Output of ``segment_cycles()``.
+    figsize : tuple, optional
+        Figure size ``(width, height)`` in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if figsize is None:
+        figsize = (12, 8)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize)
+
+    angles = data.get("angles", {})
+    angle_frames = angles.get("frames", [])
+    frames = data.get("frames", [])
+    cycle_list = cycles.get("cycles", [])
+
+    # Determine data source: shoulder angles or wrist x fallback
+    has_shoulder = False
+    if angle_frames:
+        sample_keys = set()
+        for af in angle_frames[:5]:
+            sample_keys.update(af.keys())
+        has_shoulder = (
+            "shoulder_flex_L" in sample_keys
+            and "shoulder_flex_R" in sample_keys
+        )
+
+    x_pct = np.linspace(0, 100, 101)
+
+    if has_shoulder:
+        data_label = "Shoulder Flexion"
+        left_curves = []
+        right_curves = []
+        for c in cycle_list:
+            start_f = c["start_frame"]
+            end_f = c["end_frame"]
+            cycle_afs = [
+                af for af in angle_frames
+                if start_f <= af.get("frame_idx", -1) <= end_f
+            ]
+            if len(cycle_afs) < 5:
+                continue
+            for key_sfx, clist in [("_L", left_curves), ("_R", right_curves)]:
+                vals = [
+                    af.get(f"shoulder_flex{key_sfx}") for af in cycle_afs
+                ]
+                vals = [v if v is not None else np.nan for v in vals]
+                if all(np.isnan(v) for v in vals):
+                    continue
+                arr = np.array(vals, dtype=float)
+                valid = ~np.isnan(arr)
+                if valid.sum() < 3:
+                    continue
+                x_old = np.linspace(0, 100, len(arr))
+                arr_interp = np.interp(x_pct, x_old[valid], arr[valid])
+                clist.append(arr_interp)
+    else:
+        # Fallback to wrist x displacement
+        data_label = "Wrist X Position (norm.)"
+        left_curves = []
+        right_curves = []
+        for c in cycle_list:
+            start_f = c["start_frame"]
+            end_f = c["end_frame"]
+            for wrist_name, clist in [
+                ("LEFT_WRIST", left_curves),
+                ("RIGHT_WRIST", right_curves),
+            ]:
+                vals = []
+                for fi in range(start_f, min(end_f + 1, len(frames))):
+                    lm = frames[fi].get("landmarks", {}).get(wrist_name, {})
+                    xv = lm.get("x")
+                    vals.append(xv if xv is not None else np.nan)
+                if len(vals) < 5:
+                    continue
+                arr = np.array(vals, dtype=float)
+                valid = ~np.isnan(arr)
+                if valid.sum() < 3:
+                    continue
+                arr = arr - np.nanmean(arr)
+                x_old = np.linspace(0, 100, len(arr))
+                arr_interp = np.interp(x_pct, x_old[valid], arr[valid])
+                clist.append(arr_interp * 100)
+
+    # Subplot 1: Mean +/- SD curves for L and R
+    for curves, side, color in [
+        (left_curves, "Left", _COLORS["left"]),
+        (right_curves, "Right", _COLORS["right"]),
+    ]:
+        if not curves:
+            continue
+        curves_arr = np.array(curves)
+        mean_curve = np.mean(curves_arr, axis=0)
+        std_curve = np.std(curves_arr, axis=0)
+        ax1.plot(
+            x_pct, mean_curve, color=color, linewidth=2,
+            label=f"{side} (n={len(curves)})",
+        )
+        ax1.fill_between(
+            x_pct, mean_curve - std_curve, mean_curve + std_curve,
+            color=color, alpha=0.15,
+        )
+
+    if not left_curves and not right_curves:
+        ax1.text(
+            0.5, 0.5, "No arm swing data available",
+            ha="center", va="center", transform=ax1.transAxes,
+        )
+
+    unit_label = " (deg)" if has_shoulder else ""
+    ax1.set_xlabel("% Gait Cycle")
+    ax1.set_ylabel(data_label + unit_label)
+    ax1.set_title(f"Arm Swing — {data_label}")
+    ax1.legend(loc="upper right", fontsize=8)
+    ax1.grid(True, alpha=0.3)
+
+    # Subplot 2: Per-cycle amplitude bar chart
+    left_amps = [float(np.ptp(c)) for c in left_curves] if left_curves else []
+    right_amps = (
+        [float(np.ptp(c)) for c in right_curves] if right_curves else []
+    )
+
+    n_bars = max(len(left_amps), len(right_amps))
+    if n_bars > 0:
+        bar_x = np.arange(n_bars)
+        bar_width = 0.35
+        if left_amps:
+            left_padded = left_amps + [0] * (n_bars - len(left_amps))
+            ax2.bar(
+                bar_x - bar_width / 2, left_padded, bar_width,
+                color=_COLORS["left"], alpha=0.7, label="Left",
+            )
+        if right_amps:
+            right_padded = right_amps + [0] * (n_bars - len(right_amps))
+            ax2.bar(
+                bar_x + bar_width / 2, right_padded, bar_width,
+                color=_COLORS["right"], alpha=0.7, label="Right",
+            )
+        ax2.set_xlabel("Cycle")
+        amp_unit = " (deg)" if has_shoulder else " (norm.)"
+        ax2.set_ylabel(f"Amplitude{amp_unit}")
+        ax2.set_xticks(bar_x)
+        ax2.set_xticklabels([f"C{i+1}" for i in range(n_bars)], fontsize=8)
+        ax2.legend(loc="upper right", fontsize=8)
+    else:
+        ax2.text(
+            0.5, 0.5, "No amplitude data",
+            ha="center", va="center", transform=ax2.transAxes,
+        )
+
+    ax2.set_title("Arm Swing Amplitude per Cycle")
+    ax2.grid(True, alpha=0.3)
     fig.tight_layout()
     return fig

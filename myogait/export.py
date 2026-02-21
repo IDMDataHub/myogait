@@ -471,3 +471,90 @@ def export_excel(
 
     logger.info(f"Exported Excel: {path}")
     return str(path)
+
+
+# ── C3D export ────────────────────────────────────────────────────────
+
+
+def export_c3d(data: dict, path: str) -> str:
+    """Export landmark data to C3D format.
+
+    Requires optional dependency 'c3d'. Install with:
+        pip install c3d
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with frames and landmarks.
+    path : str
+        Output file path (.c3d).
+
+    Returns
+    -------
+    str
+        Path to the created C3D file.
+
+    Raises
+    ------
+    ImportError
+        If c3d package is not installed.
+    ValueError
+        If *data* has no frames.
+    TypeError
+        If *data* is not a dict.
+    """
+    if not isinstance(data, dict):
+        raise TypeError("data must be a dict")
+    try:
+        import c3d
+    except ImportError:
+        raise ImportError(
+            "c3d is required for C3D export. Install with: pip install c3d"
+        )
+
+    frames = data.get("frames")
+    if not frames:
+        raise ValueError("No frames in data. Run extract() first.")
+
+    fps = data.get("meta", {}).get("fps", 30.0)
+
+    # Determine point labels from the first frame's landmarks
+    first_landmarks = frames[0].get("landmarks", {})
+    point_labels = sorted(first_landmarks.keys())
+    n_points = len(point_labels)
+
+    # Create a C3D writer
+    writer = c3d.Writer(point_rate=float(fps))
+
+    # Set point labels in the writer's parameter group
+    writer.set_point_labels(point_labels)
+
+    # Write each frame
+    for frame in frames:
+        lm = frame.get("landmarks", {})
+        points = np.zeros((n_points, 5), dtype=np.float32)
+        for i, label in enumerate(point_labels):
+            pt = lm.get(label, {})
+            x = pt.get("x", 0.0) if pt else 0.0
+            y = pt.get("y", 0.0) if pt else 0.0
+            z = 0.0  # 2D data, z is always 0
+            # Handle NaN values
+            if x is None or (isinstance(x, float) and np.isnan(x)):
+                x = 0.0
+            if y is None or (isinstance(y, float) and np.isnan(y)):
+                y = 0.0
+            points[i, 0] = float(x)
+            points[i, 1] = float(y)
+            points[i, 2] = float(z)
+            points[i, 3] = 0.0  # residual
+            points[i, 4] = 0.0  # camera mask
+        writer.add_frames([(points, np.array([]))])
+
+    # Save the file
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "wb") as f:
+        writer.write(f)
+
+    logger.info(f"Exported C3D: {out_path} ({len(frames)} frames, {n_points} points)")
+    return str(out_path)
