@@ -173,9 +173,9 @@ def _compute_height_scale(data: dict) -> Optional[float]:
     Returns ``None`` if height_m is not available or the estimation
     fails.
     """
-    height_m = data.get("meta", {}).get("subject", {}).get("height_m")
+    height_m = (data.get("meta", {}).get("subject") or {}).get("height_m")
     if height_m is None:
-        height_m = data.get("subject", {}).get("height_m")
+        height_m = (data.get("subject") or {}).get("height_m")
     if height_m is None or height_m <= 0:
         return None
 
@@ -415,11 +415,22 @@ def export_trc(
     output_path: str,
     marker_names: Optional[list] = None,
     units: str = "m",
+    use_depth: bool = False,
+    depth_scale: float = 1.0,
+    opensim_model: Optional[str] = None,
 ) -> str:
     """Export landmark positions to OpenSim .trc (marker) format.
 
     The ``.trc`` file contains 3D marker positions (x, y, z) over time.
-    Since myogait operates in 2D, the z coordinate is set to 0.
+    Since myogait operates in 2D, the z coordinate is set to 0 unless
+    depth data is available and ``use_depth=True``.
+
+    Unit conversion is based on the subject's ``height_m`` when
+    available in ``data["meta"]["subject"]`` or ``data["subject"]``.
+    A pixel-to-meter scale factor is estimated from the vertical
+    distance NOSE to midpoint(LEFT_ANKLE, RIGHT_ANKLE).  If
+    ``height_m`` is not available, coordinates remain normalised and
+    the header ``Units`` field is set to ``"normalized"``.
 
     Parameters
     ----------
@@ -429,8 +440,18 @@ def export_trc(
         Output ``.trc`` file path.
     marker_names : list of str, optional
         Landmark names to export. Defaults to major joints.
-    units : {'m', 'mm'}
-        Coordinate units (default ``'m'``).
+    units : {'m', 'mm', 'normalized'}
+        Desired coordinate units (default ``'m'``).  Overridden to
+        ``'normalized'`` when no ``height_m`` is provided.
+    use_depth : bool, optional
+        If ``True``, look for ``landmark_depths`` in each frame and
+        use depth values as the Z coordinate (default ``False``).
+    depth_scale : float, optional
+        Multiplier applied to raw depth values before unit conversion
+        (default ``1.0``).
+    opensim_model : str, optional
+        If provided (e.g. ``'gait2392'``), rename markers in the TRC
+        header according to ``OPENSIM_MARKER_MAP[opensim_model]``.
 
     Returns
     -------
@@ -440,7 +461,7 @@ def export_trc(
     Raises
     ------
     ValueError
-        If *data* has no frames.
+        If *data* has no frames, or *opensim_model* is unknown.
     TypeError
         If *data* is not a dict.
     """
@@ -449,6 +470,12 @@ def export_trc(
     frames = data.get("frames")
     if not frames:
         raise ValueError("No frames in data. Run extract() first.")
+
+    if opensim_model is not None and opensim_model not in OPENSIM_MARKER_MAP:
+        raise ValueError(
+            f"Unknown opensim_model {opensim_model!r}. "
+            f"Available: {list(OPENSIM_MARKER_MAP.keys())}"
+        )
 
     fps = data.get("meta", {}).get("fps", 30.0)
 
@@ -462,8 +489,24 @@ def export_trc(
             "LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX",
         ]
 
+    # Build display names (with optional OpenSim renaming)
+    if opensim_model is not None:
+        rename_map = OPENSIM_MARKER_MAP[opensim_model]
+        display_names = [rename_map.get(n, n) for n in marker_names]
+    else:
+        display_names = list(marker_names)
+
     n_markers = len(marker_names)
     n_frames = len(frames)
+
+    w = data.get("meta", {}).get("width", 1920)
+    h = data.get("meta", {}).get("height", 1080)
+
+    # Determine scale factor from height_m
+    scale = _compute_height_scale(data)
+    if scale is None:
+        # No height_m available: use normalized coordinates
+        units = "normalized"
 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -475,12 +518,13 @@ def export_trc(
         f.write("DataRate\tCameraRate\tNumFrames\tNumMarkers\tUnits\tOrigDataRate\tOrigDataStartFrame\tOrigNumFrames\n")
         f.write(f"{fps:.2f}\t{fps:.2f}\t{n_frames}\t{n_markers}\t{units}\t{fps:.2f}\t1\t{n_frames}\n")
 
-        # Column headers
+        # Column headers with incremental X/Y/Z indices
         header1 = ["Frame#", "Time"]
         header2 = ["", ""]
-        for name in marker_names:
-            header1.extend([name, "", ""])
-            header2.extend(["X1", "Y1", "Z1"])
+        for i, dname in enumerate(display_names):
+            marker_idx = i + 1
+            header1.extend([dname, "", ""])
+            header2.extend([f"X{marker_idx}", f"Y{marker_idx}", f"Z{marker_idx}"])
         f.write("\t".join(header1) + "\n")
         f.write("\t".join(header2) + "\n")
         f.write("\n")
@@ -491,17 +535,36 @@ def export_trc(
             time = idx / fps
             vals = [str(idx + 1), f"{time:.6f}"]
             lm = frame.get("landmarks", {})
+            depths = frame.get("landmark_depths", {}) if use_depth else {}
+
             for name in marker_names:
                 pt = lm.get(name, {})
-                x = pt.get("x", 0.0) if pt else 0.0
-                y = pt.get("y", 0.0) if pt else 0.0
+                x_norm = pt.get("x", 0.0) if pt else 0.0
+                y_norm = pt.get("y", 0.0) if pt else 0.0
+                if x_norm is None:
+                    x_norm = 0.0
+                if y_norm is None:
+                    y_norm = 0.0
+
+                # Depth (Z coordinate)
                 z = 0.0
-                # Convert from normalized to meters if needed
-                if units == "m" and x is not None and 0 <= x <= 1:
-                    w = data.get("meta", {}).get("width", 1920)
-                    h = data.get("meta", {}).get("height", 1080)
-                    x = x * w / 1000.0  # approximate mm → m
-                    y = y * h / 1000.0
+                if use_depth and name in depths:
+                    raw_depth = depths[name]
+                    if raw_depth is not None:
+                        z = raw_depth * depth_scale
+
+                # Convert coordinates
+                if scale is not None:
+                    x_pixel = x_norm * w
+                    y_pixel = y_norm * h
+                    x = x_pixel * scale
+                    y = y_pixel * scale
+                    z = z * scale if use_depth and name in depths else z
+                else:
+                    # Normalized mode
+                    x = x_norm
+                    y = y_norm
+
                 vals.extend([f"{x:.6f}", f"{y:.6f}", f"{z:.6f}"])
             f.write("\t".join(vals) + "\n")
 
