@@ -52,6 +52,14 @@ Steps available:
       workflow for 3D markerless kinematics. J Open Source Softw.
       2022;7(77):4362. doi:10.21105/joss.04362
 
+    - residual_analysis: Automatic cutoff frequency selection via
+      Winter's residual analysis method.
+      Ref: Winter DA. Biomechanics and Motor Control of Human Movement.
+      4th ed. Wiley; 2009. Chapter 2, Section 2.4.
+
+    - auto_cutoff_frequency: Convenience wrapper for automatic cutoff
+      frequency selection (currently delegates to residual_analysis).
+
     - center_on_torso: Center coords on torso centroid, scale to [-100,100].
     - align_skeleton: Normalize skeleton scale + center.
     - correct_bilateral: Correct right segments to match left reference.

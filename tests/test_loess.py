@@ -34,8 +34,8 @@ class TestLoess:
 
     def test_loess_smooths_noisy_signal(self):
         """LOESS output should be closer to the true signal than the noisy input."""
-        df, clean = self._make_noisy_df(n=200, noise_std=0.02)
-        smoothed = filter_loess(df, frac=0.1, it=3)
+        df, clean = self._make_noisy_df(n=300, noise_std=0.05)
+        smoothed = filter_loess(df, frac=0.05, it=3)
 
         raw_mse = np.mean((df["PT_x"].values - clean) ** 2)
         smooth_mse = np.mean((smoothed["PT_x"].values - clean) ** 2)

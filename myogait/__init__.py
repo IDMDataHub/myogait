@@ -50,6 +50,8 @@ from .normalize import (
     detect_outliers,
     data_quality_score,
     fill_gaps,
+    residual_analysis,
+    auto_cutoff_frequency,
 )
 from .angles import (
     compute_angles,
@@ -147,6 +149,8 @@ __all__ = [
     "detect_outliers",
     "data_quality_score",
     "fill_gaps",
+    "residual_analysis",
+    "auto_cutoff_frequency",
     # Analysis functions
     "regularity_index",
     "harmonic_ratio",
