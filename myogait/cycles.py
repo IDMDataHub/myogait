@@ -28,6 +28,8 @@ Functions
 ---------
 segment_cycles
     Segment gait data into normalized cycles and compute averages.
+ensemble_average
+    Compute ensemble averages across multiple trials.
 """
 
 import logging
@@ -290,3 +292,129 @@ def segment_cycles(
 
     data["cycles_data"] = {"cycles": cycles, "summary": summary}
     return {"cycles": cycles, "summary": summary}
+
+
+def ensemble_average(
+    trial_cycles_list: List[dict],
+    joints: Optional[List[str]] = None,
+    n_points: int = 101,
+) -> dict:
+    """Compute ensemble averages across multiple trials.
+
+    Aggregates per-trial mean curves produced by :func:`segment_cycles`
+    to obtain a grand mean, inter-trial variability (SD of trial means),
+    and average intra-trial variability (mean of within-trial SDs).
+
+    This follows the multi-trial averaging procedure recommended by
+    OpenCap for markerless motion capture:
+
+        Ref: Uhlrich SD, Falisse A, Kidzinski L, et al. OpenCap:
+        Human movement dynamics from smartphone videos. PLoS Comput
+        Biol. 2023;19(10):e1011462. doi:10.1371/journal.pcbi.1011462
+
+    Parameters
+    ----------
+    trial_cycles_list : list of dict
+        Each element is the return value of :func:`segment_cycles`,
+        containing ``"cycles"`` and ``"summary"`` keys.
+    joints : list of str, optional
+        Restrict output to these joint names (e.g. ``["hip", "knee"]``).
+        When *None* (default), all joints found in trial summaries are
+        included.
+    n_points : int, optional
+        Expected number of points per normalized curve (default 101).
+        Used only for validation; curves are not re-interpolated.
+
+    Returns
+    -------
+    dict
+        Nested dict keyed by side (``"left"``, ``"right"``), then by
+        joint name.  Each joint entry contains:
+
+        - ``grand_mean`` : np.ndarray of shape (*n_points*,)
+        - ``inter_trial_sd`` : np.ndarray of shape (*n_points*,)
+        - ``intra_trial_sd`` : np.ndarray of shape (*n_points*,)
+        - ``n_trials`` : int -- number of trials contributing
+        - ``n_total_cycles`` : int -- total cycles across all trials
+
+    Raises
+    ------
+    TypeError
+        If *trial_cycles_list* is not a list.
+    ValueError
+        If *trial_cycles_list* is empty.
+    """
+    if not isinstance(trial_cycles_list, list):
+        raise TypeError("trial_cycles_list must be a list of segment_cycles() outputs")
+    if len(trial_cycles_list) == 0:
+        raise ValueError("trial_cycles_list must contain at least one trial")
+
+    result: Dict[str, Dict[str, dict]] = {}
+
+    for side in ("left", "right"):
+        side_result: Dict[str, dict] = {}
+
+        # Discover all joint names available across trials for this side.
+        # Summary keys follow the pattern  {joint}_mean / {joint}_std.
+        all_joint_names: set = set()
+        for trial in trial_cycles_list:
+            side_summary = trial.get("summary", {}).get(side, {})
+            for key in side_summary:
+                if key.endswith("_mean"):
+                    jname = key[: -len("_mean")]
+                    all_joint_names.add(jname)
+
+        # Optionally restrict to requested joints
+        if joints is not None:
+            all_joint_names = all_joint_names & set(joints)
+
+        for jname in sorted(all_joint_names):
+            mean_key = f"{jname}_mean"
+            std_key = f"{jname}_std"
+
+            trial_means: List[np.ndarray] = []
+            trial_stds: List[np.ndarray] = []
+            total_cycles = 0
+
+            for trial in trial_cycles_list:
+                side_summary = trial.get("summary", {}).get(side, {})
+                mean_vals = side_summary.get(mean_key)
+                std_vals = side_summary.get(std_key)
+                n_cyc = side_summary.get("n_cycles", 0)
+
+                if mean_vals is None:
+                    # This trial does not have this joint -- skip gracefully
+                    continue
+
+                mean_arr = np.asarray(mean_vals, dtype=float)
+                trial_means.append(mean_arr)
+                total_cycles += n_cyc
+
+                if std_vals is not None:
+                    trial_stds.append(np.asarray(std_vals, dtype=float))
+
+            if not trial_means:
+                continue
+
+            stacked_means = np.stack(trial_means)  # (n_trials, n_points)
+            grand_mean = np.mean(stacked_means, axis=0)
+            inter_trial_sd = np.std(stacked_means, axis=0, ddof=0)
+
+            if trial_stds:
+                stacked_stds = np.stack(trial_stds)
+                intra_trial_sd = np.mean(stacked_stds, axis=0)
+            else:
+                intra_trial_sd = np.zeros(n_points, dtype=float)
+
+            side_result[jname] = {
+                "grand_mean": grand_mean,
+                "inter_trial_sd": inter_trial_sd,
+                "intra_trial_sd": intra_trial_sd,
+                "n_trials": len(trial_means),
+                "n_total_cycles": total_cycles,
+            }
+
+        if side_result:
+            result[side] = side_result
+
+    return result

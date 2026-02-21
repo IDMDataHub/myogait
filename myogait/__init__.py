@@ -45,6 +45,7 @@ __version__ = "0.3.0"
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
     normalize,
+    filter_median,
     confidence_filter,
     detect_outliers,
     data_quality_score,
@@ -57,7 +58,7 @@ from .angles import (
     foot_progression_angle,
 )
 from .events import detect_events, list_event_methods, event_consensus, validate_events
-from .cycles import segment_cycles
+from .cycles import segment_cycles, ensemble_average
 from .analysis import (
     analyze_gait,
     regularity_index,
@@ -138,8 +139,10 @@ __all__ = [
     "event_consensus",
     "validate_events",
     "segment_cycles",
+    "ensemble_average",
     "analyze_gait",
     # Quality & preprocessing
+    "filter_median",
     "confidence_filter",
     "detect_outliers",
     "data_quality_score",

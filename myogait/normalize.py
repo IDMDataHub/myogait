@@ -29,10 +29,28 @@ Steps available:
       spline smoothing and differentiation. Adv Eng Softw.
       1986;8(2):104-113. doi:10.1016/0141-1195(86)90098-7
 
+    - filter_median: Median filter for spike/outlier removal.
+      Standard preprocessing step in DeepLabCut and Pose2Sim pipelines.
+      Ref: Pagnon D, Domalain M, Reveret L. Pose2Sim: An end-to-end
+      workflow for 3D markerless kinematics. J Open Source Softw.
+      2022;7(77):4362. doi:10.21105/joss.04362
+      Mathis A, et al. DeepLabCut: markerless pose estimation of
+      user-defined body parts with deep learning. Nat Neurosci.
+      2018;21:1281-1289. doi:10.1038/s41593-018-0209-y
+
     - filter_kalman: Kalman filter for trajectory smoothing.
       Ref: Kalman RE. A new approach to linear filtering and prediction
       problems. J Basic Eng. 1960;82(1):35-45.
       doi:10.1115/1.3662552
+
+    - filter_loess: LOESS/LOWESS locally weighted scatterplot smoothing.
+      Ref: Cleveland WS. Robust locally weighted regression and smoothing
+      scatterplots. J Am Stat Assoc. 1979;74(368):829-836.
+      doi:10.1080/01621459.1979.10481038
+      Adopted as the default smoothing filter in the Pose2Sim pipeline:
+      Ref: Pagnon D, Domalain M, Reveret L. Pose2Sim: An end-to-end
+      workflow for 3D markerless kinematics. J Open Source Softw.
+      2022;7(77):4362. doi:10.21105/joss.04362
 
     - center_on_torso: Center coords on torso centroid, scale to [-100,100].
     - align_skeleton: Normalize skeleton scale + center.
@@ -220,6 +238,41 @@ def filter_spline(
     return _apply_on_xy(df, _smooth)
 
 
+def filter_median(
+    df: pd.DataFrame,
+    kernel_size: int = 3,
+    **kwargs,
+) -> pd.DataFrame:
+    """Median filter for spike/outlier removal.
+
+    Applies a 1-D median filter independently to each coordinate column.
+    This is the standard preprocessing step recommended by DeepLabCut and
+    Pose2Sim pipelines to remove single-frame detection spikes before
+    further smoothing.
+
+    Ref: Pagnon D, Domalain M, Reveret L. Pose2Sim: An end-to-end
+    workflow for 3D markerless kinematics. J Open Source Softw.
+    2022;7(77):4362. doi:10.21105/joss.04362
+
+    Args:
+        df: DataFrame with pose coordinate columns.
+        kernel_size: Size of the median filter window. Must be a positive
+            odd integer. Default 3.
+
+    Raises:
+        ValueError: If *kernel_size* is not a positive odd integer.
+    """
+    kernel_size = int(kernel_size)
+    if kernel_size < 1 or kernel_size % 2 == 0:
+        raise ValueError(
+            f"kernel_size must be a positive odd integer, got {kernel_size}"
+        )
+
+    from scipy.signal import medfilt
+
+    return _apply_on_xy(df, lambda v: medfilt(v, kernel_size=kernel_size))
+
+
 def filter_kalman(
     df: pd.DataFrame,
     **kwargs,
@@ -254,6 +307,75 @@ def filter_kalman(
         except Exception:
             pass
 
+    return df
+
+
+def filter_loess(
+    df: pd.DataFrame,
+    frac: float = 0.1,
+    it: int = 3,
+    **kwargs,
+) -> pd.DataFrame:
+    """LOESS/LOWESS locally weighted scatterplot smoothing.
+
+    Applies the LOWESS (LOcally WEighted Scatterplot Smoothing) algorithm
+    independently to each coordinate column. This is the default smoothing
+    filter adopted by the Pose2Sim markerless kinematics pipeline.
+
+    Ref: Cleveland WS. Robust locally weighted regression and smoothing
+    scatterplots. J Am Stat Assoc. 1979;74(368):829-836.
+    doi:10.1080/01621459.1979.10481038
+
+    Pose2Sim convention:
+        Pagnon D, Domalain M, Reveret L. Pose2Sim: An end-to-end
+        workflow for 3D markerless kinematics. J Open Source Softw.
+        2022;7(77):4362. doi:10.21105/joss.04362
+
+    Requires the ``statsmodels`` package (``pip install statsmodels``).
+
+    Args:
+        df: DataFrame with pose coordinate columns.
+        frac: Fraction of data used for each local regression, in (0, 1].
+            Smaller values follow the data more closely; larger values
+            produce smoother curves. Default 0.1.
+        it: Number of robustness iterations. Higher values give more
+            resistance to outliers. Default 3.
+
+    Raises:
+        ImportError: If ``statsmodels`` is not installed.
+    """
+    try:
+        from statsmodels.nonparametric.smoothers_lowess import lowess
+    except ImportError:
+        raise ImportError(
+            "statsmodels is required for the LOESS/LOWESS filter. "
+            "Install it with: pip install statsmodels"
+        )
+
+    df = df.copy()
+    cols = [c for c in df.columns if c.endswith("_x") or c.endswith("_y")]
+    for c in cols:
+        s = pd.to_numeric(df[c], errors="coerce")
+        if s.isna().all():
+            continue
+        # Build valid (non-NaN) mask for LOWESS fitting
+        valid = s.notna()
+        if valid.sum() < 3:
+            continue
+        x_all = np.arange(len(s), dtype=float)
+        x_valid = x_all[valid]
+        y_valid = s.values[valid]
+        try:
+            smoothed = lowess(
+                y_valid, x_valid, frac=float(frac), it=int(it),
+                return_sorted=True,
+            )
+            # Interpolate back to all indices (including former NaN positions)
+            df[c] = np.interp(x_all, smoothed[:, 0], smoothed[:, 1])
+        except Exception as e:
+            logger.warning(f"LOESS filter failed for column {c}: {e}")
+            # Fill NaN values but leave the signal unsmoothed
+            df[c] = s.interpolate(limit_direction="both").bfill().ffill()
     return df
 
 
@@ -496,6 +618,228 @@ def confidence_filter(
     return df
 
 
+def residual_analysis(
+    df: pd.DataFrame,
+    fs: float = 30.0,
+    freq_range: tuple = (1.0, 15.0),
+    freq_step: float = 0.5,
+    order: int = 2,
+) -> dict:
+    """Determine optimal low-pass cutoff frequency via residual analysis.
+
+    Implements Winter's residual analysis method for automatic selection
+    of the cutoff frequency for low-pass Butterworth filtering of
+    kinematic data.
+
+    For each candidate cutoff frequency in *freq_range*, the signal is
+    filtered and the RMS residual between the raw and filtered signal is
+    computed.  At high cutoff frequencies the residual-vs-frequency curve
+    is approximately linear (the filter removes only noise).  The optimal
+    cutoff is the frequency at which the residual first rises above this
+    noise-only regression line by more than one standard error, i.e.
+    the point where the curve departs from linearity.
+
+    Reference
+    ---------
+    Winter DA. *Biomechanics and Motor Control of Human Movement*.
+    4th ed. Hoboken, NJ: Wiley; 2009. Chapter 2, Section 2.4.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with pose coordinate columns (``*_x``, ``*_y``).
+    fs : float, optional
+        Sampling frequency in Hz (default 30.0).
+    freq_range : tuple of (float, float), optional
+        (min_freq, max_freq) in Hz to evaluate (default (1.0, 15.0)).
+    freq_step : float, optional
+        Step size in Hz between candidate frequencies (default 0.5).
+    order : int, optional
+        Butterworth filter order (default 2).
+
+    Returns
+    -------
+    dict
+        ``"optimal_cutoff"`` : float
+            Recommended cutoff frequency (median across columns).
+        ``"residuals"`` : dict[float, float]
+            Mean RMS residual (across columns) at each candidate freq.
+        ``"per_column"`` : dict[str, float]
+            Optimal cutoff for each individual coordinate column.
+    """
+    from scipy.signal import butter, filtfilt
+
+    cols = [c for c in df.columns if c.endswith("_x") or c.endswith("_y")]
+    freqs = np.arange(freq_range[0], freq_range[1] + freq_step * 0.5, freq_step)
+    nyq = 0.5 * float(fs)
+
+    # Pre-process columns: interpolate NaN, convert to float arrays
+    raw_signals = {}
+    for c in cols:
+        s = pd.to_numeric(df[c], errors="coerce")
+        if s.isna().all():
+            continue
+        raw_signals[c] = (
+            s.interpolate(limit_direction="both").bfill().ffill().to_numpy(float)
+        )
+
+    if not raw_signals:
+        return {"optimal_cutoff": float(freqs[len(freqs) // 2]),
+                "residuals": {float(f): 0.0 for f in freqs},
+                "per_column": {}}
+
+    # Compute RMS residuals for each frequency and column
+    col_residuals = {c: {} for c in raw_signals}  # col -> {freq: rms}
+    for fc in freqs:
+        normal = float(fc) / nyq
+        normal = max(min(normal, 0.99), 1e-6)
+        b, a = butter(int(order), normal, btype="low", analog=False)
+        for c, raw in raw_signals.items():
+            try:
+                filtered = filtfilt(b, a, raw)
+            except Exception:
+                col_residuals[c][float(fc)] = 0.0
+                continue
+            rms = float(np.sqrt(np.mean((raw - filtered) ** 2)))
+            col_residuals[c][float(fc)] = rms
+
+    # Find optimal cutoff per column
+    per_column = {}
+    for c, res_dict in col_residuals.items():
+        per_column[c] = _find_knee_frequency(freqs, res_dict)
+
+    # Mean residual across columns per frequency
+    mean_residuals = {}
+    for fc in freqs:
+        vals = [col_residuals[c].get(float(fc), 0.0) for c in raw_signals]
+        mean_residuals[float(fc)] = float(np.mean(vals)) if vals else 0.0
+
+    # Overall optimal cutoff: median across per-column optima
+    if per_column:
+        optimal = float(np.median(list(per_column.values())))
+    else:
+        optimal = float(freqs[len(freqs) // 2])
+
+    return {
+        "optimal_cutoff": optimal,
+        "residuals": mean_residuals,
+        "per_column": per_column,
+    }
+
+
+def _find_knee_frequency(freqs: np.ndarray, res_dict: dict) -> float:
+    """Find the frequency where the residual curve departs from linearity.
+
+    Fits a regression line to the upper half of the residual curve (high-
+    frequency region, which is approximately linear because only noise is
+    being removed).  Walking down from high to low frequency, the first
+    point whose residual exceeds the regression prediction by more than
+    one standard error of the fit is identified as the knee / optimal
+    cutoff.
+
+    Parameters
+    ----------
+    freqs : np.ndarray
+        Array of candidate frequencies (ascending).
+    res_dict : dict[float, float]
+        Mapping of frequency -> RMS residual.
+
+    Returns
+    -------
+    float
+        Optimal cutoff frequency.
+    """
+    residuals = np.array([res_dict.get(float(f), 0.0) for f in freqs])
+    n = len(freqs)
+
+    if n < 4:
+        return float(freqs[n // 2])
+
+    # Fit line to upper half of curve (high-freq region)
+    upper_start = n // 2
+    x_upper = freqs[upper_start:]
+    y_upper = residuals[upper_start:]
+
+    if len(x_upper) < 2 or np.std(y_upper) < 1e-15:
+        return float(freqs[n // 2])
+
+    # Linear regression on the upper portion
+    coeffs = np.polyfit(x_upper, y_upper, 1)
+    slope, intercept = coeffs[0], coeffs[1]
+
+    # Predicted values and standard error of the fit in the upper region
+    y_pred_upper = slope * x_upper + intercept
+    se = float(np.sqrt(np.mean((y_upper - y_pred_upper) ** 2)))
+
+    if se < 1e-15:
+        # Residual curve is essentially flat; pick middle frequency
+        return float(freqs[n // 2])
+
+    # Walk from high frequency toward low: find where residual departs
+    # from the regression line by more than one SE
+    predicted_all = slope * freqs + intercept
+    deviations = residuals - predicted_all
+
+    # Scan from the highest freq downward; find first freq where
+    # the deviation exceeds the threshold
+    for i in range(n - 1, -1, -1):
+        if deviations[i] > se:
+            return float(freqs[i])
+
+    # Fallback: return lowest candidate
+    return float(freqs[0])
+
+
+def auto_cutoff_frequency(
+    df: pd.DataFrame,
+    fs: float = 30.0,
+    method: str = "residual",
+    **kwargs,
+) -> float:
+    """Automatically select a low-pass cutoff frequency.
+
+    Convenience wrapper that dispatches to a specific method for
+    determining the optimal Butterworth cutoff frequency.
+
+    Currently supported methods:
+
+    - ``"residual"``: Winter's residual analysis
+      (see :func:`residual_analysis`).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with pose coordinate columns.
+    fs : float, optional
+        Sampling frequency in Hz (default 30.0).
+    method : str, optional
+        Selection method (default ``"residual"``).
+    **kwargs
+        Additional keyword arguments forwarded to the underlying method.
+
+    Returns
+    -------
+    float
+        Recommended cutoff frequency in Hz.
+
+    Raises
+    ------
+    ValueError
+        If *method* is not supported.
+    """
+    supported = ("residual",)
+    if method not in supported:
+        raise ValueError(
+            f"Unsupported method {method!r}. Choose from {supported}."
+        )
+
+    if method == "residual":
+        result = residual_analysis(df, fs=fs, **kwargs)
+        return result["optimal_cutoff"]
+
+    # Future: elif method == "psd": ...
+
+
 def detect_outliers(
     df: pd.DataFrame,
     z_thresh: float = 3.0,
@@ -657,7 +1001,9 @@ NORMALIZE_STEPS: Dict[str, Callable] = {
     "savgol": filter_savgol,
     "moving_mean": filter_moving_mean,
     "spline": filter_spline,
+    "median": filter_median,
     "kalman": filter_kalman,
+    "loess": filter_loess,
     "center_on_torso": center_on_torso,
     "align_skeleton": align_skeleton,
     "correct_bilateral": correct_bilateral,
