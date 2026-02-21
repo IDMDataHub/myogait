@@ -153,6 +153,8 @@ def validate_biomechanical(
         st_violations = _validate_spatiotemporal(data)
         violations.extend(st_violations)
 
+    violations.extend(_contextual_caveats(data))
+
     # Summarize
     critical = [v for v in violations if v["severity"] == "critical"]
     warning = [v for v in violations if v["severity"] == "warning"]
@@ -280,6 +282,47 @@ def _validate_spatiotemporal(data: dict) -> list:
             })
 
     return violations
+
+
+def _contextual_caveats(data: dict) -> list:
+    """Add context caveats to prevent over-interpretation of results."""
+    caveats = []
+
+    extraction = data.get("extraction", {})
+    if isinstance(extraction, dict) and extraction.get("treadmill") is True:
+        caveats.append({
+            "type": "context",
+            "parameter": "treadmill_context",
+            "severity": "info",
+            "description": (
+                "Treadmill-like trial detected: progression-based metrics "
+                "(step length/speed from image translation) may be underestimated."
+            ),
+        })
+
+    subject = data.get("subject", {})
+    if isinstance(subject, dict) and subject.get("height_m") in (None, 0):
+        caveats.append({
+            "type": "context",
+            "parameter": "calibration",
+            "severity": "info",
+            "description": (
+                "No subject height provided: distance/speed outputs are normalized "
+                "and should not be compared directly across subjects/sessions."
+            ),
+        })
+
+    caveats.append({
+        "type": "context",
+        "parameter": "pathology_screening",
+        "severity": "info",
+        "description": (
+            "Automated pathology patterns are screening indicators only and "
+            "must be interpreted with clinical examination."
+        ),
+    })
+
+    return caveats
 
 
 def get_angle_ranges() -> dict:
@@ -629,6 +672,8 @@ def validate_biomechanical_stratified(
     if events:
         st_violations = _validate_spatiotemporal_with_ranges(data, adj_st_ranges)
         violations.extend(st_violations)
+
+    violations.extend(_contextual_caveats(data))
 
     # Summarize
     critical = [v for v in violations if v["severity"] == "critical"]
