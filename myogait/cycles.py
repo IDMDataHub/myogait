@@ -288,4 +288,5 @@ def segment_cycles(
         f"R={summary.get('right', {}).get('n_cycles', 0)}"
     )
 
+    data["cycles_data"] = {"cycles": cycles, "summary": summary}
     return {"cycles": cycles, "summary": summary}

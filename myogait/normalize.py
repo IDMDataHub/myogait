@@ -424,10 +424,12 @@ def correct_pixel_ratio(
         # Original wider than processed → x coordinates need stretching
         for c in xcols:
             df[c] = pd.to_numeric(df[c], errors="coerce") * ratio
+            df[c] = df[c].clip(0.0, 1.0)
     else:
         # Original taller than processed → y coordinates need stretching
         for c in ycols:
             df[c] = pd.to_numeric(df[c], errors="coerce") / ratio
+            df[c] = df[c].clip(0.0, 1.0)
 
     return df
 

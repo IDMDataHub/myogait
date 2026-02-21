@@ -84,7 +84,7 @@ def _cv(values: list) -> float:
     m = np.mean(values)
     if m == 0:
         return 0.0
-    return float(np.std(values) / m * 100)
+    return float(np.std(values, ddof=1) / m * 100)
 
 
 def _rom(values: list) -> float:
@@ -458,7 +458,7 @@ def harmonic_ratio(data: dict, signal_key: str = "LEFT_ANKLE") -> dict:
             x_vals.append(np.nan)
             y_vals.append(np.nan)
 
-    def _compute_hr(signal):
+    def _compute_hr(signal, ap=False):
         sig = np.array(signal)
         valid = ~np.isnan(sig)
         if valid.sum() < 30:
@@ -480,13 +480,20 @@ def harmonic_ratio(data: dict, signal_key: str = "LEFT_ANKLE") -> dict:
         sum_odd = np.sum(odd)
         sum_even = np.sum(even)
 
-        if sum_odd == 0:
-            return None
-        return round(float(sum_even / sum_odd), 3)
+        # AP direction: odd/even (Bellanca et al. 2013)
+        # Vertical direction: even/odd
+        if ap:
+            if sum_even == 0:
+                return None
+            return round(float(sum_odd / sum_even), 3)
+        else:
+            if sum_odd == 0:
+                return None
+            return round(float(sum_even / sum_odd), 3)
 
     return {
-        "hr_ap": _compute_hr(x_vals),
-        "hr_vertical": _compute_hr(y_vals),
+        "hr_ap": _compute_hr(x_vals, ap=True),
+        "hr_vertical": _compute_hr(y_vals, ap=False),
     }
 
 
@@ -681,7 +688,7 @@ def walking_speed(
         "speed_mean": _mean_or_none(all_speeds),
         "speed_left": _mean_or_none(speeds["left"]),
         "speed_right": _mean_or_none(speeds["right"]),
-        "unit": "m/s" if height_m else "norm/s",
+        "unit": "m/s" if height_m_val else "norm/s",
     }
 
 
@@ -736,20 +743,6 @@ def detect_pathologies(data: dict, cycles: dict) -> List[dict]:
         ankle_curves = [np.array(c["angles_normalized"]["ankle"])
                         for c in side_cycles if "ankle" in c.get("angles_normalized", {})]
 
-        # Trendelenburg: check pelvis tilt during stance (0-60% of cycle)
-        pelvis_vals = [af.get("pelvis_tilt") for af in angle_frames
-                       if af.get("pelvis_tilt") is not None]
-        if pelvis_vals:
-            pelvis_range = np.ptp([v for v in pelvis_vals if not np.isnan(v)])
-            if pelvis_range > 10:
-                pathologies.append({
-                    "pattern": "trendelenburg",
-                    "side": side,
-                    "severity": "moderate" if pelvis_range > 15 else "mild",
-                    "value": round(float(pelvis_range), 1),
-                    "description": f"Excessive pelvis drop ({pelvis_range:.1f} deg range)",
-                })
-
         # Spastic gait: reduced knee flexion in swing (60-100%)
         if knee_curves:
             knee_mean = np.mean(knee_curves, axis=0)
@@ -790,6 +783,21 @@ def detect_pathologies(data: dict, cycles: dict) -> List[dict]:
                     "value": round(float(min_knee), 1),
                     "description": f"Persistent knee flexion (min={min_knee:.1f} deg, normal: ~0)",
                 })
+
+    # Trendelenburg: check pelvis tilt during stance (0-60% of cycle)
+    # Runs once (not per-side) since pelvis_tilt is a global measurement.
+    pelvis_vals = [af.get("pelvis_tilt") for af in angle_frames
+                   if af.get("pelvis_tilt") is not None]
+    if pelvis_vals:
+        pelvis_range = np.ptp([v for v in pelvis_vals if not np.isnan(v)])
+        if pelvis_range > 10:
+            pathologies.append({
+                "pattern": "trendelenburg",
+                "side": "bilateral",
+                "severity": "moderate" if pelvis_range > 15 else "mild",
+                "value": round(float(pelvis_range), 1),
+                "description": f"Excessive pelvis drop ({pelvis_range:.1f} deg range)",
+            })
 
     return pathologies
 
@@ -1404,7 +1412,6 @@ def detect_parkinsonian(data: dict, cycles: dict) -> dict:
     cycle_list = cycles.get("cycles", [])
     durations = [c["duration"] for c in cycle_list]
     if durations:
-        fps = data.get("meta", {}).get("fps", 30.0)
         stride_time = float(np.mean(durations))
         cadence = 60.0 / stride_time * 2 if stride_time > 0 else 0
         details["cadence"] = round(cadence, 1)

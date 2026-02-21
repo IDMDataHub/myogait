@@ -59,8 +59,13 @@ def _get_xy(frame: dict, name: str) -> Optional[np.ndarray]:
     if lm is None:
         return None
     x, y = lm.get("x"), lm.get("y")
-    if x is None or y is None or np.isnan(x) or np.isnan(y):
+    if x is None or y is None:
         return None
+    try:
+        if np.isnan(float(x)) or np.isnan(float(y)):
+            return None
+    except (TypeError, ValueError):
+        pass
     return np.array([x, y])
 
 
@@ -136,6 +141,23 @@ def _estimate_foot_landmarks(frame: dict) -> dict:
     auxiliary data), those landmarks are kept and estimation is skipped
     for that side.
     """
+    lm = frame.get("landmarks", {})
+
+    # Check if any side actually needs estimation before deep-copying
+    needs_estimation = False
+    for side in ("LEFT", "RIGHT"):
+        if _has_detected_foot(lm, side):
+            continue
+        ankle = _get_xy(frame, f"{side}_ANKLE")
+        knee = _get_xy(frame, f"{side}_KNEE")
+        if ankle is None or knee is None:
+            continue
+        needs_estimation = True
+        break
+
+    if not needs_estimation:
+        return frame
+
     frame = copy.deepcopy(frame)
     lm = frame.get("landmarks", {})
 
@@ -158,7 +180,12 @@ def _estimate_foot_landmarks(frame: dict) -> dict:
 
         heel_name = f"{side}_HEEL"
         heel = lm.get(heel_name)
-        if heel is None or heel.get("x") is None or np.isnan(heel["x"]):
+        heel_is_nan = False
+        try:
+            heel_is_nan = heel is not None and heel.get("x") is not None and np.isnan(float(heel["x"]))
+        except (TypeError, ValueError):
+            pass
+        if heel is None or heel.get("x") is None or heel_is_nan:
             lm[heel_name] = {
                 "x": float(ankle[0] + dx / length * foot_len * 0.3),
                 "y": float(ankle[1] + dy / length * foot_len * 0.3 + foot_len * 0.1),
@@ -167,7 +194,12 @@ def _estimate_foot_landmarks(frame: dict) -> dict:
 
         fi_name = f"{side}_FOOT_INDEX"
         fi = lm.get(fi_name)
-        if fi is None or fi.get("x") is None or np.isnan(fi["x"]):
+        fi_is_nan = False
+        try:
+            fi_is_nan = fi is not None and fi.get("x") is not None and np.isnan(float(fi["x"]))
+        except (TypeError, ValueError):
+            pass
+        if fi is None or fi.get("x") is None or fi_is_nan:
             lm[fi_name] = {
                 "x": float(ankle[0] - dx / length * foot_len * 0.5),
                 "y": float(ankle[1] + foot_len * 0.15),
@@ -493,6 +525,13 @@ def compute_angles(
                 v = af.get(key)
                 if v is not None and not np.isnan(v):
                     af[key] = -v
+
+    # Trunk angle also needs direction correction for right-to-left walking.
+    if walking_direction == "right_to_left":
+        for af in angle_frames:
+            v = af.get("trunk_angle")
+            if v is not None and not np.isnan(v):
+                af["trunk_angle"] = -v
 
     # Apply correction factor
     if correction_factor != 1.0:

@@ -42,6 +42,12 @@ from scipy.signal import find_peaks, butter, filtfilt
 
 logger = logging.getLogger(__name__)
 
+# Module-level reference to the current data dict, set by detect_events()
+# and event_consensus() before invoking detection methods.  This allows
+# gaitkit wrapper functions (which have a fixed signature taking only
+# ``frames``) to access the full data dict including angle data.
+_current_data: Optional[dict] = None
+
 
 def _extract_landmark_series(frames: list, name: str, coord: str = "x") -> np.ndarray:
     """Extract a single coordinate time series for a landmark."""
@@ -420,23 +426,28 @@ def event_consensus(
     frames = data["frames"]
 
     # Collect events from each method
+    global _current_data
+    _current_data = data
     all_results = []
-    for method_name in methods:
-        # Lazy-register gaitkit methods if needed
-        if method_name.startswith("gk_") and method_name not in EVENT_METHODS:
-            if _is_gaitkit_available():
-                gk_name = method_name[3:]
-                if gk_name == "ensemble":
-                    EVENT_METHODS[method_name] = _make_gaitkit_ensemble_wrapper()
-                elif gk_name in _GAITKIT_METHODS:
-                    EVENT_METHODS[method_name] = _make_gaitkit_wrapper(gk_name)
+    try:
+        for method_name in methods:
+            # Lazy-register gaitkit methods if needed
+            if method_name.startswith("gk_") and method_name not in EVENT_METHODS:
+                if _is_gaitkit_available():
+                    gk_name = method_name[3:]
+                    if gk_name == "ensemble":
+                        EVENT_METHODS[method_name] = _make_gaitkit_ensemble_wrapper()
+                    elif gk_name in _GAITKIT_METHODS:
+                        EVENT_METHODS[method_name] = _make_gaitkit_wrapper(gk_name)
 
-        if method_name not in EVENT_METHODS:
-            logger.warning(f"Skipping unknown method: {method_name}")
-            continue
-        detect_func = EVENT_METHODS[method_name]
-        result = detect_func(frames, fps, min_cycle_duration, cutoff_freq)
-        all_results.append(result)
+            if method_name not in EVENT_METHODS:
+                logger.warning(f"Skipping unknown method: {method_name}")
+                continue
+            detect_func = EVENT_METHODS[method_name]
+            result = detect_func(frames, fps, min_cycle_duration, cutoff_freq)
+            all_results.append(result)
+    finally:
+        _current_data = None
 
     n_methods = len(all_results)
     if n_methods == 0:
@@ -452,36 +463,38 @@ def event_consensus(
 
     consensus_events = {}
     for event_type in ["left_hs", "right_hs", "left_to", "right_to"]:
-        # Collect all event frames from all methods
-        all_frames = []
-        for result in all_results:
+        # Collect all event frames from all methods, tagged with method index
+        all_events = []  # list of (frame, method_index)
+        for method_idx, result in enumerate(all_results):
             for ev in result.get(event_type, []):
-                all_frames.append(ev["frame"])
+                all_events.append((ev["frame"], method_idx))
 
-        if not all_frames:
+        if not all_events:
             consensus_events[event_type] = []
             continue
 
-        all_frames.sort()
+        all_events.sort(key=lambda x: x[0])
 
         # Cluster events within tolerance
-        clusters: List[List[int]] = []
-        current_cluster = [all_frames[0]]
-        for frame_idx in all_frames[1:]:
-            if frame_idx - current_cluster[-1] <= tolerance:
-                current_cluster.append(frame_idx)
+        clusters: List[List[tuple]] = []
+        current_cluster = [all_events[0]]
+        for item in all_events[1:]:
+            if item[0] - current_cluster[-1][0] <= tolerance:
+                current_cluster.append(item)
             else:
                 clusters.append(current_cluster)
-                current_cluster = [frame_idx]
+                current_cluster = [item]
         clusters.append(current_cluster)
 
-        # Keep clusters with majority agreement
+        # Keep clusters with majority agreement (count unique methods)
         events = []
         for cluster in clusters:
-            if len(cluster) >= majority_threshold:
+            unique_methods = len(set(m_idx for _, m_idx in cluster))
+            if unique_methods >= majority_threshold:
                 # Use median frame as the consensus frame
-                median_frame = int(np.median(cluster))
-                confidence = round(len(cluster) / n_methods, 3)
+                cluster_frames = [f for f, _ in cluster]
+                median_frame = int(np.median(cluster_frames))
+                confidence = round(unique_methods / n_methods, 3)
                 events.append({
                     "frame": median_frame,
                     "time": round(float(median_frame / fps), 4),
@@ -968,8 +981,11 @@ def _make_gaitkit_wrapper(gk_method_name: str) -> Callable:
         A function with the standard event detection signature.
     """
     def wrapper(frames, fps, min_cycle_duration=0.4, cutoff_freq=6.0):
-        # Reconstruct minimal data dict from frames
+        # Reconstruct minimal data dict from frames, including angles
+        # from the original data dict when available.
         data_proxy = {"frames": frames, "meta": {"fps": fps}}
+        if _current_data is not None and _current_data.get("angles"):
+            data_proxy["angles"] = _current_data["angles"]
         return _detect_gaitkit(data_proxy, fps, method=gk_method_name)
     wrapper.__doc__ = f"gaitkit '{gk_method_name}' event detection method."
     wrapper.__name__ = f"_detect_gk_{gk_method_name}"
@@ -980,6 +996,8 @@ def _make_gaitkit_ensemble_wrapper() -> Callable:
     """Create a wrapper for gaitkit ensemble method."""
     def wrapper(frames, fps, min_cycle_duration=0.4, cutoff_freq=6.0):
         data_proxy = {"frames": frames, "meta": {"fps": fps}}
+        if _current_data is not None and _current_data.get("angles"):
+            data_proxy["angles"] = _current_data["angles"]
         return _detect_gaitkit_ensemble(data_proxy, fps)
     wrapper.__doc__ = "gaitkit ensemble (multi-method voting) event detection."
     wrapper.__name__ = "_detect_gk_ensemble"
@@ -1164,7 +1182,12 @@ def detect_events(
         raise ValueError(f"Unknown method: {method}. Available: {available}")
 
     detect_func = EVENT_METHODS[method]
-    events = detect_func(frames, fps, min_cycle_duration, cutoff_freq)
+    global _current_data
+    _current_data = data
+    try:
+        events = detect_func(frames, fps, min_cycle_duration, cutoff_freq)
+    finally:
+        _current_data = None
 
     n_events = sum(len(v) for v in events.values())
     logger.info(

@@ -547,12 +547,23 @@ def export_trc(
 
             for name in marker_names:
                 pt = lm.get(name, {})
-                x_norm = pt.get("x", 0.0) if pt else 0.0
-                y_norm = pt.get("y", 0.0) if pt else 0.0
-                if x_norm is None:
-                    x_norm = 0.0
-                if y_norm is None:
-                    y_norm = 0.0
+                x_norm = pt.get("x") if pt else None
+                y_norm = pt.get("y") if pt else None
+
+                # Detect missing markers (None or NaN)
+                x_missing = (
+                    x_norm is None
+                    or (isinstance(x_norm, float) and np.isnan(x_norm))
+                )
+                y_missing = (
+                    y_norm is None
+                    or (isinstance(y_norm, float) and np.isnan(y_norm))
+                )
+
+                if x_missing or y_missing:
+                    # TRC standard: empty strings for missing markers
+                    vals.extend(["", "", ""])
+                    continue
 
                 # Depth (Z coordinate)
                 z = 0.0
@@ -947,9 +958,9 @@ def export_summary_json(
         from .scores import gait_profile_score_2d
         gps = gait_profile_score_2d(cycles)
         summary["gps_2d"] = {
-            "gps_left": gps.get("gps_left"),
-            "gps_right": gps.get("gps_right"),
-            "gps_overall": gps.get("gps_overall"),
+            "gps_left": gps.get("gps_2d_left"),
+            "gps_right": gps.get("gps_2d_right"),
+            "gps_overall": gps.get("gps_2d_overall"),
         }
     except Exception:
         summary["gps_2d"] = None

@@ -336,9 +336,7 @@ def sagittal_deviation_index(
     ref_gps = float(np.mean(list(norm_sds.values())))
 
     # Reference SD: derived from the normative SDs themselves
-    ref_sd = float(np.mean(list(norm_sds.values())))
-    if ref_sd < 0.5:
-        ref_sd = 0.5  # floor to avoid division issues
+    ref_sd = max(float(np.std(list(norm_sds.values()))), 1.0)
 
     result = {}
     for key in ("gps_2d_left", "gps_2d_right", "gps_2d_overall"):
@@ -374,7 +372,7 @@ def gait_deviation_index_2d(cycles: dict, stratum: str = "adult") -> dict:
         DeprecationWarning,
         stacklevel=2,
     )
-    return sagittal_deviation_index(cycles, stratum)
+    return sagittal_deviation_index(cycles, stratum, include_frontal=False)
 
 
 def movement_analysis_profile(cycles: dict, stratum: str = "adult") -> dict:

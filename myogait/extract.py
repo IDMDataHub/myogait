@@ -190,6 +190,52 @@ def _flip_landmarks(landmarks: np.ndarray) -> np.ndarray:
     return flipped
 
 
+def _flip_auxiliary(aux: np.ndarray, landmark_names: list) -> np.ndarray:
+    """Mirror auxiliary landmarks horizontally and swap left/right indices.
+
+    Args:
+        aux: (N, 3) array of auxiliary landmarks (x, y, confidence).
+        landmark_names: List of landmark name strings of length N, used to
+            identify left/right pairs for swapping.
+
+    Returns:
+        Flipped array with mirrored x and swapped left/right pairs.
+    """
+    flipped = aux.copy()
+    # Mirror x coordinate
+    flipped[:, 0] = 1.0 - flipped[:, 0]
+
+    # Build left/right swap pairs from landmark names
+    n = len(landmark_names)
+    visited = set()
+    for i, name in enumerate(landmark_names):
+        if i in visited:
+            continue
+        # Try multiple left/right naming conventions used in Goliath/WholeBody
+        partner_name = None
+        if "left_" in name:
+            partner_name = name.replace("left_", "right_")
+        elif "right_" in name:
+            partner_name = name.replace("right_", "left_")
+        elif name.startswith("l_"):
+            partner_name = "r_" + name[2:]
+        elif name.startswith("r_"):
+            partner_name = "l_" + name[2:]
+
+        if partner_name is None:
+            continue
+
+        # Find partner index
+        for j in range(n):
+            if j != i and landmark_names[j] == partner_name:
+                flipped[i], flipped[j] = flipped[j].copy(), flipped[i].copy()
+                visited.add(i)
+                visited.add(j)
+                break
+
+    return flipped
+
+
 def extract(
     video_path: str,
     model: str = "mediapipe",
@@ -385,6 +431,20 @@ def extract(
                 _flip_landmarks(lm) if lm is not None else None
                 for lm in raw_landmarks
             ]
+            # Flip auxiliary data (goliath308, wholebody133) so foot landmarks
+            # injected by _enrich_foot_landmarks are in the correct space.
+            for i, aux in enumerate(auxiliary_list):
+                if aux is not None:
+                    n_aux = aux.shape[0]
+                    if n_aux == 308:
+                        auxiliary_list[i] = _flip_auxiliary(aux, GOLIATH_LANDMARK_NAMES)
+                    elif n_aux == 133:
+                        auxiliary_list[i] = _flip_auxiliary(aux, list(WHOLEBODY_LANDMARK_NAMES))
+                    else:
+                        # Unknown format: just mirror x
+                        aux_copy = aux.copy()
+                        aux_copy[:, 0] = 1.0 - aux_copy[:, 0]
+                        auxiliary_list[i] = aux_copy
     else:
         direction = "unknown"
 
@@ -702,11 +762,16 @@ def _correct_label_inversions(landmarks_list: list) -> list:
         if prev is None or curr is None:
             continue
 
+        if np.any(np.isnan(prev[[lh, rh], 0])) or np.any(np.isnan(curr[[lh, rh], 0])):
+            continue
+
         prev_hip_order = prev[lh, 0] < prev[rh, 0]
         curr_hip_order = curr[lh, 0] < curr[rh, 0]
 
         if prev_hip_order != curr_hip_order:
             # Confirm with knees
+            if np.any(np.isnan(prev[[lk, rk], 0])) or np.any(np.isnan(curr[[lk, rk], 0])):
+                continue
             prev_knee_order = prev[lk, 0] < prev[rk, 0]
             curr_knee_order = curr[lk, 0] < curr[rk, 0]
             if prev_knee_order != curr_knee_order:
@@ -726,10 +791,11 @@ def _correct_label_inversions(landmarks_list: list) -> list:
                 pairs.append((MP_NAME_TO_INDEX[name], MP_NAME_TO_INDEX[right_name]))
 
     result = [lm.copy() if lm is not None else None for lm in landmarks_list]
+    inversions_set = set(inversions)
     in_inversion = False
 
     for i in range(len(result)):
-        if i in inversions:
+        if i in inversions_set:
             in_inversion = not in_inversion
         if in_inversion and result[i] is not None:
             for li, ri in pairs:
