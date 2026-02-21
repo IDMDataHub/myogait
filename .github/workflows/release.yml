@@ -65,6 +65,13 @@ jobs:
       - name: Check package
         run: twine check dist/*
 
+      - name: Smoke test built wheel
+        run: |
+          python -m venv /tmp/pkg-smoke
+          /tmp/pkg-smoke/bin/pip install --upgrade pip
+          /tmp/pkg-smoke/bin/pip install dist/*.whl
+          /tmp/pkg-smoke/bin/python -c "import myogait; print(myogait.__version__)"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
