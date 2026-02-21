@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "myogait"
-version = "0.3.2"
+version = "0.3.3"
 description = "Markerless video-based gait analysis toolkit"
 readme = "README.md"
 license = "MIT"

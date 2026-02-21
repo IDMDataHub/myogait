@@ -4,15 +4,23 @@ import pytest
 import numpy as np
 import pandas as pd
 from pathlib import Path
-import tomllib
+import re
+
+
+def _project_version() -> str:
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    text = pyproject.read_text(encoding="utf-8")
+    match = re.search(r'^version\s*=\s*"([^"]+)"', text, flags=re.MULTILINE)
+    if not match:
+        raise AssertionError("Could not find project version in pyproject.toml")
+    return match.group(1)
 
 
 # ── Import / API ──────────────────────────────────────────────────────
 
 def test_import():
     import myogait
-    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
-    expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+    expected = _project_version()
     assert hasattr(myogait, "__version__")
     assert myogait.__version__ == expected
 
@@ -924,8 +932,7 @@ def test_plot_phase_plane():
 
 def test_version_updated():
     import myogait
-    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
-    expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+    expected = _project_version()
     assert myogait.__version__ == expected
 
 
