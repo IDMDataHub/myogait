@@ -139,6 +139,27 @@ data = {
 
 ## 3. Choosing a Pose Backend
 
+### Experimental Input Degradation (AIM Benchmark Only)
+
+Use this only for robustness benchmarking. By default, all values are neutral
+and no degradation is applied.
+
+```python
+data = extract(
+    "video.mp4",
+    model="mediapipe",
+    experimental={
+        "enabled": True,
+        "target_fps": 15.0,
+        "downscale": 0.6,
+        "contrast": 0.7,
+        "aspect_ratio": 1.2,
+        "perspective_x": 0.2,
+        "perspective_y": 0.1,
+    },
+)
+```
+
 ### Quick Comparison
 
 ```python

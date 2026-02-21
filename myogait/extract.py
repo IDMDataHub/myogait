@@ -26,6 +26,13 @@ from .constants import (
 )
 from .models import get_extractor
 from .schema import create_empty
+from .experimental import (
+    build_video_degradation_config,
+    is_video_degradation_active,
+    compute_fps_sampling,
+    degraded_resolution,
+    apply_video_degradation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +253,7 @@ def extract(
     with_seg: bool = False,
     depth_model_size: Optional[str] = None,
     seg_model_size: Optional[str] = None,
+    experimental: Optional[dict] = None,
     progress_callback=None,
     **kwargs,
 ) -> dict:
@@ -273,6 +281,11 @@ def extract(
         Sapiens depth model size (default: matches pose model).
     seg_model_size : str, optional
         Sapiens seg model size (default: matches pose model).
+    experimental : dict, optional
+        Experimental input degradation controls (AIM benchmark only).
+        Supported keys: ``target_fps``, ``downscale``, ``contrast``,
+        ``aspect_ratio``, ``perspective_x``, ``perspective_y``, ``enabled``.
+        Defaults keep the input unchanged.
     progress_callback : callable, optional
         Callback ``fn(float)`` receiving progress from 0.0 to 1.0.
     **kwargs
@@ -300,16 +313,24 @@ def extract(
     if not cap.isOpened():
         raise ValueError(f"Cannot open video: {video_path}")
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    source_fps = cap.get(cv2.CAP_PROP_FPS)
+    source_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    source_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    source_total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
+    exp_cfg = build_video_degradation_config(experimental)
+    exp_active = is_video_degradation_active(exp_cfg)
+    frame_stride, fps = compute_fps_sampling(source_fps, exp_cfg.get("target_fps"))
+    width, height = degraded_resolution(source_width, source_height, exp_cfg)
+
+    estimated_total = source_total_frames
+    if estimated_total > 0 and frame_stride > 1:
+        estimated_total = int(np.ceil(estimated_total / frame_stride))
     if max_frames is not None:
-        total_frames = min(total_frames, max_frames)
+        estimated_total = min(estimated_total, max_frames)
 
-    # Create pivot structure
-    data = create_empty(video_path, fps, width, height, total_frames)
+    # Create pivot structure with effective extraction metadata.
+    data = create_empty(video_path, fps, width, height, estimated_total)
 
     # Get extractor — pass fps for models that need it (mediapipe)
     if model == "mediapipe" and "fps" not in kwargs:
@@ -338,7 +359,7 @@ def extract(
         logger.info(f"Segmentation enabled (sapiens-seg-{_ss})")
 
     logger.info(
-        f"Extracting {total_frames} frames with {model} "
+        f"Extracting ~{estimated_total} frames with {model} "
         f"({extractor.n_landmarks} landmarks, {width}x{height} @ {fps:.1f}fps)"
     )
 
@@ -348,16 +369,23 @@ def extract(
     depth_maps = []     # list of np.ndarray or None
     seg_masks = []      # list of np.ndarray or None
     frame_idx = 0
+    source_idx = 0
     detected_count = 0
-    log_interval = max(1, total_frames // 10)  # log every ~10%
+    log_interval = max(1, max(estimated_total, 1) // 10)  # log every ~10%
 
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
+            if source_idx % frame_stride != 0:
+                source_idx += 1
+                continue
             if max_frames is not None and frame_idx >= max_frames:
                 break
+
+            if exp_active:
+                frame = apply_video_degradation(frame, exp_cfg)
 
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             result = extractor.process_frame(frame_rgb)
@@ -397,14 +425,15 @@ def extract(
             )
 
             frame_idx += 1
+            source_idx += 1
 
             if frame_idx % log_interval == 0:
-                pct = 100 * frame_idx / total_frames
+                pct = 100 * frame_idx / max(estimated_total, 1)
                 det_pct = 100 * detected_count / frame_idx if frame_idx > 0 else 0
-                logger.info(f"  {frame_idx}/{total_frames} ({pct:.0f}%) — {det_pct:.0f}% detected")
+                logger.info(f"  {frame_idx}/{estimated_total} ({pct:.0f}%) — {det_pct:.0f}% detected")
 
             if progress_callback and frame_idx % 10 == 0:
-                progress_callback(frame_idx / total_frames)
+                progress_callback(frame_idx / max(estimated_total, 1))
     finally:
         cap.release()
         extractor.teardown()
@@ -535,6 +564,16 @@ def extract(
         "inversions_corrected": correct_inversions,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
     }
+    if exp_active:
+        extraction_meta["experimental"] = {
+            "family": "video_degradation",
+            "scope": "AIM benchmark only",
+            "source_fps": round(float(source_fps), 4),
+            "source_resolution": [int(source_width), int(source_height)],
+            "frame_stride": int(frame_stride),
+            "effective_fps": round(float(fps), 4),
+            "config": exp_cfg,
+        }
     if has_auxiliary:
         # Detect auxiliary type from first non-None entry
         first_aux = next((a for a in auxiliary_list if a is not None), None)

@@ -133,6 +133,45 @@ from myogait import extract
 data = extract("video.mp4", model="sapiens-top", with_depth=True, with_seg=True)
 ```
 
+### Experimental AIM Benchmark Input Degradation
+
+`myogait` includes an **experimental** pre-extraction degradation layer for
+robustness benchmarking in the **AIM benchmark context only**.
+By default, it is disabled and applies **no modification**.
+
+Python API:
+
+```python
+from myogait import extract
+
+data = extract(
+    "video.mp4",
+    model="mediapipe",
+    experimental={
+        "enabled": True,
+        "target_fps": 15.0,    # frame-rate degradation
+        "downscale": 0.6,      # spatial degradation
+        "contrast": 0.7,       # contrast degradation
+        "aspect_ratio": 1.2,   # non-square stretch
+        "perspective_x": 0.2,  # side-like perspective skew
+        "perspective_y": 0.1,  # forward/backward tilt skew
+    },
+)
+```
+
+CLI:
+
+```bash
+myogait extract video.mp4 \
+  --exp-enable \
+  --exp-target-fps 15 \
+  --exp-downscale 0.6 \
+  --exp-contrast 0.7 \
+  --exp-aspect-ratio 1.2 \
+  --exp-perspective-x 0.2 \
+  --exp-perspective-y 0.1
+```
+
 ### References
 
 - **Paper:** Rawal et al., *Sapiens: Foundation for Human Vision Models*, ECCV 2024 — [arXiv:2408.12569](https://arxiv.org/abs/2408.12569)
@@ -442,7 +481,7 @@ All functions operate on a single `data` dict that flows through the pipeline.
 | Function | Description |
 |---|---|
 | **Core pipeline** | |
-| `extract(video, model)` | Extract pose landmarks from video |
+| `extract(video, model, experimental=None)` | Extract pose landmarks from video |
 | `normalize(data, filters)` | Filter and normalize landmark trajectories |
 | `compute_angles(data)` | Compute sagittal joint angles |
 | `compute_frontal_angles(data)` | Compute frontal plane angles (requires depth) |
@@ -495,6 +534,21 @@ config = load_config("pipeline.yaml")
 config["filter"]["method"] = "butterworth"
 config["filter"]["cutoff"] = 6.0
 save_config(config, "pipeline_updated.yaml")
+```
+
+Experimental degradation can also be set in config (disabled by default):
+
+```yaml
+extract:
+  model: mediapipe
+  experimental:
+    enabled: false
+    target_fps: null
+    downscale: 1.0
+    contrast: 1.0
+    aspect_ratio: 1.0
+    perspective_x: 0.0
+    perspective_y: 0.0
 ```
 
 ## JSON Output Format

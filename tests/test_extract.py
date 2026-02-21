@@ -898,6 +898,8 @@ def test_default_config():
     assert "events" in DEFAULT_CONFIG
     assert "cycles" in DEFAULT_CONFIG
     assert "subject" in DEFAULT_CONFIG
+    assert "experimental" in DEFAULT_CONFIG["extract"]
+    assert DEFAULT_CONFIG["extract"]["experimental"]["enabled"] is False
 
 
 # ── Phase plane plot ─────────────────────────────────────────────
@@ -1110,14 +1112,16 @@ def test_seg_estimator_classes():
 
 
 def test_extract_with_depth_flag():
-    """Test that extract() accepts with_depth/with_seg parameters."""
+    """Test that extract() accepts optional extraction flags."""
     import inspect
     from myogait.extract import extract
     sig = inspect.signature(extract)
     assert "with_depth" in sig.parameters
     assert "with_seg" in sig.parameters
+    assert "experimental" in sig.parameters
     assert sig.parameters["with_depth"].default is False
     assert sig.parameters["with_seg"].default is False
+    assert sig.parameters["experimental"].default is None
 
 
 def test_sapiens_size_from_model():

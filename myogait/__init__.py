@@ -133,6 +133,11 @@ from .video import (
     render_stickfigure_animation,
 )
 from .config import load_config, save_config, DEFAULT_CONFIG
+from .experimental import (
+    VIDEO_DEGRADATION_DEFAULTS,
+    build_video_degradation_config,
+    apply_video_degradation,
+)
 
 __all__ = [
     # Core pipeline
@@ -248,6 +253,9 @@ __all__ = [
     "load_config",
     "save_config",
     "DEFAULT_CONFIG",
+    "VIDEO_DEGRADATION_DEFAULTS",
+    "build_video_degradation_config",
+    "apply_video_degradation",
     # Meta
     "__version__",
 ]

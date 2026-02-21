@@ -38,6 +38,19 @@ def _setup_logging(verbose: bool = False):
     )
 
 
+def _experimental_from_args(args) -> dict:
+    """Build experimental degradation config from CLI arguments."""
+    return {
+        "enabled": getattr(args, "exp_enable", False),
+        "target_fps": getattr(args, "exp_target_fps", None),
+        "downscale": getattr(args, "exp_downscale", 1.0),
+        "contrast": getattr(args, "exp_contrast", 1.0),
+        "aspect_ratio": getattr(args, "exp_aspect_ratio", 1.0),
+        "perspective_x": getattr(args, "exp_perspective_x", 0.0),
+        "perspective_y": getattr(args, "exp_perspective_y", 0.0),
+    }
+
+
 def cmd_extract(args):
     """Run extraction only."""
     from . import extract, save_json
@@ -49,6 +62,7 @@ def cmd_extract(args):
         max_frames=args.max_frames,
         with_depth=getattr(args, "with_depth", False),
         with_seg=getattr(args, "with_seg", False),
+        experimental=_experimental_from_args(args),
     )
     elapsed = time.time() - t0
 
@@ -75,6 +89,7 @@ def cmd_run(args):
         max_frames=args.max_frames,
         with_depth=getattr(args, "with_depth", False),
         with_seg=getattr(args, "with_seg", False),
+        experimental=_experimental_from_args(args),
     )
     n = len(data["frames"])
     detected = sum(1 for f in data["frames"] if f["confidence"] > 0.3)
@@ -264,6 +279,7 @@ def cmd_batch(args):
                 filepath,
                 model=cfg.get("extract", {}).get("model", args.model),
                 max_frames=cfg.get("extract", {}).get("max_frames"),
+                experimental=cfg.get("extract", {}).get("experimental"),
             )
 
             data = normalize(
@@ -425,6 +441,13 @@ def main():
     p_extract.add_argument("--max-frames", type=int, help="Max frames to process")
     p_extract.add_argument("--with-depth", action="store_true", help="Run Sapiens depth estimation")
     p_extract.add_argument("--with-seg", action="store_true", help="Run Sapiens body segmentation")
+    p_extract.add_argument("--exp-enable", action="store_true", help="Enable experimental input degradation (AIM benchmark only)")
+    p_extract.add_argument("--exp-target-fps", type=float, help="Experimental: downsample video FPS before extraction")
+    p_extract.add_argument("--exp-downscale", type=float, default=1.0, help="Experimental: spatial downscale factor in (0,1]")
+    p_extract.add_argument("--exp-contrast", type=float, default=1.0, help="Experimental: contrast multiplier in (0,1]")
+    p_extract.add_argument("--exp-aspect-ratio", type=float, default=1.0, help="Experimental: horizontal stretch factor")
+    p_extract.add_argument("--exp-perspective-x", type=float, default=0.0, help="Experimental: horizontal keystone tilt [-1,1]")
+    p_extract.add_argument("--exp-perspective-y", type=float, default=0.0, help="Experimental: vertical perspective tilt [-1,1]")
     p_extract.set_defaults(func=cmd_extract)
 
     # run (full pipeline)
@@ -443,6 +466,13 @@ def main():
                        help="Event detection method (default: zeni)")
     p_run.add_argument("--with-depth", action="store_true", help="Run Sapiens depth estimation")
     p_run.add_argument("--with-seg", action="store_true", help="Run Sapiens body segmentation")
+    p_run.add_argument("--exp-enable", action="store_true", help="Enable experimental input degradation (AIM benchmark only)")
+    p_run.add_argument("--exp-target-fps", type=float, help="Experimental: downsample video FPS before extraction")
+    p_run.add_argument("--exp-downscale", type=float, default=1.0, help="Experimental: spatial downscale factor in (0,1]")
+    p_run.add_argument("--exp-contrast", type=float, default=1.0, help="Experimental: contrast multiplier in (0,1]")
+    p_run.add_argument("--exp-aspect-ratio", type=float, default=1.0, help="Experimental: horizontal stretch factor")
+    p_run.add_argument("--exp-perspective-x", type=float, default=0.0, help="Experimental: horizontal keystone tilt [-1,1]")
+    p_run.add_argument("--exp-perspective-y", type=float, default=0.0, help="Experimental: vertical perspective tilt [-1,1]")
     p_run.set_defaults(func=cmd_run)
 
     # analyze

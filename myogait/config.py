@@ -31,6 +31,15 @@ DEFAULT_CONFIG = {
         "max_frames": None,
         "flip_if_right": True,
         "correct_inversions": True,
+        "experimental": {
+            "enabled": False,
+            "target_fps": None,
+            "downscale": 1.0,
+            "contrast": 1.0,
+            "aspect_ratio": 1.0,
+            "perspective_x": 0.0,
+            "perspective_y": 0.0,
+        },
     },
     "normalize": {
         "filters": ["butterworth"],
