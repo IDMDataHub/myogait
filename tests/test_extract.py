@@ -11,7 +11,7 @@ from pathlib import Path
 def test_import():
     import myogait
     assert hasattr(myogait, "__version__")
-    assert myogait.__version__ == "0.3.0"
+    assert myogait.__version__ == "0.3.1"
 
 
 def test_public_api():
@@ -921,7 +921,7 @@ def test_plot_phase_plane():
 
 def test_version_updated():
     import myogait
-    assert myogait.__version__ == "0.3.0"
+    assert myogait.__version__ == "0.3.1"
 
 
 # ── Goliath 308 / Sapiens ───────────────────────────────────────────
