@@ -530,19 +530,19 @@ This work is supported by:
 
 <p align="center">
   <a href="https://www.institut-myologie.org/">
-    <img src="https://www.institut-myologie.org/wp-content/themes/developer/assets/img/logo-institut-myologie.svg" alt="Institut de Myologie" height="80">
+    <img src="https://img.shields.io/badge/Institut_de_Myologie-Paris-0055A4?style=for-the-badge" alt="Institut de Myologie">
   </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
+  &nbsp;
   <a href="https://www.afm-telethon.fr/">
-    <img src="https://www.afm-telethon.fr/sites/default/files/logo_afm.png" alt="AFM-Téléthon" height="80">
+    <img src="https://img.shields.io/badge/AFM--Téléthon-Supporter-E30613?style=for-the-badge" alt="AFM-Téléthon">
   </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
+  &nbsp;
   <a href="https://www.fondation-myologie.org/">
-    <img src="https://www.fondation-myologie.org/app/uploads/2024/11/Logo-Fondation-Myologie.svg" alt="Fondation Myologie" height="80">
+    <img src="https://img.shields.io/badge/Fondation_Myologie-Research-00A651?style=for-the-badge" alt="Fondation Myologie">
   </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
+  &nbsp;
   <a href="https://www.telethon.fr/">
-    <img src="https://upload.wikimedia.org/wikipedia/fr/thumb/0/0f/Telethon_logo.svg/320px-Telethon_logo.svg.png" alt="Téléthon" height="60">
+    <img src="https://img.shields.io/badge/Téléthon-Funding-FFC107?style=for-the-badge" alt="Téléthon">
   </a>
 </p>
 
