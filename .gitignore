@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+venv/
+.pytest_cache/
+*.task
+test_output.json
+run_pipeline.py
+.myogait/

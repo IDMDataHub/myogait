@@ -1,0 +1,477 @@
+"""Landmark definitions and skeleton connections for pose estimation models."""
+
+# ── Goliath 308 keypoints (Meta Sapiens, ECCV 2024) ──────────────────────
+# Source: https://huggingface.co/spaces/facebook/sapiens-pose
+# Order matches TorchScript model output channels (0–307).
+
+GOLIATH_LANDMARK_NAMES = [
+    # 0-14: Body (15)
+    "nose",
+    "left_eye",
+    "right_eye",
+    "left_ear",
+    "right_ear",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_hip",
+    "right_hip",
+    "left_knee",
+    "right_knee",
+    "left_ankle",
+    "right_ankle",
+    # 15-20: Feet (6)
+    "left_big_toe",
+    "left_small_toe",
+    "left_heel",
+    "right_big_toe",
+    "right_small_toe",
+    "right_heel",
+    # 21-41: Right hand (21)
+    "right_thumb4",
+    "right_thumb3",
+    "right_thumb2",
+    "right_thumb_third_joint",
+    "right_forefinger4",
+    "right_forefinger3",
+    "right_forefinger2",
+    "right_forefinger_third_joint",
+    "right_middle_finger4",
+    "right_middle_finger3",
+    "right_middle_finger2",
+    "right_middle_finger_third_joint",
+    "right_ring_finger4",
+    "right_ring_finger3",
+    "right_ring_finger2",
+    "right_ring_finger_third_joint",
+    "right_pinky_finger4",
+    "right_pinky_finger3",
+    "right_pinky_finger2",
+    "right_pinky_finger_third_joint",
+    "right_wrist",
+    # 42-62: Left hand (21)
+    "left_thumb4",
+    "left_thumb3",
+    "left_thumb2",
+    "left_thumb_third_joint",
+    "left_forefinger4",
+    "left_forefinger3",
+    "left_forefinger2",
+    "left_forefinger_third_joint",
+    "left_middle_finger4",
+    "left_middle_finger3",
+    "left_middle_finger2",
+    "left_middle_finger_third_joint",
+    "left_ring_finger4",
+    "left_ring_finger3",
+    "left_ring_finger2",
+    "left_ring_finger_third_joint",
+    "left_pinky_finger4",
+    "left_pinky_finger3",
+    "left_pinky_finger2",
+    "left_pinky_finger_third_joint",
+    "left_wrist",
+    # 63-69: Additional body (7)
+    "left_olecranon",
+    "right_olecranon",
+    "left_cubital_fossa",
+    "right_cubital_fossa",
+    "left_acromion",
+    "right_acromion",
+    "neck",
+    # 70-77: Face structure (8)
+    "center_of_glabella",
+    "center_of_nose_root",
+    "tip_of_nose_bridge",
+    "midpoint_1_of_nose_bridge",
+    "midpoint_2_of_nose_bridge",
+    "midpoint_3_of_nose_bridge",
+    "center_of_labiomental_groove",
+    "tip_of_chin",
+    # 78-86: Right eyebrow (9)
+    "upper_startpoint_of_r_eyebrow",
+    "lower_startpoint_of_r_eyebrow",
+    "end_of_r_eyebrow",
+    "upper_midpoint_1_of_r_eyebrow",
+    "lower_midpoint_1_of_r_eyebrow",
+    "upper_midpoint_2_of_r_eyebrow",
+    "upper_midpoint_3_of_r_eyebrow",
+    "lower_midpoint_2_of_r_eyebrow",
+    "lower_midpoint_3_of_r_eyebrow",
+    # 87-95: Left eyebrow (9)
+    "upper_startpoint_of_l_eyebrow",
+    "lower_startpoint_of_l_eyebrow",
+    "end_of_l_eyebrow",
+    "upper_midpoint_1_of_l_eyebrow",
+    "lower_midpoint_1_of_l_eyebrow",
+    "upper_midpoint_2_of_l_eyebrow",
+    "upper_midpoint_3_of_l_eyebrow",
+    "lower_midpoint_2_of_l_eyebrow",
+    "lower_midpoint_3_of_l_eyebrow",
+    # 96-119: Left eye (24)
+    "l_inner_end_of_upper_lash_line",
+    "l_outer_end_of_upper_lash_line",
+    "l_centerpoint_of_upper_lash_line",
+    "l_midpoint_2_of_upper_lash_line",
+    "l_midpoint_1_of_upper_lash_line",
+    "l_midpoint_6_of_upper_lash_line",
+    "l_midpoint_5_of_upper_lash_line",
+    "l_midpoint_4_of_upper_lash_line",
+    "l_midpoint_3_of_upper_lash_line",
+    "l_outer_end_of_upper_eyelid_line",
+    "l_midpoint_6_of_upper_eyelid_line",
+    "l_midpoint_2_of_upper_eyelid_line",
+    "l_midpoint_5_of_upper_eyelid_line",
+    "l_centerpoint_of_upper_eyelid_line",
+    "l_midpoint_4_of_upper_eyelid_line",
+    "l_midpoint_1_of_upper_eyelid_line",
+    "l_midpoint_3_of_upper_eyelid_line",
+    "l_midpoint_6_of_upper_crease_line",
+    "l_midpoint_2_of_upper_crease_line",
+    "l_midpoint_5_of_upper_crease_line",
+    "l_centerpoint_of_upper_crease_line",
+    "l_midpoint_4_of_upper_crease_line",
+    "l_midpoint_1_of_upper_crease_line",
+    "l_midpoint_3_of_upper_crease_line",
+    # 120-143: Right eye (24)
+    "r_inner_end_of_upper_lash_line",
+    "r_outer_end_of_upper_lash_line",
+    "r_centerpoint_of_upper_lash_line",
+    "r_midpoint_1_of_upper_lash_line",
+    "r_midpoint_2_of_upper_lash_line",
+    "r_midpoint_3_of_upper_lash_line",
+    "r_midpoint_4_of_upper_lash_line",
+    "r_midpoint_5_of_upper_lash_line",
+    "r_midpoint_6_of_upper_lash_line",
+    "r_outer_end_of_upper_eyelid_line",
+    "r_midpoint_3_of_upper_eyelid_line",
+    "r_midpoint_1_of_upper_eyelid_line",
+    "r_midpoint_4_of_upper_eyelid_line",
+    "r_centerpoint_of_upper_eyelid_line",
+    "r_midpoint_5_of_upper_eyelid_line",
+    "r_midpoint_2_of_upper_eyelid_line",
+    "r_midpoint_6_of_upper_eyelid_line",
+    "r_midpoint_3_of_upper_crease_line",
+    "r_midpoint_1_of_upper_crease_line",
+    "r_midpoint_4_of_upper_crease_line",
+    "r_centerpoint_of_upper_crease_line",
+    "r_midpoint_5_of_upper_crease_line",
+    "r_midpoint_2_of_upper_crease_line",
+    "r_midpoint_6_of_upper_crease_line",
+    # 144-160: Left lower eye (17)
+    "l_inner_end_of_lower_lash_line",
+    "l_outer_end_of_lower_lash_line",
+    "l_centerpoint_of_lower_lash_line",
+    "l_midpoint_2_of_lower_lash_line",
+    "l_midpoint_1_of_lower_lash_line",
+    "l_midpoint_6_of_lower_lash_line",
+    "l_midpoint_5_of_lower_lash_line",
+    "l_midpoint_4_of_lower_lash_line",
+    "l_midpoint_3_of_lower_lash_line",
+    "l_outer_end_of_lower_eyelid_line",
+    "l_midpoint_6_of_lower_eyelid_line",
+    "l_midpoint_2_of_lower_eyelid_line",
+    "l_midpoint_5_of_lower_eyelid_line",
+    "l_centerpoint_of_lower_eyelid_line",
+    "l_midpoint_4_of_lower_eyelid_line",
+    "l_midpoint_1_of_lower_eyelid_line",
+    "l_midpoint_3_of_lower_eyelid_line",
+    # 161-177: Right lower eye (17)
+    "r_inner_end_of_lower_lash_line",
+    "r_outer_end_of_lower_lash_line",
+    "r_centerpoint_of_lower_lash_line",
+    "r_midpoint_1_of_lower_lash_line",
+    "r_midpoint_2_of_lower_lash_line",
+    "r_midpoint_3_of_lower_lash_line",
+    "r_midpoint_4_of_lower_lash_line",
+    "r_midpoint_5_of_lower_lash_line",
+    "r_midpoint_6_of_lower_lash_line",
+    "r_outer_end_of_lower_eyelid_line",
+    "r_midpoint_3_of_lower_eyelid_line",
+    "r_midpoint_1_of_lower_eyelid_line",
+    "r_midpoint_4_of_lower_eyelid_line",
+    "r_centerpoint_of_lower_eyelid_line",
+    "r_midpoint_5_of_lower_eyelid_line",
+    "r_midpoint_2_of_lower_eyelid_line",
+    "r_midpoint_6_of_lower_eyelid_line",
+    # 178-187: Nose detail (10)
+    "tip_of_nose",
+    "bottom_center_of_nose",
+    "r_outer_corner_of_nose",
+    "l_outer_corner_of_nose",
+    "inner_corner_of_r_nostril",
+    "outer_corner_of_r_nostril",
+    "upper_corner_of_r_nostril",
+    "inner_corner_of_l_nostril",
+    "outer_corner_of_l_nostril",
+    "upper_corner_of_l_nostril",
+    # 188-219: Mouth (32)
+    "r_outer_corner_of_mouth",
+    "l_outer_corner_of_mouth",
+    "center_of_cupid_bow",
+    "center_of_lower_outer_lip",
+    "midpoint_1_of_upper_outer_lip",
+    "midpoint_2_of_upper_outer_lip",
+    "midpoint_1_of_lower_outer_lip",
+    "midpoint_2_of_lower_outer_lip",
+    "midpoint_3_of_upper_outer_lip",
+    "midpoint_4_of_upper_outer_lip",
+    "midpoint_5_of_upper_outer_lip",
+    "midpoint_6_of_upper_outer_lip",
+    "midpoint_3_of_lower_outer_lip",
+    "midpoint_4_of_lower_outer_lip",
+    "midpoint_5_of_lower_outer_lip",
+    "midpoint_6_of_lower_outer_lip",
+    "r_inner_corner_of_mouth",
+    "l_inner_corner_of_mouth",
+    "center_of_upper_inner_lip",
+    "center_of_lower_inner_lip",
+    "midpoint_1_of_upper_inner_lip",
+    "midpoint_2_of_upper_inner_lip",
+    "midpoint_1_of_lower_inner_lip",
+    "midpoint_2_of_lower_inner_lip",
+    "midpoint_3_of_upper_inner_lip",
+    "midpoint_4_of_upper_inner_lip",
+    "midpoint_5_of_upper_inner_lip",
+    "midpoint_6_of_upper_inner_lip",
+    "midpoint_3_of_lower_inner_lip",
+    "midpoint_4_of_lower_inner_lip",
+    "midpoint_5_of_lower_inner_lip",
+    "midpoint_6_of_lower_inner_lip",
+    # 220-245: Left ear (26)
+    "l_top_end_of_inferior_crus",
+    "l_top_end_of_superior_crus",
+    "l_start_of_antihelix",
+    "l_end_of_antihelix",
+    "l_midpoint_1_of_antihelix",
+    "l_midpoint_1_of_inferior_crus",
+    "l_midpoint_2_of_antihelix",
+    "l_midpoint_3_of_antihelix",
+    "l_point_1_of_inner_helix",
+    "l_point_2_of_inner_helix",
+    "l_point_3_of_inner_helix",
+    "l_point_4_of_inner_helix",
+    "l_point_5_of_inner_helix",
+    "l_point_6_of_inner_helix",
+    "l_point_7_of_inner_helix",
+    "l_highest_point_of_antitragus",
+    "l_bottom_point_of_tragus",
+    "l_protruding_point_of_tragus",
+    "l_top_point_of_tragus",
+    "l_start_point_of_crus_of_helix",
+    "l_deepest_point_of_concha",
+    "l_tip_of_ear_lobe",
+    "l_midpoint_between_22_15",
+    "l_bottom_connecting_point_of_ear_lobe",
+    "l_top_connecting_point_of_helix",
+    "l_point_8_of_inner_helix",
+    # 246-271: Right ear (26)
+    "r_top_end_of_inferior_crus",
+    "r_top_end_of_superior_crus",
+    "r_start_of_antihelix",
+    "r_end_of_antihelix",
+    "r_midpoint_1_of_antihelix",
+    "r_midpoint_1_of_inferior_crus",
+    "r_midpoint_2_of_antihelix",
+    "r_midpoint_3_of_antihelix",
+    "r_point_1_of_inner_helix",
+    "r_point_8_of_inner_helix",
+    "r_point_3_of_inner_helix",
+    "r_point_4_of_inner_helix",
+    "r_point_5_of_inner_helix",
+    "r_point_6_of_inner_helix",
+    "r_point_7_of_inner_helix",
+    "r_highest_point_of_antitragus",
+    "r_bottom_point_of_tragus",
+    "r_protruding_point_of_tragus",
+    "r_top_point_of_tragus",
+    "r_start_point_of_crus_of_helix",
+    "r_deepest_point_of_concha",
+    "r_tip_of_ear_lobe",
+    "r_midpoint_between_22_15",
+    "r_bottom_connecting_point_of_ear_lobe",
+    "r_top_connecting_point_of_helix",
+    "r_point_2_of_inner_helix",
+    # 272-289: Iris (18)
+    "l_center_of_iris",
+    "l_border_of_iris_3",
+    "l_border_of_iris_midpoint_1",
+    "l_border_of_iris_12",
+    "l_border_of_iris_midpoint_4",
+    "l_border_of_iris_9",
+    "l_border_of_iris_midpoint_3",
+    "l_border_of_iris_6",
+    "l_border_of_iris_midpoint_2",
+    "r_center_of_iris",
+    "r_border_of_iris_3",
+    "r_border_of_iris_midpoint_1",
+    "r_border_of_iris_12",
+    "r_border_of_iris_midpoint_4",
+    "r_border_of_iris_9",
+    "r_border_of_iris_midpoint_3",
+    "r_border_of_iris_6",
+    "r_border_of_iris_midpoint_2",
+    # 290-307: Pupils (18)
+    "l_center_of_pupil",
+    "l_border_of_pupil_3",
+    "l_border_of_pupil_midpoint_1",
+    "l_border_of_pupil_12",
+    "l_border_of_pupil_midpoint_4",
+    "l_border_of_pupil_9",
+    "l_border_of_pupil_midpoint_3",
+    "l_border_of_pupil_6",
+    "l_border_of_pupil_midpoint_2",
+    "r_center_of_pupil",
+    "r_border_of_pupil_3",
+    "r_border_of_pupil_midpoint_1",
+    "r_border_of_pupil_12",
+    "r_border_of_pupil_midpoint_4",
+    "r_border_of_pupil_9",
+    "r_border_of_pupil_midpoint_3",
+    "r_border_of_pupil_6",
+    "r_border_of_pupil_midpoint_2",
+]
+
+GOLIATH_NAME_TO_INDEX = {name: i for i, name in enumerate(GOLIATH_LANDMARK_NAMES)}
+
+# Mapping from Goliath indices to COCO 17 indices.
+# NOTE: Goliath ordering differs from COCO — wrists are at 41/62, not 9/10.
+GOLIATH_TO_COCO = {
+    0: 0,     # nose
+    1: 1,     # left_eye
+    2: 2,     # right_eye
+    3: 3,     # left_ear
+    4: 4,     # right_ear
+    5: 5,     # left_shoulder
+    6: 6,     # right_shoulder
+    7: 7,     # left_elbow
+    8: 8,     # right_elbow
+    9: 11,    # left_hip
+    10: 12,   # right_hip
+    11: 13,   # left_knee
+    12: 14,   # right_knee
+    13: 15,   # left_ankle
+    14: 16,   # right_ankle
+    41: 10,   # right_wrist
+    62: 9,    # left_wrist
+}
+
+# MediaPipe Pose landmarks (33 total)
+MP_LANDMARK_NAMES = [
+    'NOSE', 'LEFT_EYE_INNER', 'LEFT_EYE', 'LEFT_EYE_OUTER',
+    'RIGHT_EYE_INNER', 'RIGHT_EYE', 'RIGHT_EYE_OUTER',
+    'LEFT_EAR', 'RIGHT_EAR', 'MOUTH_LEFT', 'MOUTH_RIGHT',
+    'LEFT_SHOULDER', 'RIGHT_SHOULDER', 'LEFT_ELBOW', 'RIGHT_ELBOW',
+    'LEFT_WRIST', 'RIGHT_WRIST', 'LEFT_PINKY', 'RIGHT_PINKY',
+    'LEFT_INDEX', 'RIGHT_INDEX', 'LEFT_THUMB', 'RIGHT_THUMB',
+    'LEFT_HIP', 'RIGHT_HIP', 'LEFT_KNEE', 'RIGHT_KNEE',
+    'LEFT_ANKLE', 'RIGHT_ANKLE', 'LEFT_HEEL', 'RIGHT_HEEL',
+    'LEFT_FOOT_INDEX', 'RIGHT_FOOT_INDEX'
+]
+
+MP_NAME_TO_INDEX = {name: i for i, name in enumerate(MP_LANDMARK_NAMES)}
+
+# COCO keypoint format (17 landmarks) - used by YOLO, HRNET, Sapiens, MMPose
+COCO_LANDMARK_NAMES = [
+    'NOSE', 'LEFT_EYE', 'RIGHT_EYE', 'LEFT_EAR', 'RIGHT_EAR',
+    'LEFT_SHOULDER', 'RIGHT_SHOULDER', 'LEFT_ELBOW', 'RIGHT_ELBOW',
+    'LEFT_WRIST', 'RIGHT_WRIST', 'LEFT_HIP', 'RIGHT_HIP',
+    'LEFT_KNEE', 'RIGHT_KNEE', 'LEFT_ANKLE', 'RIGHT_ANKLE'
+]
+
+COCO_NAME_TO_INDEX = {name: i for i, name in enumerate(COCO_LANDMARK_NAMES)}
+
+# Mapping from COCO landmark names to MediaPipe landmark names
+COCO_TO_MP = {
+    'NOSE': 'NOSE',
+    'LEFT_EYE': 'LEFT_EYE',
+    'RIGHT_EYE': 'RIGHT_EYE',
+    'LEFT_EAR': 'LEFT_EAR',
+    'RIGHT_EAR': 'RIGHT_EAR',
+    'LEFT_SHOULDER': 'LEFT_SHOULDER',
+    'RIGHT_SHOULDER': 'RIGHT_SHOULDER',
+    'LEFT_ELBOW': 'LEFT_ELBOW',
+    'RIGHT_ELBOW': 'RIGHT_ELBOW',
+    'LEFT_WRIST': 'LEFT_WRIST',
+    'RIGHT_WRIST': 'RIGHT_WRIST',
+    'LEFT_HIP': 'LEFT_HIP',
+    'RIGHT_HIP': 'RIGHT_HIP',
+    'LEFT_KNEE': 'LEFT_KNEE',
+    'RIGHT_KNEE': 'RIGHT_KNEE',
+    'LEFT_ANKLE': 'LEFT_ANKLE',
+    'RIGHT_ANKLE': 'RIGHT_ANKLE',
+}
+
+# Skeleton connections for visualization (MediaPipe indices)
+POSE_CONNECTIONS = [
+    (11, 12), (11, 13), (13, 15), (12, 14), (14, 16),  # Arms
+    (11, 23), (12, 24), (23, 24),  # Torso
+    (23, 25), (25, 27), (27, 29), (27, 31), (29, 31),  # Left leg
+    (24, 26), (26, 28), (28, 30), (28, 32), (30, 32),  # Right leg
+]
+
+# COCO skeleton connections
+COCO_CONNECTIONS = [
+    (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),  # Arms
+    (5, 11), (6, 12), (11, 12),  # Torso
+    (11, 13), (13, 15),  # Left leg
+    (12, 14), (14, 16),  # Right leg
+]
+
+# Landmarks needed for gait analysis (minimum set)
+GAIT_LANDMARKS = [
+    'LEFT_SHOULDER', 'RIGHT_SHOULDER',
+    'LEFT_HIP', 'RIGHT_HIP',
+    'LEFT_KNEE', 'RIGHT_KNEE',
+    'LEFT_ANKLE', 'RIGHT_ANKLE',
+    'LEFT_HEEL', 'RIGHT_HEEL',
+    'LEFT_FOOT_INDEX', 'RIGHT_FOOT_INDEX',
+]
+
+# ── Sapiens body-part segmentation classes (28) ───────────────────────
+# Source: facebookresearch/sapiens — lite/demo/classes_and_palettes.py
+GOLIATH_SEG_CLASSES = [
+    "Background", "Apparel", "Face_Neck", "Hair",
+    "Left_Foot", "Left_Hand", "Left_Lower_Arm", "Left_Lower_Leg",
+    "Left_Shoe", "Left_Sock", "Left_Upper_Arm", "Left_Upper_Leg",
+    "Lower_Clothing", "Right_Foot", "Right_Hand", "Right_Lower_Arm",
+    "Right_Lower_Leg", "Right_Shoe", "Right_Sock", "Right_Upper_Arm",
+    "Right_Upper_Leg", "Torso", "Upper_Clothing",
+    "Lower_Lip", "Upper_Lip", "Lower_Teeth", "Upper_Teeth", "Tongue",
+]
+
+# Body-part indices (skin/body, excluding background and clothing)
+GOLIATH_SEG_BODY_INDICES = [2, 4, 5, 6, 7, 10, 11, 13, 14, 15, 16, 19, 20, 21]
+
+# ── COCO-WholeBody 133 keypoints (RTMW) ──────────────────────────────
+# Source: mmpose configs/_base_/datasets/coco_wholebody.py
+WHOLEBODY_LANDMARK_NAMES = (
+    # 0-16: Body (same as COCO 17)
+    ["nose", "left_eye", "right_eye", "left_ear", "right_ear",
+     "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+     "left_wrist", "right_wrist", "left_hip", "right_hip",
+     "left_knee", "right_knee", "left_ankle", "right_ankle"]
+    # 17-22: Feet (6)
+    + ["left_big_toe", "left_small_toe", "left_heel",
+       "right_big_toe", "right_small_toe", "right_heel"]
+    # 23-90: Face (68 — standard 68-point face landmark convention)
+    + [f"face_{i}" for i in range(68)]
+    # 91-111: Left hand (21)
+    + ["left_hand_root",
+       "left_thumb1", "left_thumb2", "left_thumb3", "left_thumb4",
+       "left_forefinger1", "left_forefinger2", "left_forefinger3", "left_forefinger4",
+       "left_middle_finger1", "left_middle_finger2", "left_middle_finger3", "left_middle_finger4",
+       "left_ring_finger1", "left_ring_finger2", "left_ring_finger3", "left_ring_finger4",
+       "left_pinky_finger1", "left_pinky_finger2", "left_pinky_finger3", "left_pinky_finger4"]
+    # 112-132: Right hand (21)
+    + ["right_hand_root",
+       "right_thumb1", "right_thumb2", "right_thumb3", "right_thumb4",
+       "right_forefinger1", "right_forefinger2", "right_forefinger3", "right_forefinger4",
+       "right_middle_finger1", "right_middle_finger2", "right_middle_finger3", "right_middle_finger4",
+       "right_ring_finger1", "right_ring_finger2", "right_ring_finger3", "right_ring_finger4",
+       "right_pinky_finger1", "right_pinky_finger2", "right_pinky_finger3", "right_pinky_finger4"]
+)
+
+# First 17 of WholeBody are COCO body keypoints (identical indices)
+WHOLEBODY_TO_COCO = {i: i for i in range(17)}

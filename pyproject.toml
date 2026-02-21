@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=77.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "myogait"
+version = "0.3.0"
+description = "Markerless video-based gait analysis toolkit"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    {name = "Frederic Fer", email = "f.fer@institut-myologie.org"},
+]
+keywords = ["gait", "pose-estimation", "biomechanics", "opensim", "markerless"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.11",
+    "opencv-python-headless>=4.8",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+mediapipe = ["mediapipe>=0.10"]
+yolo = ["ultralytics>=8.0"]
+sapiens = ["torch", "huggingface-hub"]
+vitpose = ["transformers>=4.45", "torch", "accelerate"]
+intel = ["intel-extension-for-pytorch"]
+rtmw = ["rtmlib", "onnxruntime"]
+mmpose = ["mmpose", "mmdet", "mmcv"]
+excel = ["openpyxl>=3.1"]
+yaml = ["pyyaml>=6.0"]
+all = ["myogait[mediapipe,yolo,sapiens,vitpose,rtmw,mmpose,excel,yaml]"]
+full = ["myogait[all,intel]"]
+dev = ["pytest>=7.0", "openpyxl>=3.1", "pyyaml>=6.0"]
+
+[project.scripts]
+myogait = "myogait.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["myogait*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
