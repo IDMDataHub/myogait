@@ -166,13 +166,69 @@ def _find_model(model_size: str, model_path: Optional[str] = None) -> str:
         )
 
 
+def _ensure_xpu_torch():
+    """On Windows, if torch is CPU-only, auto-upgrade to XPU build.
+
+    PyPI distributes a CPU-only torch wheel for Windows.  Intel Arc / Xe
+    GPUs require the XPU build from PyTorch's dedicated index.  This
+    function detects the situation and upgrades torch automatically so
+    that ``pip install myogait[sapiens]`` works out of the box.
+
+    After upgrade the user **must** restart the Python process (the
+    already-loaded ``torch`` module cannot be hot-swapped).
+    """
+    import platform
+    import torch
+
+    if platform.system() != "Windows":
+        return  # Linux/macOS: standard torch already supports XPU
+
+    if torch.cuda.is_available():
+        return  # CUDA build — nothing to do
+
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        return  # Already XPU-capable
+
+    _is_cpu_build = "+cpu" in torch.__version__ or not hasattr(torch, "xpu")
+    if not _is_cpu_build:
+        return
+
+    logger.warning(
+        "Detected CPU-only PyTorch (%s) on Windows. "
+        "Upgrading to XPU build for Intel Arc GPU support...",
+        torch.__version__,
+    )
+    import subprocess, sys
+    try:
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install",
+            "--force-reinstall", "torch",
+            "--index-url", "https://download.pytorch.org/whl/xpu",
+            "--quiet",
+        ])
+        logger.warning(
+            "PyTorch XPU installed successfully. "
+            "Please restart your Python process to use the GPU."
+        )
+        raise RuntimeError(
+            "PyTorch has been upgraded to the XPU build for Intel Arc "
+            "GPU support. Please restart your Python script to load "
+            "the new version."
+        )
+    except subprocess.CalledProcessError:
+        logger.warning(
+            "Could not auto-install PyTorch XPU. Install manually:\n"
+            "  pip install torch --index-url "
+            "https://download.pytorch.org/whl/xpu"
+        )
+
+
 def _get_device():
     """Select the best available device: CUDA > XPU (Intel Arc) > CPU."""
     import torch
 
     if torch.cuda.is_available():
         return torch.device("cuda")
-    # Intel Arc / Xe GPUs via intel-extension-for-pytorch
     if hasattr(torch, "xpu") and torch.xpu.is_available():
         return torch.device("xpu")
     return torch.device("cpu")
@@ -252,11 +308,14 @@ def _make_sapiens_extractor(name, model_size, label):
                 import torch
             except ImportError:
                 raise ImportError(
-                    "PyTorch is required for Sapiens. "
-                    "Install with: pip install torch\n"
-                    "For Intel Arc GPU acceleration, also install: "
-                    "pip install intel-extension-for-pytorch"
+                    "PyTorch is required for Sapiens. Install with:\n"
+                    "  pip install myogait[sapiens]\n"
+                    "For Intel Arc / Xe GPU acceleration on Windows:\n"
+                    "  pip install torch --index-url "
+                    "https://download.pytorch.org/whl/xpu"
                 )
+            # Auto-upgrade CPU torch to XPU on Windows (Intel Arc)
+            _ensure_xpu_torch()
             # Load IPEX if available (enables XPU device for Intel Arc)
             try:
                 import intel_extension_for_pytorch  # noqa: F401
