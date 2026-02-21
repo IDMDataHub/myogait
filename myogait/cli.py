@@ -15,8 +15,16 @@ import logging
 import sys
 import time
 from pathlib import Path
+from importlib.metadata import version as pkg_version, PackageNotFoundError
 
-from . import __version__
+
+def _get_version() -> str:
+    """Return package version without importing the full myogait package."""
+    try:
+        return pkg_version("myogait")
+    except PackageNotFoundError:
+        # Fallback for editable/local runs where metadata may be unavailable.
+        return "0.0.0+local"
 
 
 def _setup_logging(verbose: bool = False):
@@ -401,7 +409,7 @@ def main():
         prog="myogait",
         description="Markerless video-based gait analysis toolkit",
     )
-    parser.add_argument("--version", action="version", version=f"myogait {__version__}")
+    parser.add_argument("--version", action="version", version=f"myogait {_get_version()}")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
 
     sub = parser.add_subparsers(dest="command", help="Available commands")
