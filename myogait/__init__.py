@@ -104,7 +104,13 @@ from .plotting import (
 from .report import generate_report, generate_longitudinal_report
 from .export import (
     export_csv, export_mot, export_trc, export_excel, export_c3d,
-    to_dataframe, export_summary_json,
+    to_dataframe, export_summary_json, export_openpose_json,
+)
+from .opensim import (
+    export_opensim_scale_setup,
+    export_ik_setup,
+    export_moco_setup,
+    get_opensim_marker_names,
 )
 from .validation import (
     validate_biomechanical,
@@ -204,6 +210,12 @@ __all__ = [
     "export_c3d",
     "to_dataframe",
     "export_summary_json",
+    "export_openpose_json",
+    # OpenSim
+    "export_opensim_scale_setup",
+    "export_ik_setup",
+    "export_moco_setup",
+    "get_opensim_marker_names",
     # Extract features
     "detect_sagittal_alignment",
     "auto_crop_roi",
