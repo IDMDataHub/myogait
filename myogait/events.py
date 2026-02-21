@@ -1051,11 +1051,10 @@ def list_event_methods() -> list:
 
 
 def _adaptive_params(frames: list, fps: float) -> tuple:
-    """Estimate walking speed and return adapted (min_cycle_duration, cutoff_freq).
+    """Estimate gait-speed category and return adapted event parameters.
 
-    Speed is estimated from the rate of hip x-displacement over time.
-    The displacement rate (in normalized coordinates per second) is
-    converted to an approximate speed category.
+    Uses the rate of hip x-displacement over time in normalized
+    coordinates per second as a proxy for progression speed.
 
     Parameters
     ----------
@@ -1086,19 +1085,16 @@ def _adaptive_params(frames: list, fps: float) -> tuple:
     if duration_s <= 0:
         return 0.4, 6.0
 
-    # Use standard deviation of frame-to-frame displacement as speed proxy
-    # For treadmill: low displacement rate; for overground: higher
+    # Use frame-to-frame displacement rate as progression-speed proxy.
     frame_displacements = np.abs(np.diff(pelvis_x))
     displacement_rate = float(np.nanmean(frame_displacements)) * fps
 
-    # Convert normalized displacement rate to approximate m/s
-    # Typical camera FOV captures ~3-5m, so norm_rate * ~4 ≈ m/s
-    estimated_speed = displacement_rate * 4.0
-
-    if estimated_speed < 0.5:
-        # Slow walk (possibly treadmill or very slow)
+    # Classify directly in normalized-coordinates per second.
+    # This avoids dataset/camera-dependent conversion assumptions.
+    if displacement_rate < 0.02:
+        # Slow walk / treadmill-like progression
         return 0.6, 4.0
-    elif estimated_speed > 1.5:
+    elif displacement_rate > 0.08:
         # Fast walk
         return 0.3, 8.0
     else:
