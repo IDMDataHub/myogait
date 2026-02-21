@@ -22,6 +22,7 @@ import numpy as np
 from .constants import (
     MP_LANDMARK_NAMES, COCO_LANDMARK_NAMES, COCO_TO_MP, MP_NAME_TO_INDEX,
     GOLIATH_LANDMARK_NAMES, GOLIATH_SEG_CLASSES, WHOLEBODY_LANDMARK_NAMES,
+    GOLIATH_FOOT_INDICES, RTMW_FOOT_INDICES,
 )
 from .models import get_extractor
 from .schema import create_empty
@@ -59,6 +60,77 @@ def _coco_to_mediapipe(landmarks_17: np.ndarray) -> np.ndarray:
             mp_idx = MP_NAME_TO_INDEX[mp_name]
             mp33[mp_idx] = landmarks_17[coco_idx]
     return mp33
+
+
+def _enrich_foot_landmarks(frame: dict) -> None:
+    """Inject detected foot landmarks from auxiliary data into frame landmarks.
+
+    When Sapiens (Goliath 308) or RTMW (WholeBody 133) auxiliary keypoints
+    are available, extracts the real foot landmarks (big_toe, small_toe, heel)
+    and writes them into the frame's landmarks dict.  This replaces the
+    geometric estimation that would otherwise be done during angle
+    computation.
+
+    Also computes LEFT_FOOT_INDEX and RIGHT_FOOT_INDEX as the midpoint
+    of big_toe and small_toe, which is more accurate than the geometric
+    estimate from ankle position.
+
+    Modifies *frame* in place.  Sets ``frame["foot_landmarks_source"]``
+    to ``"detected"`` when real foot landmarks are injected.
+    """
+    lm = frame.get("landmarks")
+    if not lm:
+        return
+
+    # Determine which auxiliary format is present and select the mapping
+    aux_data = None
+    foot_map = None
+    if "goliath308" in frame:
+        aux_data = frame["goliath308"]
+        foot_map = GOLIATH_FOOT_INDICES
+    elif "wholebody133" in frame:
+        aux_data = frame["wholebody133"]
+        foot_map = RTMW_FOOT_INDICES
+
+    if aux_data is None or foot_map is None:
+        return
+
+    # Extract foot landmarks from auxiliary data
+    injected = False
+    for aux_idx, lm_name in foot_map.items():
+        if aux_idx >= len(aux_data):
+            continue
+        point = aux_data[aux_idx]
+        # Each point is [x, y, confidence]
+        if isinstance(point, (list, tuple)) and len(point) >= 3:
+            x, y, conf = float(point[0]), float(point[1]), float(point[2])
+        else:
+            continue
+
+        if np.isnan(x) or np.isnan(y) or conf < 0.1:
+            continue
+
+        lm[lm_name] = {"x": x, "y": y, "visibility": conf}
+        injected = True
+
+    if not injected:
+        return
+
+    # Compute FOOT_INDEX as midpoint of big_toe and small_toe (more
+    # accurate than the geometric estimate from ankle/knee).
+    for side in ("LEFT", "RIGHT"):
+        big_toe = lm.get(f"{side}_BIG_TOE")
+        small_toe = lm.get(f"{side}_SMALL_TOE")
+        if (big_toe is not None and small_toe is not None
+                and not np.isnan(big_toe["x"]) and not np.isnan(small_toe["x"])):
+            mid_x = (big_toe["x"] + small_toe["x"]) / 2.0
+            mid_y = (big_toe["y"] + small_toe["y"]) / 2.0
+            mid_vis = min(big_toe["visibility"], small_toe["visibility"])
+            lm[f"{side}_FOOT_INDEX"] = {
+                "x": mid_x, "y": mid_y, "visibility": mid_vis,
+            }
+
+    frame["foot_landmarks_source"] = "detected"
 
 
 def _detect_direction(frames_landmarks: list) -> str:
@@ -385,6 +457,12 @@ def extract(
             frame_data["landmark_body_parts"] = landmark_parts
 
         frames.append(frame_data)
+
+    # Enrich foot landmarks from auxiliary data (Sapiens/RTMW) before
+    # angle computation.  This injects real detected toe/heel positions
+    # into the landmarks dict, replacing later geometric estimates.
+    for frame_data in frames:
+        _enrich_foot_landmarks(frame_data)
 
     data["frames"] = frames
     extraction_meta = {

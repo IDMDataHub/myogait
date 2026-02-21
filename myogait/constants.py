@@ -476,6 +476,24 @@ WHOLEBODY_LANDMARK_NAMES = (
 # First 17 of WholeBody are COCO body keypoints (identical indices)
 WHOLEBODY_TO_COCO = {i: i for i in range(17)}
 
+# ── Extended foot landmark names (detected from Sapiens / RTMW) ──────
+EXTENDED_FOOT_LANDMARKS = [
+    "LEFT_BIG_TOE", "LEFT_SMALL_TOE",
+    "RIGHT_BIG_TOE", "RIGHT_SMALL_TOE",
+]
+
+# Goliath 308 foot indices → MediaPipe-style landmark names
+GOLIATH_FOOT_INDICES = {
+    15: "LEFT_BIG_TOE", 16: "LEFT_SMALL_TOE", 17: "LEFT_HEEL",
+    18: "RIGHT_BIG_TOE", 19: "RIGHT_SMALL_TOE", 20: "RIGHT_HEEL",
+}
+
+# COCO-WholeBody 133 (RTMW) foot indices → MediaPipe-style landmark names
+RTMW_FOOT_INDICES = {
+    17: "LEFT_BIG_TOE", 18: "LEFT_SMALL_TOE", 19: "LEFT_HEEL",
+    20: "RIGHT_BIG_TOE", 21: "RIGHT_SMALL_TOE", 22: "RIGHT_HEEL",
+}
+
 # ── Inverse mapping tables: MediaPipe 33 → other formats ─────────────
 
 # MediaPipe landmark name → COCO 17 index

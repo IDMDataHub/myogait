@@ -24,7 +24,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from .constants import OPENSIM_MARKER_MAP
+from .constants import OPENSIM_MARKER_MAP, EXTENDED_FOOT_LANDMARKS
 
 logger = logging.getLogger(__name__)
 
@@ -488,6 +488,14 @@ def export_trc(
             "LEFT_HEEL", "RIGHT_HEEL",
             "LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX",
         ]
+        # Add extended foot landmarks (big_toe, small_toe) when available
+        # in any frame.  These come from Sapiens/RTMW auxiliary data.
+        _has_extended = any(
+            "LEFT_BIG_TOE" in f.get("landmarks", {})
+            for f in frames
+        )
+        if _has_extended:
+            marker_names.extend(EXTENDED_FOOT_LANDMARKS)
 
     # Build display names (with optional OpenSim renaming)
     if opensim_model is not None:

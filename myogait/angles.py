@@ -99,12 +99,51 @@ def _pelvis_tilt(left_hip: np.ndarray, right_hip: np.ndarray) -> float:
     return angle if pelvis[1] < 0 else -angle
 
 
+def _has_detected_foot(lm: dict, side: str) -> bool:
+    """Return True if the heel for *side* is already a real detected landmark.
+
+    A detected heel will have visibility > 0.3.  When the enrichment step
+    in extract.py has injected real foot landmarks from Sapiens or RTMW
+    auxiliary data, those landmarks carry the model's confidence score
+    (typically > 0.8).  Geometric estimates are assigned visibility = 0.5
+    but should NOT prevent re-estimation when they come from a prior
+    pipeline run; the check here is intentionally > 0.3 so that both
+    detected and estimated landmarks are accepted, but missing/NaN ones
+    are not.
+    """
+    heel = lm.get(f"{side}_HEEL")
+    fi = lm.get(f"{side}_FOOT_INDEX")
+    if heel is None or fi is None:
+        return False
+    hx = heel.get("x")
+    fx = fi.get("x")
+    hv = heel.get("visibility", 0.0)
+    fv = fi.get("visibility", 0.0)
+    if hx is None or fx is None:
+        return False
+    if isinstance(hx, float) and np.isnan(hx):
+        return False
+    if isinstance(fx, float) and np.isnan(fx):
+        return False
+    return hv > 0.3 and fv > 0.3
+
+
 def _estimate_foot_landmarks(frame: dict) -> dict:
-    """Estimate HEEL and FOOT_INDEX from ANKLE for COCO models."""
+    """Estimate HEEL and FOOT_INDEX from ANKLE for COCO models.
+
+    If real detected foot landmarks are already present (injected by
+    ``_enrich_foot_landmarks`` in extract.py from Sapiens / RTMW
+    auxiliary data), those landmarks are kept and estimation is skipped
+    for that side.
+    """
     frame = copy.deepcopy(frame)
     lm = frame.get("landmarks", {})
 
     for side in ("LEFT", "RIGHT"):
+        # Skip estimation when real detected foot landmarks exist
+        if _has_detected_foot(lm, side):
+            continue
+
         ankle = _get_xy(frame, f"{side}_ANKLE")
         knee = _get_xy(frame, f"{side}_KNEE")
         if ankle is None or knee is None:
@@ -137,6 +176,22 @@ def _estimate_foot_landmarks(frame: dict) -> dict:
 
     frame["landmarks"] = lm
     return frame
+
+
+def _get_foot_index_from_toes(frame: dict, side: str) -> Optional[np.ndarray]:
+    """Compute foot index as midpoint of big_toe and small_toe when available.
+
+    Falls back to the existing FOOT_INDEX landmark if toe data is not
+    present.  This gives a more accurate foot reference point when
+    real toe landmarks have been injected from Sapiens or RTMW
+    auxiliary data.
+    """
+    big_toe = _get_xy(frame, f"{side}_BIG_TOE")
+    small_toe = _get_xy(frame, f"{side}_SMALL_TOE")
+    if big_toe is not None and small_toe is not None:
+        return (big_toe + small_toe) / 2.0
+    # Fallback to standard FOOT_INDEX
+    return _get_xy(frame, f"{side}_FOOT_INDEX")
 
 
 def _unwrap_angles(values: list) -> list:
@@ -250,7 +305,8 @@ def _method_sagittal_vertical_axis(frame: dict, model: str) -> dict:
         hip = _get_xy(f, f"{prefix}_HIP")
         knee = _get_xy(f, f"{prefix}_KNEE")
         ankle = _get_xy(f, f"{prefix}_ANKLE")
-        foot = _get_xy(f, f"{prefix}_FOOT_INDEX")
+        # Use real toe midpoint when available, else standard FOOT_INDEX
+        foot = _get_foot_index_from_toes(f, prefix)
 
         # Hip: vertical axis method
         if hip is not None and knee is not None and trunk_vec is not None:
@@ -315,7 +371,8 @@ def _method_sagittal_classic(frame: dict, model: str) -> dict:
         hip = _get_xy(f, f"{prefix}_HIP")
         knee = _get_xy(f, f"{prefix}_KNEE")
         ankle = _get_xy(f, f"{prefix}_ANKLE")
-        foot = _get_xy(f, f"{prefix}_FOOT_INDEX")
+        # Use real toe midpoint when available, else standard FOOT_INDEX
+        foot = _get_foot_index_from_toes(f, prefix)
 
         # Hip: 180 - angle(shoulder, hip, knee)
         if shoulder is not None and hip is not None and knee is not None:
@@ -922,7 +979,8 @@ def foot_progression_angle(data: dict) -> dict:
     for frame in frames:
         for side, result_list in [("LEFT", foot_angle_L), ("RIGHT", foot_angle_R)]:
             heel = _get_xy(frame, f"{side}_HEEL")
-            toe = _get_xy(frame, f"{side}_FOOT_INDEX")
+            # Prefer real toe midpoint over estimated FOOT_INDEX
+            toe = _get_foot_index_from_toes(frame, side)
             if heel is not None and toe is not None:
                 vec = toe - heel
                 # atan2(y, x) -- but y is inverted in image coords so
