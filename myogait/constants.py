@@ -475,3 +475,102 @@ WHOLEBODY_LANDMARK_NAMES = (
 
 # First 17 of WholeBody are COCO body keypoints (identical indices)
 WHOLEBODY_TO_COCO = {i: i for i in range(17)}
+
+# ── Inverse mapping tables: MediaPipe 33 → other formats ─────────────
+
+# MediaPipe landmark name → COCO 17 index
+MP_TO_COCO_17 = {
+    "NOSE": 0,
+    "LEFT_EYE": 1,
+    "RIGHT_EYE": 2,
+    "LEFT_EAR": 3,
+    "RIGHT_EAR": 4,
+    "LEFT_SHOULDER": 5,
+    "RIGHT_SHOULDER": 6,
+    "LEFT_ELBOW": 7,
+    "RIGHT_ELBOW": 8,
+    "LEFT_WRIST": 9,
+    "RIGHT_WRIST": 10,
+    "LEFT_HIP": 11,
+    "RIGHT_HIP": 12,
+    "LEFT_KNEE": 13,
+    "RIGHT_KNEE": 14,
+    "LEFT_ANKLE": 15,
+    "RIGHT_ANKLE": 16,
+}
+
+BODY_25_LANDMARK_NAMES = [
+    "Nose", "Neck", "RShoulder", "RElbow", "RWrist",
+    "LShoulder", "LElbow", "LWrist", "MidHip",
+    "RHip", "RKnee", "RAnkle", "LHip", "LKnee", "LAnkle",
+    "REye", "LEye", "REar", "LEar",
+    "LBigToe", "LSmallToe", "LHeel",
+    "RBigToe", "RSmallToe", "RHeel",
+]
+
+# MediaPipe landmark name → BODY_25 index (None if no direct mapping)
+MP_TO_BODY25 = {
+    "NOSE": 0,
+    "RIGHT_SHOULDER": 2, "RIGHT_ELBOW": 3, "RIGHT_WRIST": 4,
+    "LEFT_SHOULDER": 5, "LEFT_ELBOW": 6, "LEFT_WRIST": 7,
+    "RIGHT_HIP": 9, "RIGHT_KNEE": 10, "RIGHT_ANKLE": 11,
+    "LEFT_HIP": 12, "LEFT_KNEE": 13, "LEFT_ANKLE": 14,
+    "RIGHT_EYE": 15, "LEFT_EYE": 16, "RIGHT_EAR": 17, "LEFT_EAR": 18,
+    "LEFT_FOOT_INDEX": 19, "LEFT_HEEL": 21,
+    "RIGHT_FOOT_INDEX": 22, "RIGHT_HEEL": 24,
+}
+
+HALPE_26_LANDMARK_NAMES = [
+    "Nose", "LEye", "REye", "LEar", "REar",
+    "LShoulder", "RShoulder", "LElbow", "RElbow",
+    "LWrist", "RWrist", "LHip", "RHip",
+    "LKnee", "RKnee", "LAnkle", "RAnkle",
+    "Head", "Neck", "Hip",
+    "LBigToe", "RBigToe", "LSmallToe", "RSmallToe",
+    "LHeel", "RHeel",
+]
+
+MP_TO_HALPE26 = {
+    "NOSE": 0, "LEFT_EYE": 1, "RIGHT_EYE": 2,
+    "LEFT_EAR": 3, "RIGHT_EAR": 4,
+    "LEFT_SHOULDER": 5, "RIGHT_SHOULDER": 6,
+    "LEFT_ELBOW": 7, "RIGHT_ELBOW": 8,
+    "LEFT_WRIST": 9, "RIGHT_WRIST": 10,
+    "LEFT_HIP": 11, "RIGHT_HIP": 12,
+    "LEFT_KNEE": 13, "RIGHT_KNEE": 14,
+    "LEFT_ANKLE": 15, "RIGHT_ANKLE": 16,
+    "LEFT_FOOT_INDEX": 20, "RIGHT_FOOT_INDEX": 21,
+    "LEFT_HEEL": 24, "RIGHT_HEEL": 25,
+}
+
+# Mapping myogait landmarks → OpenSim marker names for standard models
+OPENSIM_MARKER_MAP = {
+    "gait2392": {
+        "RIGHT_SHOULDER": "R.Acromion",
+        "LEFT_SHOULDER": "L.Acromion",
+        "RIGHT_HIP": "R.ASIS",
+        "LEFT_HIP": "L.ASIS",
+        "RIGHT_KNEE": "R.Knee.Lat",
+        "LEFT_KNEE": "L.Knee.Lat",
+        "RIGHT_ANKLE": "R.Ankle.Lat",
+        "LEFT_ANKLE": "L.Ankle.Lat",
+        "RIGHT_HEEL": "R.Heel",
+        "LEFT_HEEL": "L.Heel",
+        "RIGHT_FOOT_INDEX": "R.MT5",
+        "LEFT_FOOT_INDEX": "L.MT5",
+    },
+    "rajagopal2015": {
+        "RIGHT_SHOULDER": "R.Acromion",
+        "LEFT_SHOULDER": "L.Acromion",
+        "RIGHT_HIP": "R.ASIS",
+        "LEFT_HIP": "L.ASIS",
+        "RIGHT_KNEE": "R.Knee.Lat",
+        "LEFT_KNEE": "L.Knee.Lat",
+        "RIGHT_ANKLE": "R.Ankle.Lat",
+        "LEFT_ANKLE": "L.Ankle.Lat",
+        "RIGHT_HEEL": "R.Heel",
+        "LEFT_HEEL": "L.Heel",
+        "RIGHT_FOOT_INDEX": "R.Toe.Tip",
+        "LEFT_FOOT_INDEX": "L.Toe.Tip",
+    },
+}

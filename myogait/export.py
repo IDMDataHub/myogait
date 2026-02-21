@@ -24,6 +24,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from .constants import OPENSIM_MARKER_MAP
+
 logger = logging.getLogger(__name__)
 
 
@@ -158,6 +160,66 @@ def export_csv(
     return created
 
 
+# ── Height scale helper ──────────────────────────────────────────────
+
+
+def _compute_height_scale(data: dict) -> Optional[float]:
+    """Estimate pixel-to-meter scale factor from subject height_m.
+
+    Computes the vertical distance in pixels from NOSE to the midpoint
+    of (LEFT_ANKLE, RIGHT_ANKLE) over the first stable frames, then
+    returns ``height_m / height_pixels``.
+
+    Returns ``None`` if height_m is not available or the estimation
+    fails.
+    """
+    height_m = data.get("meta", {}).get("subject", {}).get("height_m")
+    if height_m is None:
+        height_m = data.get("subject", {}).get("height_m")
+    if height_m is None or height_m <= 0:
+        return None
+
+    frames = data.get("frames", [])
+    if not frames:
+        return None
+
+    w = data.get("meta", {}).get("width", 1920)
+    h = data.get("meta", {}).get("height", 1080)
+
+    # Sample up to first 30 stable frames (confidence > 0.5)
+    pixel_heights = []
+    for frame in frames[:60]:
+        if frame.get("confidence", 0) < 0.5:
+            continue
+        lm = frame.get("landmarks", {})
+        nose = lm.get("NOSE")
+        l_ankle = lm.get("LEFT_ANKLE")
+        r_ankle = lm.get("RIGHT_ANKLE")
+        if not all([nose, l_ankle, r_ankle]):
+            continue
+        nose_y = nose.get("y")
+        la_y = l_ankle.get("y")
+        ra_y = r_ankle.get("y")
+        if any(v is None for v in [nose_y, la_y, ra_y]):
+            continue
+        if any(isinstance(v, float) and np.isnan(v) for v in [nose_y, la_y, ra_y]):
+            continue
+        mid_ankle_y = (la_y + ra_y) / 2.0
+        height_pixels = abs(mid_ankle_y - nose_y) * h
+        if height_pixels > 10:  # avoid degenerate cases
+            pixel_heights.append(height_pixels)
+        if len(pixel_heights) >= 30:
+            break
+
+    if not pixel_heights:
+        return None
+
+    median_height_px = float(np.median(pixel_heights))
+    if median_height_px <= 0:
+        return None
+    return height_m / median_height_px
+
+
 # ── OpenSim .mot export ──────────────────────────────────────────────
 
 
@@ -171,6 +233,14 @@ def export_mot(
 
     The ``.mot`` file contains time-series of joint angles compatible
     with OpenSim's Inverse Kinematics and MocoTrack tools.
+
+    Pelvis translations (pelvis_tx, pelvis_ty, pelvis_tz) are computed
+    from the midpoint of LEFT_HIP and RIGHT_HIP.  If ``height_m`` is
+    available in subject metadata, positions are converted to meters.
+
+    Extended angles (shoulder, elbow, head, pelvis sagittal tilt) and
+    frontal-plane angles (pelvis_list, hip_adduction) are included
+    when present in the data.
 
     Parameters
     ----------
@@ -210,7 +280,7 @@ def export_mot(
         end_frame = len(aframes)
     aframes = aframes[start_frame:end_frame]
 
-    # OpenSim column mapping (myogait name → OpenSim name)
+    # OpenSim column mapping (myogait name -> OpenSim name)
     col_map = {
         "hip_L": "hip_flexion_l",
         "hip_R": "hip_flexion_r",
@@ -222,17 +292,100 @@ def export_mot(
         "pelvis_tilt": "pelvis_tilt",
     }
 
+    # Extended angle mapping (only added when present in data)
+    extended_col_map = {
+        "shoulder_flex_L": "arm_flex_l",
+        "shoulder_flex_R": "arm_flex_r",
+        "elbow_flex_L": "elbow_flexion_l",
+        "elbow_flex_R": "elbow_flexion_r",
+        "head_angle": "head_flexion",
+        "pelvis_sagittal_tilt": "pelvis_tilt",  # override if more precise
+    }
+
+    # Frontal-plane angle mapping
+    frontal_col_map = {
+        "pelvis_list": "pelvis_list",
+        "hip_adduction_L": "hip_adduction_l",
+        "hip_adduction_R": "hip_adduction_r",
+    }
+
+    # Determine which extended/frontal columns actually exist in the data
+    active_extended = {}
+    active_frontal = {}
+    if aframes:
+        sample = aframes[0]
+        for myogait_key, osim_key in extended_col_map.items():
+            if sample.get(myogait_key) is not None:
+                active_extended[myogait_key] = osim_key
+        for myogait_key, osim_key in frontal_col_map.items():
+            if sample.get(myogait_key) is not None:
+                active_frontal[myogait_key] = osim_key
+
+    # Compute scale factor for pelvis translations
+    scale = _compute_height_scale(data)
+    w = data.get("meta", {}).get("width", 1920)
+    h = data.get("meta", {}).get("height", 1080)
+
+    # Get frame-level landmark data for pelvis position
+    all_frames = data.get("frames", [])
+
     # Build data rows
     rows = []
     for af in aframes:
-        row = {"time": af.get("frame_idx", 0) / fps}
+        fidx = af.get("frame_idx", 0)
+        row = {"time": fidx / fps}
         for myogait_key, osim_key in col_map.items():
             val = af.get(myogait_key)
             row[osim_key] = val if val is not None else 0.0
+
+        # Extended angles
+        for myogait_key, osim_key in active_extended.items():
+            val = af.get(myogait_key)
+            row[osim_key] = val if val is not None else 0.0
+
+        # Frontal angles
+        for myogait_key, osim_key in active_frontal.items():
+            val = af.get(myogait_key)
+            row[osim_key] = val if val is not None else 0.0
+
+        # Pelvis translations from landmark data
+        pelvis_tx = 0.0
+        pelvis_ty = 0.0
+        pelvis_tz = 0.0
+        if fidx < len(all_frames):
+            frame_lm = all_frames[fidx].get("landmarks", {})
+            lhip = frame_lm.get("LEFT_HIP", {})
+            rhip = frame_lm.get("RIGHT_HIP", {})
+            lhx = lhip.get("x")
+            lhy = lhip.get("y")
+            rhx = rhip.get("x")
+            rhy = rhip.get("y")
+            if all(v is not None for v in [lhx, lhy, rhx, rhy]):
+                mid_x = (lhx + rhx) / 2.0
+                mid_y = (lhy + rhy) / 2.0
+                if scale is not None:
+                    pelvis_tx = mid_x * w * scale
+                    pelvis_ty = mid_y * h * scale
+                else:
+                    pelvis_tx = mid_x
+                    pelvis_ty = mid_y
+
+        row["pelvis_tx"] = pelvis_tx
+        row["pelvis_ty"] = pelvis_ty
+        row["pelvis_tz"] = pelvis_tz
         rows.append(row)
 
     df = pd.DataFrame(rows)
+
+    # Build column order
     columns = ["time"] + list(col_map.values())
+    for osim_key in active_extended.values():
+        if osim_key not in columns:
+            columns.append(osim_key)
+    for osim_key in active_frontal.values():
+        if osim_key not in columns:
+            columns.append(osim_key)
+    columns.extend(["pelvis_tx", "pelvis_ty", "pelvis_tz"])
 
     # Write .mot header
     path = Path(output_path)
@@ -737,3 +890,170 @@ def export_summary_json(
 
     logger.info(f"Exported summary JSON: {path}")
     return str(path)
+
+
+# ── OpenPose JSON export ─────────────────────────────────────────────
+
+
+def export_openpose_json(
+    data: dict,
+    output_dir: str,
+    model: str = "COCO",  # "COCO" | "BODY_25" | "HALPE_26"
+    prefix: str = "",
+) -> list:
+    """Export landmark data to per-frame OpenPose-format JSON files.
+
+    For each frame in *data*, writes a JSON file following the OpenPose
+    output convention. Landmarks are mapped from MediaPipe names to the
+    target skeleton model using the inverse mapping tables in
+    :mod:`myogait.constants`.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated (each frame must
+        contain ``landmarks`` keyed by MediaPipe name).
+    output_dir : str
+        Directory for output JSON files. Created if it does not exist.
+    model : {'COCO', 'BODY_25', 'HALPE_26'}
+        Target skeleton model (default ``'COCO'``).
+    prefix : str, optional
+        Filename prefix prepended to the standard OpenPose naming
+        pattern ``{prefix}{frame_idx:012d}_keypoints.json``.
+
+    Returns
+    -------
+    list of str
+        Paths to all created JSON files.
+
+    Raises
+    ------
+    TypeError
+        If *data* is not a dict.
+    ValueError
+        If *data* has no frames or *model* is unknown.
+    """
+    from .constants import MP_TO_COCO_17, MP_TO_BODY25, MP_TO_HALPE26
+
+    if not isinstance(data, dict):
+        raise TypeError("data must be a dict")
+    frames = data.get("frames")
+    if not frames:
+        raise ValueError("No frames in data. Run extract() first.")
+
+    model_upper = model.upper()
+    if model_upper == "COCO":
+        mapping = MP_TO_COCO_17
+        n_keypoints = 17
+    elif model_upper == "BODY_25":
+        mapping = MP_TO_BODY25
+        n_keypoints = 25
+    elif model_upper == "HALPE_26":
+        mapping = MP_TO_HALPE26
+        n_keypoints = 26
+    else:
+        raise ValueError(
+            f"Unknown model {model!r}. Choose from 'COCO', 'BODY_25', 'HALPE_26'."
+        )
+
+    width = data.get("meta", {}).get("width", 1920)
+    height = data.get("meta", {}).get("height", 1080)
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    created = []
+
+    for frame in frames:
+        idx = frame.get("frame_idx", 0)
+        lm = frame.get("landmarks", {})
+        kps = [0.0] * (n_keypoints * 3)
+
+        # Fill direct mappings
+        for mp_name, target_idx in mapping.items():
+            pt = lm.get(mp_name)
+            if pt is not None:
+                x = pt.get("x", 0.0)
+                y = pt.get("y", 0.0)
+                vis = pt.get("visibility", 0.0)
+                if x is None or (isinstance(x, float) and np.isnan(x)):
+                    continue
+                if y is None or (isinstance(y, float) and np.isnan(y)):
+                    continue
+                kps[target_idx * 3] = x * width
+                kps[target_idx * 3 + 1] = y * height
+                kps[target_idx * 3 + 2] = vis
+
+        # Composite keypoints
+        def _midpoint(name_a, name_b):
+            """Return (x_pixel, y_pixel, confidence) midpoint or None."""
+            pa = lm.get(name_a)
+            pb = lm.get(name_b)
+            if pa is None or pb is None:
+                return None
+            xa, ya, va = pa.get("x"), pa.get("y"), pa.get("visibility", 0.0)
+            xb, yb, vb = pb.get("x"), pb.get("y"), pb.get("visibility", 0.0)
+            if xa is None or ya is None or xb is None or yb is None:
+                return None
+            if isinstance(xa, float) and np.isnan(xa):
+                return None
+            if isinstance(xb, float) and np.isnan(xb):
+                return None
+            return (
+                (xa + xb) / 2.0 * width,
+                (ya + yb) / 2.0 * height,
+                min(va, vb),
+            )
+
+        if model_upper == "BODY_25":
+            # Neck (idx 1) = midpoint(LEFT_SHOULDER, RIGHT_SHOULDER)
+            mid = _midpoint("LEFT_SHOULDER", "RIGHT_SHOULDER")
+            if mid:
+                kps[1 * 3], kps[1 * 3 + 1], kps[1 * 3 + 2] = mid
+            # MidHip (idx 8) = midpoint(LEFT_HIP, RIGHT_HIP)
+            mid = _midpoint("LEFT_HIP", "RIGHT_HIP")
+            if mid:
+                kps[8 * 3], kps[8 * 3 + 1], kps[8 * 3 + 2] = mid
+
+        elif model_upper == "HALPE_26":
+            # Head (idx 17) = NOSE
+            nose = lm.get("NOSE")
+            if nose and nose.get("x") is not None:
+                nx = nose.get("x", 0.0)
+                ny = nose.get("y", 0.0)
+                nv = nose.get("visibility", 0.0)
+                if not (isinstance(nx, float) and np.isnan(nx)):
+                    kps[17 * 3] = nx * width
+                    kps[17 * 3 + 1] = ny * height
+                    kps[17 * 3 + 2] = nv
+            # Neck (idx 18) = midpoint shoulders
+            mid = _midpoint("LEFT_SHOULDER", "RIGHT_SHOULDER")
+            if mid:
+                kps[18 * 3], kps[18 * 3 + 1], kps[18 * 3 + 2] = mid
+            # Hip (idx 19) = midpoint hips
+            mid = _midpoint("LEFT_HIP", "RIGHT_HIP")
+            if mid:
+                kps[19 * 3], kps[19 * 3 + 1], kps[19 * 3 + 2] = mid
+
+        openpose_dict = {
+            "version": 1.1,
+            "people": [
+                {
+                    "person_id": [-1],
+                    "pose_keypoints_2d": kps,
+                    "face_keypoints_2d": [],
+                    "hand_left_keypoints_2d": [],
+                    "hand_right_keypoints_2d": [],
+                }
+            ],
+        }
+
+        fname = f"{prefix}{idx:012d}_keypoints.json"
+        fpath = out / fname
+        with open(fpath, "w") as f:
+            json.dump(openpose_dict, f, indent=2)
+        created.append(str(fpath))
+
+    logger.info(
+        f"Exported {len(created)} OpenPose JSON files ({model}) to {output_dir}"
+    )
+    return created
