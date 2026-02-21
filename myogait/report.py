@@ -552,6 +552,20 @@ def _page_normalized_cycles(pdf, cycles: dict, side: str, data: dict, s: dict):
     plt.close(fig)
 
 
+def _save_fallback_page(pdf, title: str, message: str) -> None:
+    """Save a simple fallback page when a plot section fails."""
+    fig = plt.figure(figsize=_FIG_SIZE)
+    ax = fig.add_subplot(111)
+    ax.axis("off")
+    ax.text(
+        0.5, 0.5, message, ha="center", va="center",
+        transform=ax.transAxes, fontsize=14,
+    )
+    fig.suptitle(title, fontsize=14, fontweight="bold")
+    pdf.savefig(fig, dpi=_DPI)
+    plt.close(fig)
+
+
 def _page_normative(pdf, cycles: dict, data: dict, s: dict):
     """Page 7: normative comparison."""
     from .plotting import plot_normative_comparison
@@ -564,14 +578,7 @@ def _page_normative(pdf, cycles: dict, data: dict, s: dict):
         plt.close(fig)
     except Exception:
         logger.exception("Could not generate normative comparison page")
-        fig = plt.figure(figsize=_FIG_SIZE)
-        ax = fig.add_subplot(111)
-        ax.axis("off")
-        ax.text(0.5, 0.5, s["no_data"], ha="center", va="center",
-                transform=ax.transAxes, fontsize=14)
-        fig.suptitle(s["normative_title"], fontsize=14, fontweight="bold")
-        pdf.savefig(fig, dpi=_DPI)
-        plt.close(fig)
+        _save_fallback_page(pdf, s["normative_title"], s["no_data"])
 
 
 def _has_frontal_data(cycles: dict) -> bool:
@@ -599,14 +606,7 @@ def _page_frontal(pdf, cycles: dict, data: dict, s: dict):
         plt.close(fig)
     except Exception:
         logger.exception("Could not generate frontal comparison page")
-        fig = plt.figure(figsize=_FIG_SIZE)
-        ax = fig.add_subplot(111)
-        ax.axis("off")
-        ax.text(0.5, 0.5, s["no_data"], ha="center", va="center",
-                transform=ax.transAxes, fontsize=14)
-        fig.suptitle(title, fontsize=14, fontweight="bold")
-        pdf.savefig(fig, dpi=_DPI)
-        plt.close(fig)
+        _save_fallback_page(pdf, title, s["no_data"])
 
 
 def _page_gvs(pdf, cycles: dict, data: dict, s: dict):
@@ -621,14 +621,7 @@ def _page_gvs(pdf, cycles: dict, data: dict, s: dict):
         plt.close(fig)
     except Exception:
         logger.exception("Could not generate GVS profile page")
-        fig = plt.figure(figsize=_FIG_SIZE)
-        ax = fig.add_subplot(111)
-        ax.axis("off")
-        ax.text(0.5, 0.5, s["no_data"], ha="center", va="center",
-                transform=ax.transAxes, fontsize=14)
-        fig.suptitle(s["gvs_title"], fontsize=14, fontweight="bold")
-        pdf.savefig(fig, dpi=_DPI)
-        plt.close(fig)
+        _save_fallback_page(pdf, s["gvs_title"], s["no_data"])
 
 
 def _page_quality(pdf, data: dict, s: dict):
@@ -643,14 +636,7 @@ def _page_quality(pdf, data: dict, s: dict):
         plt.close(fig)
     except Exception:
         logger.exception("Could not generate quality dashboard page")
-        fig = plt.figure(figsize=_FIG_SIZE)
-        ax = fig.add_subplot(111)
-        ax.axis("off")
-        ax.text(0.5, 0.5, s["no_data"], ha="center", va="center",
-                transform=ax.transAxes, fontsize=14)
-        fig.suptitle(s["quality_title"], fontsize=14, fontweight="bold")
-        pdf.savefig(fig, dpi=_DPI)
-        plt.close(fig)
+        _save_fallback_page(pdf, s["quality_title"], s["no_data"])
 
 
 def _page_detailed_text(pdf, data: dict, cycles: dict, stats: dict, s: dict):

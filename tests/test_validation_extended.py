@@ -11,6 +11,7 @@ from myogait.validation import (
     SPATIOTEMPORAL_RANGES,
     stratified_ranges,
     model_accuracy_info,
+    validate_biomechanical,
     validate_biomechanical_stratified,
 )
 from conftest import run_full_pipeline
@@ -239,3 +240,29 @@ class TestValidateStratifiedElderly:
     def test_raises_on_non_dict_data(self):
         with pytest.raises(TypeError, match="data must be a dict"):
             validate_biomechanical_stratified("not a dict", None, age=70)
+
+
+class TestValidateBiomechanicalContext:
+    """Context-aware behavior in validate_biomechanical."""
+
+    def test_auto_stratified_mode_when_subject_metadata_present(self):
+        data, cycles, _stats = run_full_pipeline()
+        data["subject"] = {"age": 70}
+        report = validate_biomechanical(data, cycles)
+        assert report["mode"] == "stratified_auto"
+        assert report["stratum"] == "elderly"
+
+    def test_context_caveats_are_included(self):
+        data, cycles, _stats = run_full_pipeline()
+        data["extraction"] = {"treadmill": True}
+        data["subject"] = {"height_m": None}
+
+        report = validate_biomechanical(data, cycles)
+        context_params = {
+            v.get("parameter")
+            for v in report["violations"]
+            if v.get("type") == "context"
+        }
+        assert "treadmill_context" in context_params
+        assert "calibration" in context_params
+        assert "pathology_screening" in context_params
