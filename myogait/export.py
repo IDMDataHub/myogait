@@ -15,7 +15,9 @@ export_excel
     Export all data to a multi-tab Excel workbook (requires openpyxl).
 """
 
+import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -558,3 +560,180 @@ def export_c3d(data: dict, path: str) -> str:
 
     logger.info(f"Exported C3D: {out_path} ({len(frames)} frames, {n_points} points)")
     return str(out_path)
+
+
+# ── DataFrame conversion ─────────────────────────────────────────────
+
+
+def to_dataframe(data: dict, what: str = "angles") -> "pd.DataFrame | dict":
+    """Convert gait data to pandas DataFrame(s).
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``angles``, ``frames``, and ``events``.
+    what : str, optional
+        What to convert:
+        - ``"angles"`` : joint angles per frame.
+        - ``"landmarks"`` : landmark positions in wide format.
+        - ``"events"`` : gait events table.
+        - ``"all"`` : dict of all three DataFrames.
+
+    Returns
+    -------
+    pd.DataFrame or dict of pd.DataFrame
+        A single DataFrame when *what* is ``"angles"``, ``"landmarks"``,
+        or ``"events"``; a dict ``{"angles": df, "landmarks": df,
+        "events": df}`` when *what* is ``"all"``.
+
+    Raises
+    ------
+    ValueError
+        If *what* is not one of the recognized values.
+    """
+    valid_whats = ("angles", "landmarks", "events", "all")
+    if what not in valid_whats:
+        raise ValueError(f"what must be one of {valid_whats}, got {what!r}")
+
+    def _angles_df():
+        angles = data.get("angles", {})
+        aframes = angles.get("frames", [])
+        rows = []
+        for af in aframes:
+            row = {"frame_idx": af.get("frame_idx")}
+            for key in ["hip_L", "hip_R", "knee_L", "knee_R",
+                        "ankle_L", "ankle_R", "trunk_angle", "pelvis_tilt"]:
+                row[key] = af.get(key)
+            rows.append(row)
+        return pd.DataFrame(rows) if rows else pd.DataFrame(
+            columns=["frame_idx", "hip_L", "hip_R", "knee_L", "knee_R",
+                     "ankle_L", "ankle_R", "trunk_angle", "pelvis_tilt"])
+
+    def _landmarks_df():
+        frames = data.get("frames", [])
+        rows = []
+        for f in frames:
+            row = {"frame_idx": f.get("frame_idx")}
+            for name, coords in f.get("landmarks", {}).items():
+                row[f"{name}_x"] = coords.get("x")
+                row[f"{name}_y"] = coords.get("y")
+                row[f"{name}_vis"] = coords.get("visibility")
+            rows.append(row)
+        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["frame_idx"])
+
+    def _events_df():
+        events = data.get("events", {})
+        rows = []
+        for key in ["left_hs", "right_hs", "left_to", "right_to"]:
+            for ev in events.get(key, []):
+                rows.append({
+                    "event_type": key,
+                    "frame": ev.get("frame"),
+                    "time": ev.get("time"),
+                    "confidence": ev.get("confidence", 1.0),
+                })
+        df = pd.DataFrame(rows) if rows else pd.DataFrame(
+            columns=["event_type", "frame", "time", "confidence"])
+        if not df.empty:
+            df = df.sort_values("frame").reset_index(drop=True)
+        return df
+
+    if what == "angles":
+        return _angles_df()
+    elif what == "landmarks":
+        return _landmarks_df()
+    elif what == "events":
+        return _events_df()
+    else:  # "all"
+        return {
+            "angles": _angles_df(),
+            "landmarks": _landmarks_df(),
+            "events": _events_df(),
+        }
+
+
+# ── Summary JSON export ──────────────────────────────────────────────
+
+
+def export_summary_json(
+    data: dict,
+    cycles: dict,
+    stats: dict,
+    output_path: str,
+) -> str:
+    """Export a compact JSON summary of key gait metrics.
+
+    Extracts the most clinically relevant metrics from *stats*, cycle
+    counts from *cycles*, and optionally computes a GPS-2D score.
+    Writes a JSON file with metadata (version, date, subject info).
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict.
+    cycles : dict
+        Output of ``segment_cycles()``.
+    stats : dict
+        Output of ``analyze_gait()``.
+    output_path : str
+        Output JSON file path.
+
+    Returns
+    -------
+    str
+        Path to the created JSON file.
+    """
+    spatiotemporal = stats.get("spatiotemporal", {})
+    symmetry = stats.get("symmetry", {})
+    ws = stats.get("walking_speed", {})
+
+    cycle_list = cycles.get("cycles", [])
+    n_left = len([c for c in cycle_list if c["side"] == "left"])
+    n_right = len([c for c in cycle_list if c["side"] == "right"])
+
+    summary = {
+        "metadata": {
+            "version": data.get("version", "unknown"),
+            "date": datetime.now().isoformat(),
+            "source": data.get("meta", {}).get("source", ""),
+            "subject": data.get("subject", {}),
+        },
+        "cycles": {
+            "n_left": n_left,
+            "n_right": n_right,
+            "n_total": n_left + n_right,
+        },
+        "spatiotemporal": {
+            "cadence_steps_per_min": spatiotemporal.get("cadence_steps_per_min"),
+            "stride_time_mean_s": spatiotemporal.get("stride_time_mean_s"),
+            "stance_pct_left": spatiotemporal.get("stance_pct_left"),
+            "stance_pct_right": spatiotemporal.get("stance_pct_right"),
+        },
+        "symmetry": {
+            "overall_si": symmetry.get("overall_si"),
+        },
+        "walking_speed": {
+            "speed_mean": ws.get("speed_mean"),
+            "unit": ws.get("unit"),
+        },
+    }
+
+    # Attempt GPS-2D if available
+    try:
+        from .scores import gait_profile_score_2d
+        gps = gait_profile_score_2d(cycles)
+        summary["gps_2d"] = {
+            "gps_left": gps.get("gps_left"),
+            "gps_right": gps.get("gps_right"),
+            "gps_overall": gps.get("gps_overall"),
+        }
+    except Exception:
+        summary["gps_2d"] = None
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(summary, f, indent=2, default=str)
+
+    logger.info(f"Exported summary JSON: {path}")
+    return str(path)

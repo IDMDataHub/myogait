@@ -1416,3 +1416,468 @@ def detect_parkinsonian(data: dict, cycles: dict) -> dict:
         "features": features,
         "details": details,
     }
+
+
+# ── Segment lengths ──────────────────────────────────────────────────
+
+
+DEFAULT_SEGMENTS = [
+    ("LEFT_HIP", "LEFT_KNEE", "femur_L"),
+    ("RIGHT_HIP", "RIGHT_KNEE", "femur_R"),
+    ("LEFT_KNEE", "LEFT_ANKLE", "tibia_L"),
+    ("RIGHT_KNEE", "RIGHT_ANKLE", "tibia_R"),
+    ("LEFT_SHOULDER", "LEFT_ELBOW", "upper_arm_L"),
+    ("RIGHT_SHOULDER", "RIGHT_ELBOW", "upper_arm_R"),
+    ("LEFT_ELBOW", "LEFT_WRIST", "forearm_L"),
+    ("RIGHT_ELBOW", "RIGHT_WRIST", "forearm_R"),
+    ("LEFT_SHOULDER", "LEFT_HIP", "trunk_L"),
+    ("RIGHT_SHOULDER", "RIGHT_HIP", "trunk_R"),
+]
+
+
+def segment_lengths(
+    data: dict,
+    segments: Optional[List] = None,
+    unit: str = "normalized",
+    height_m: Optional[float] = None,
+) -> dict:
+    """Compute segment lengths across all frames.
+
+    For each defined segment (proximal-distal landmark pair), computes
+    the Euclidean 2D distance at each frame, then reports summary
+    statistics (mean, std, CV) and the full time series.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated.
+    segments : list of tuple, optional
+        List of (proximal, distal, name) tuples. Defaults to
+        ``DEFAULT_SEGMENTS``.
+    unit : str, optional
+        ``"normalized"`` (default) or ``"m"`` (requires *height_m*).
+    height_m : float, optional
+        Subject height in meters. When provided and unit is ``"m"``,
+        lengths are scaled assuming the subject's extent in the image
+        approximates *height_m*.
+
+    Returns
+    -------
+    dict
+        Per-segment dict with ``mean``, ``std``, ``cv``,
+        ``time_series`` keys, plus a top-level ``quality_flags`` list
+        of segment names with CV > 15%.
+    """
+    frames = data.get("frames", [])
+    if segments is None:
+        segments = DEFAULT_SEGMENTS
+
+    result = {}
+    quality_flags = []
+
+    for proximal, distal, seg_name in segments:
+        distances = []
+        for f in frames:
+            lm = f.get("landmarks", {})
+            p = lm.get(proximal, {})
+            d = lm.get(distal, {})
+            px, py = p.get("x"), p.get("y")
+            dx, dy = d.get("x"), d.get("y")
+            if (px is not None and py is not None
+                    and dx is not None and dy is not None
+                    and not np.isnan(px) and not np.isnan(py)
+                    and not np.isnan(dx) and not np.isnan(dy)):
+                dist = np.sqrt((px - dx) ** 2 + (py - dy) ** 2)
+                if height_m is not None and unit == "m":
+                    dist = dist * height_m
+                distances.append(float(dist))
+            else:
+                distances.append(float("nan"))
+
+        valid = [v for v in distances if not np.isnan(v)]
+        if valid:
+            mean_val = float(np.mean(valid))
+            std_val = float(np.std(valid))
+            cv_val = float(std_val / mean_val * 100) if mean_val > 0 else 0.0
+        else:
+            mean_val = 0.0
+            std_val = 0.0
+            cv_val = 0.0
+
+        result[seg_name] = {
+            "mean": round(mean_val, 6),
+            "std": round(std_val, 6),
+            "cv": round(cv_val, 2),
+            "time_series": distances,
+        }
+
+        if cv_val > 15.0:
+            quality_flags.append(seg_name)
+
+    result["quality_flags"] = quality_flags
+    return result
+
+
+# ── Instantaneous cadence ────────────────────────────────────────────
+
+
+def instantaneous_cadence(data: dict) -> dict:
+    """Compute instantaneous cadence from heel-strike intervals.
+
+    Collects all heel-strike events (left and right), sorts them by
+    frame, and computes the step time between consecutive heel strikes
+    regardless of side. Instantaneous cadence is 60 / step_time for
+    each pair.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``events`` containing ``left_hs`` and
+        ``right_hs``.
+
+    Returns
+    -------
+    dict
+        Keys: ``times`` (list of midpoint times), ``cadence`` (list of
+        instantaneous cadence values in steps/min), ``mean``, ``std``,
+        ``cv``, ``trend_slope`` (linear regression slope).
+    """
+    events = data.get("events", {})
+    fps = data.get("meta", {}).get("fps", 30.0)
+
+    all_hs = []
+    for ev in events.get("left_hs", []):
+        all_hs.append(ev["frame"])
+    for ev in events.get("right_hs", []):
+        all_hs.append(ev["frame"])
+    all_hs.sort()
+
+    times = []
+    cadences = []
+    for i in range(len(all_hs) - 1):
+        dt_frames = all_hs[i + 1] - all_hs[i]
+        if dt_frames <= 0:
+            continue
+        step_time = dt_frames / fps
+        cad = 60.0 / step_time
+        mid_time = (all_hs[i] + all_hs[i + 1]) / 2.0 / fps
+        times.append(float(mid_time))
+        cadences.append(float(cad))
+
+    if cadences:
+        mean_cad = float(np.mean(cadences))
+        std_cad = float(np.std(cadences))
+        cv_cad = float(std_cad / mean_cad * 100) if mean_cad > 0 else 0.0
+        # Linear regression for trend
+        if len(times) >= 2:
+            coeffs = np.polyfit(times, cadences, 1)
+            trend_slope = float(coeffs[0])
+        else:
+            trend_slope = 0.0
+    else:
+        mean_cad = 0.0
+        std_cad = 0.0
+        cv_cad = 0.0
+        trend_slope = 0.0
+
+    return {
+        "times": times,
+        "cadence": cadences,
+        "mean": round(mean_cad, 2),
+        "std": round(std_cad, 2),
+        "cv": round(cv_cad, 2),
+        "trend_slope": round(trend_slope, 4),
+    }
+
+
+# ── ROM summary per cycle ───────────────────────────────────────────
+
+
+def compute_rom_summary(data: dict, cycles: dict) -> dict:
+    """Compute range-of-motion summary per joint per side per cycle.
+
+    For each joint (hip, knee, ankle) and each side (L, R), extracts
+    the normalized angle curve from each gait cycle and computes the
+    ROM (max - min). Summary statistics (mean, std, CV) are computed
+    across cycles.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict (used for context, not directly needed).
+    cycles : dict
+        Output of ``segment_cycles()``.
+
+    Returns
+    -------
+    dict
+        Per-joint/side dict, e.g. ``{"hip_L": {"rom_per_cycle": [...],
+        "rom_mean": float, "rom_std": float, "rom_cv": float}, ...}``.
+    """
+    cycle_list = cycles.get("cycles", [])
+    result = {}
+
+    for joint in ("hip", "knee", "ankle"):
+        for side_label, side_name in (("L", "left"), ("R", "right")):
+            side_cycles = [c for c in cycle_list if c["side"] == side_name]
+            roms = []
+            for c in side_cycles:
+                vals = c.get("angles_normalized", {}).get(joint)
+                if vals:
+                    roms.append(float(np.ptp(vals)))
+
+            key = f"{joint}_{side_label}"
+            if roms:
+                rom_mean = float(np.mean(roms))
+                rom_std = float(np.std(roms))
+                rom_cv = float(rom_std / rom_mean * 100) if rom_mean > 0 else 0.0
+            else:
+                rom_mean = 0.0
+                rom_std = 0.0
+                rom_cv = 0.0
+
+            result[key] = {
+                "rom_per_cycle": [round(r, 2) for r in roms],
+                "rom_mean": round(rom_mean, 2),
+                "rom_std": round(rom_std, 2),
+                "rom_cv": round(rom_cv, 2),
+            }
+
+    return result
+
+
+# ── Center of mass estimation ────────────────────────────────────────
+
+
+SEGMENT_COM_RATIOS = {  # ratio from proximal end
+    "head": 0.5,  # approximation
+    "trunk": 0.50,
+    "upper_arm": 0.436,
+    "forearm": 0.430,
+    "thigh": 0.433,
+    "shank": 0.433,
+}
+
+SEGMENT_MASS_RATIOS = {  # fraction of total body mass
+    "head": 0.081,
+    "trunk": 0.497,
+    "upper_arm": 0.028,  # x2 for bilateral
+    "forearm": 0.022,    # x2
+    "thigh": 0.100,      # x2
+    "shank": 0.047,      # x2
+}
+
+
+def estimate_center_of_mass(data: dict, model: str = "winter") -> dict:
+    """Estimate whole-body center of mass using Winter's segment ratios.
+
+    Uses the segmental analysis method with Winter (2009) body segment
+    parameter tables. For each frame, computes each segment's CoM
+    position from its proximal and distal landmarks, then computes a
+    mass-weighted average.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated.
+    model : str, optional
+        Body segment parameter model. Currently only ``"winter"``
+        is supported.
+
+    Returns
+    -------
+    dict
+        Keys: ``com_x`` (list), ``com_y`` (list),
+        ``vertical_excursion`` (peak-to-peak of com_y),
+        ``smoothness`` (inverse of normalized jerk).
+    """
+    frames = data.get("frames", [])
+
+    # Define segments: (proximal_landmark, distal_landmark, segment_name, bilateral_factor)
+    segment_defs = [
+        ("LEFT_SHOULDER", "LEFT_HIP", "trunk", 0.5),  # half for each side
+        ("RIGHT_SHOULDER", "RIGHT_HIP", "trunk", 0.5),
+        ("LEFT_SHOULDER", "LEFT_ELBOW", "upper_arm", 1.0),
+        ("RIGHT_SHOULDER", "RIGHT_ELBOW", "upper_arm", 1.0),
+        ("LEFT_ELBOW", "LEFT_WRIST", "forearm", 1.0),
+        ("RIGHT_ELBOW", "RIGHT_WRIST", "forearm", 1.0),
+        ("LEFT_HIP", "LEFT_KNEE", "thigh", 1.0),
+        ("RIGHT_HIP", "RIGHT_KNEE", "thigh", 1.0),
+        ("LEFT_KNEE", "LEFT_ANKLE", "shank", 1.0),
+        ("RIGHT_KNEE", "RIGHT_ANKLE", "shank", 1.0),
+    ]
+
+    com_x_list = []
+    com_y_list = []
+
+    for f in frames:
+        lm = f.get("landmarks", {})
+        total_mass = 0.0
+        weighted_x = 0.0
+        weighted_y = 0.0
+
+        for prox_name, dist_name, seg_type, bilateral_factor in segment_defs:
+            prox = lm.get(prox_name, {})
+            dist = lm.get(dist_name, {})
+            px, py = prox.get("x"), prox.get("y")
+            dx, dy = dist.get("x"), dist.get("y")
+
+            if (px is None or py is None or dx is None or dy is None
+                    or np.isnan(px) or np.isnan(py) or np.isnan(dx) or np.isnan(dy)):
+                continue
+
+            com_ratio = SEGMENT_COM_RATIOS[seg_type]
+            mass_ratio = SEGMENT_MASS_RATIOS[seg_type] * bilateral_factor
+
+            seg_com_x = px + com_ratio * (dx - px)
+            seg_com_y = py + com_ratio * (dy - py)
+
+            weighted_x += mass_ratio * seg_com_x
+            weighted_y += mass_ratio * seg_com_y
+            total_mass += mass_ratio
+
+        # Add head approximation (midpoint of shoulders up to nose)
+        nose = lm.get("NOSE", {})
+        ls = lm.get("LEFT_SHOULDER", {})
+        rs = lm.get("RIGHT_SHOULDER", {})
+        if (nose.get("x") is not None and ls.get("x") is not None
+                and rs.get("x") is not None):
+            head_prox_x = (ls["x"] + rs["x"]) / 2
+            head_prox_y = (ls["y"] + rs["y"]) / 2
+            head_com_x = head_prox_x + SEGMENT_COM_RATIOS["head"] * (nose["x"] - head_prox_x)
+            head_com_y = head_prox_y + SEGMENT_COM_RATIOS["head"] * (nose["y"] - head_prox_y)
+            head_mass = SEGMENT_MASS_RATIOS["head"]
+            weighted_x += head_mass * head_com_x
+            weighted_y += head_mass * head_com_y
+            total_mass += head_mass
+
+        if total_mass > 0:
+            com_x_list.append(float(weighted_x / total_mass))
+            com_y_list.append(float(weighted_y / total_mass))
+        else:
+            com_x_list.append(float("nan"))
+            com_y_list.append(float("nan"))
+
+    # Vertical excursion
+    valid_y = [v for v in com_y_list if not np.isnan(v)]
+    vertical_excursion = float(np.ptp(valid_y)) if valid_y else 0.0
+
+    # Smoothness: inverse of normalized jerk
+    fps = data.get("meta", {}).get("fps", 30.0)
+    smoothness = 0.0
+    if len(valid_y) > 3:
+        y_arr = np.array(com_y_list)
+        valid_mask = ~np.isnan(y_arr)
+        if valid_mask.sum() > 3:
+            y_clean = y_arr[valid_mask]
+            # Compute jerk (third derivative)
+            vel = np.diff(y_clean) * fps
+            acc = np.diff(vel) * fps
+            jerk = np.diff(acc) * fps
+            jerk_rms = float(np.sqrt(np.mean(jerk ** 2)))
+            smoothness = float(1.0 / (1.0 + jerk_rms)) if jerk_rms >= 0 else 0.0
+
+    return {
+        "com_x": com_x_list,
+        "com_y": com_y_list,
+        "vertical_excursion": round(vertical_excursion, 6),
+        "smoothness": round(smoothness, 6),
+    }
+
+
+# ── Postural sway ───────────────────────────────────────────────────
+
+
+def postural_sway(
+    data: dict,
+    start_frame: Optional[int] = None,
+    end_frame: Optional[int] = None,
+) -> dict:
+    """Compute postural sway metrics from ankle midpoint (COP approximation).
+
+    Uses the midpoint of the two ankles as an approximation of the
+    center of pressure (COP). Computes the 95% confidence ellipse area
+    via eigenvalue decomposition of the 2D covariance matrix, mean
+    sway velocity, and mediolateral (ML) and anteroposterior (AP)
+    ranges.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated.
+    start_frame : int, optional
+        First frame to include (default: 0).
+    end_frame : int, optional
+        Last frame to include (default: all frames).
+
+    Returns
+    -------
+    dict
+        Keys: ``cop_x``, ``cop_y`` (lists), ``ellipse_area``,
+        ``sway_velocity``, ``ml_range``, ``ap_range``.
+    """
+    frames = data.get("frames", [])
+    fps = data.get("meta", {}).get("fps", 30.0)
+
+    if start_frame is None:
+        start_frame = 0
+    if end_frame is None:
+        end_frame = len(frames)
+
+    cop_x = []
+    cop_y = []
+
+    for f in frames[start_frame:end_frame]:
+        lm = f.get("landmarks", {})
+        la = lm.get("LEFT_ANKLE", {})
+        ra = lm.get("RIGHT_ANKLE", {})
+        lx, ly = la.get("x"), la.get("y")
+        rx, ry = ra.get("x"), ra.get("y")
+
+        if (lx is not None and ly is not None
+                and rx is not None and ry is not None
+                and not np.isnan(lx) and not np.isnan(ly)
+                and not np.isnan(rx) and not np.isnan(ry)):
+            cop_x.append(float((lx + rx) / 2.0))
+            cop_y.append(float((ly + ry) / 2.0))
+        else:
+            cop_x.append(float("nan"))
+            cop_y.append(float("nan"))
+
+    # Filter valid points
+    valid_mask = [not (np.isnan(x) or np.isnan(y)) for x, y in zip(cop_x, cop_y)]
+    vx = np.array([cop_x[i] for i in range(len(cop_x)) if valid_mask[i]])
+    vy = np.array([cop_y[i] for i in range(len(cop_y)) if valid_mask[i]])
+
+    if len(vx) < 3:
+        return {
+            "cop_x": cop_x, "cop_y": cop_y,
+            "ellipse_area": 0.0, "sway_velocity": 0.0,
+            "ml_range": 0.0, "ap_range": 0.0,
+        }
+
+    # ML = x direction, AP = y direction
+    ml_range = float(np.ptp(vx))
+    ap_range = float(np.ptp(vy))
+
+    # 95% confidence ellipse via eigenvalue decomposition
+    cov_matrix = np.cov(vx, vy)
+    eigenvalues = np.linalg.eigvalsh(cov_matrix)
+    eigenvalues = np.maximum(eigenvalues, 0.0)  # ensure non-negative
+    # 95% confidence: chi-square with 2 dof, p=0.05 => 5.991
+    ellipse_area = float(np.pi * 5.991 * np.sqrt(eigenvalues[0] * eigenvalues[1]))
+
+    # Mean sway velocity
+    displacements = np.sqrt(np.diff(vx) ** 2 + np.diff(vy) ** 2)
+    total_path = float(np.sum(displacements))
+    duration = len(vx) / fps
+    sway_velocity = total_path / duration if duration > 0 else 0.0
+
+    return {
+        "cop_x": cop_x,
+        "cop_y": cop_y,
+        "ellipse_area": round(ellipse_area, 8),
+        "sway_velocity": round(sway_velocity, 6),
+        "ml_range": round(ml_range, 6),
+        "ap_range": round(ap_range, 6),
+    }

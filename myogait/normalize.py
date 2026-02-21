@@ -861,3 +861,172 @@ def normalize(
     }
 
     return data
+
+
+# ── Gap filling ──────────────────────────────────────────────────────
+
+
+def fill_gaps(
+    data: dict,
+    method: str = "spline",
+    max_gap_frames: int = 10,
+    report: bool = False,
+) -> dict:
+    """Detect and interpolate gaps in landmark data.
+
+    A gap is defined as a frame where a landmark has visibility=0 or
+    NaN in its x/y coordinates. Gaps shorter than or equal to
+    *max_gap_frames* are interpolated; longer gaps are left as NaN.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated.
+    method : str, optional
+        Interpolation method: ``"linear"`` (np.interp), ``"spline"``
+        (scipy CubicSpline), or ``"zero"`` (fill with 0). Default
+        ``"spline"``.
+    max_gap_frames : int, optional
+        Maximum gap length (in frames) to interpolate. Gaps longer
+        than this are left as NaN. Default 10.
+    report : bool, optional
+        If True, adds ``data["gap_fill_report"]`` with gap statistics.
+
+    Returns
+    -------
+    dict
+        Modified *data* dict (also modifies in place).
+
+    Raises
+    ------
+    ValueError
+        If *method* is not one of ``"linear"``, ``"spline"``, ``"zero"``.
+    """
+    valid_methods = ("linear", "spline", "zero")
+    if method not in valid_methods:
+        raise ValueError(f"method must be one of {valid_methods}, got {method!r}")
+
+    frames = data.get("frames", [])
+    if not frames:
+        return data
+
+    # Collect all landmark names from the first frame
+    landmark_names = list(frames[0].get("landmarks", {}).keys())
+    n_frames = len(frames)
+
+    report_data = {
+        "method": method,
+        "max_gap_frames": max_gap_frames,
+        "landmarks_with_gaps": [],
+        "total_gaps_filled": 0,
+        "total_gaps_skipped": 0,
+        "gap_sizes_filled": [],
+    }
+
+    for lm_name in landmark_names:
+        # Extract x, y, visibility series
+        x_series = np.full(n_frames, np.nan)
+        y_series = np.full(n_frames, np.nan)
+
+        for i, f in enumerate(frames):
+            lm = f.get("landmarks", {}).get(lm_name, {})
+            vis = lm.get("visibility", 1.0)
+            x_val = lm.get("x")
+            y_val = lm.get("y")
+
+            # Mark as gap if visibility is 0 or coords are NaN
+            is_gap = (vis == 0.0
+                      or x_val is None or y_val is None
+                      or (isinstance(x_val, float) and np.isnan(x_val))
+                      or (isinstance(y_val, float) and np.isnan(y_val)))
+
+            if not is_gap:
+                x_series[i] = float(x_val)
+                y_series[i] = float(y_val)
+
+        # Detect contiguous gap runs
+        is_nan = np.isnan(x_series)
+        if not np.any(is_nan):
+            continue
+
+        landmark_had_gap = False
+
+        # Find contiguous gap runs
+        gap_starts = []
+        gap_ends = []
+        in_gap = False
+        for i in range(n_frames):
+            if is_nan[i] and not in_gap:
+                gap_starts.append(i)
+                in_gap = True
+            elif not is_nan[i] and in_gap:
+                gap_ends.append(i - 1)
+                in_gap = False
+        if in_gap:
+            gap_ends.append(n_frames - 1)
+
+        for gs, ge in zip(gap_starts, gap_ends):
+            gap_len = ge - gs + 1
+
+            if gap_len > max_gap_frames:
+                report_data["total_gaps_skipped"] += 1
+                continue
+
+            # Need valid points before and after the gap for interpolation
+            valid_indices = np.where(~is_nan)[0]
+            if len(valid_indices) < 2:
+                report_data["total_gaps_skipped"] += 1
+                continue
+
+            landmark_had_gap = True
+            report_data["total_gaps_filled"] += 1
+            report_data["gap_sizes_filled"].append(gap_len)
+
+            gap_indices = np.arange(gs, ge + 1)
+
+            if method == "zero":
+                x_series[gap_indices] = 0.0
+                y_series[gap_indices] = 0.0
+            elif method == "linear":
+                x_series[gap_indices] = np.interp(
+                    gap_indices, valid_indices, x_series[valid_indices])
+                y_series[gap_indices] = np.interp(
+                    gap_indices, valid_indices, y_series[valid_indices])
+            elif method == "spline":
+                from scipy.interpolate import CubicSpline
+                # Use valid indices for spline fitting
+                try:
+                    cs_x = CubicSpline(valid_indices, x_series[valid_indices])
+                    cs_y = CubicSpline(valid_indices, y_series[valid_indices])
+                    x_series[gap_indices] = cs_x(gap_indices)
+                    y_series[gap_indices] = cs_y(gap_indices)
+                except Exception:
+                    # Fall back to linear if spline fails
+                    x_series[gap_indices] = np.interp(
+                        gap_indices, valid_indices, x_series[valid_indices])
+                    y_series[gap_indices] = np.interp(
+                        gap_indices, valid_indices, y_series[valid_indices])
+
+            # Update valid indices after filling
+            is_nan = np.isnan(x_series)
+
+        if landmark_had_gap:
+            report_data["landmarks_with_gaps"].append(lm_name)
+
+        # Write filled values back to frames
+        for i in range(n_frames):
+            if not np.isnan(x_series[i]):
+                frames[i]["landmarks"][lm_name]["x"] = float(x_series[i])
+                frames[i]["landmarks"][lm_name]["y"] = float(y_series[i])
+
+    # Compute summary stats for report
+    if report_data["gap_sizes_filled"]:
+        report_data["mean_gap_size"] = round(
+            float(np.mean(report_data["gap_sizes_filled"])), 2)
+    else:
+        report_data["mean_gap_size"] = 0.0
+
+    if report:
+        data["gap_fill_report"] = report_data
+
+    return data
