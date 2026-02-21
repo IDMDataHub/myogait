@@ -17,6 +17,8 @@ import time
 from pathlib import Path
 from importlib.metadata import version as pkg_version, PackageNotFoundError
 
+logger = logging.getLogger(__name__)
+
 
 def _get_version() -> str:
     """Return package version without importing the full myogait package."""
@@ -307,6 +309,7 @@ def cmd_batch(args):
 
         except Exception as e:
             print(f"  ERROR: {e}")
+            logger.exception("Batch failure on file: %s", filepath)
             results.append({"file": name, "status": "error", "error": str(e)})
 
     # Summary

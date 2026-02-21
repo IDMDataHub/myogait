@@ -563,7 +563,7 @@ def _page_normative(pdf, cycles: dict, data: dict, s: dict):
         pdf.savefig(fig, dpi=_DPI)
         plt.close(fig)
     except Exception:
-        logger.warning("Could not generate normative comparison page")
+        logger.exception("Could not generate normative comparison page")
         fig = plt.figure(figsize=_FIG_SIZE)
         ax = fig.add_subplot(111)
         ax.axis("off")
@@ -598,7 +598,7 @@ def _page_frontal(pdf, cycles: dict, data: dict, s: dict):
         pdf.savefig(fig, dpi=_DPI)
         plt.close(fig)
     except Exception:
-        logger.warning("Could not generate frontal comparison page")
+        logger.exception("Could not generate frontal comparison page")
         fig = plt.figure(figsize=_FIG_SIZE)
         ax = fig.add_subplot(111)
         ax.axis("off")
@@ -620,7 +620,7 @@ def _page_gvs(pdf, cycles: dict, data: dict, s: dict):
         pdf.savefig(fig, dpi=_DPI)
         plt.close(fig)
     except Exception:
-        logger.warning("Could not generate GVS profile page")
+        logger.exception("Could not generate GVS profile page")
         fig = plt.figure(figsize=_FIG_SIZE)
         ax = fig.add_subplot(111)
         ax.axis("off")
@@ -642,7 +642,7 @@ def _page_quality(pdf, data: dict, s: dict):
         pdf.savefig(fig, dpi=_DPI)
         plt.close(fig)
     except Exception:
-        logger.warning("Could not generate quality dashboard page")
+        logger.exception("Could not generate quality dashboard page")
         fig = plt.figure(figsize=_FIG_SIZE)
         ax = fig.add_subplot(111)
         ax.axis("off")
