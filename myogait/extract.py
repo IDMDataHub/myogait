@@ -658,3 +658,277 @@ def _correct_label_inversions(landmarks_list: list) -> list:
                 result[i][li], result[i][ri] = result[i][ri].copy(), result[i][li].copy()
 
     return result
+
+
+# ── Sagittal alignment detection ─────────────────────────────────
+
+
+def detect_sagittal_alignment(data: dict, threshold_deg: float = 15.0) -> dict:
+    """Detect whether the camera view is close to pure sagittal.
+
+    Computes the ratio of hip width (LEFT_HIP to RIGHT_HIP distance)
+    to mean femur length (hip-to-knee distance). In a pure sagittal
+    view both hips overlap, so the ratio is small (~0.0-0.4). As the
+    camera deviates toward frontal/oblique, the ratio increases.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated.
+    threshold_deg : float
+        Maximum acceptable deviation angle (degrees) to be considered
+        sagittal (default 15.0).
+
+    Returns
+    -------
+    dict
+        Keys:
+
+        - ``deviation_angle_deg`` (float): estimated camera deviation.
+        - ``is_sagittal`` (bool): True if deviation < *threshold_deg*.
+        - ``hip_width_ratio`` (float): mean hip-width / femur-length.
+        - ``confidence`` (float): 0-1, higher when more frames contribute.
+        - ``warning`` (str or None): human-readable warning if oblique.
+    """
+    frames = data.get("frames", [])
+
+    ratios = []
+    for f in frames:
+        lm = f.get("landmarks", {})
+        lh = lm.get("LEFT_HIP")
+        rh = lm.get("RIGHT_HIP")
+        lk = lm.get("LEFT_KNEE")
+        rk = lm.get("RIGHT_KNEE")
+
+        if not all([lh, rh, lk, rk]):
+            continue
+
+        coords = {}
+        skip = False
+        for name, val in [("lh", lh), ("rh", rh), ("lk", lk), ("rk", rk)]:
+            x, y = val.get("x"), val.get("y")
+            if x is None or y is None or np.isnan(x) or np.isnan(y):
+                skip = True
+                break
+            coords[name] = np.array([x, y])
+        if skip:
+            continue
+
+        hip_width = np.linalg.norm(coords["lh"] - coords["rh"])
+        femur_left = np.linalg.norm(coords["lh"] - coords["lk"])
+        femur_right = np.linalg.norm(coords["rh"] - coords["rk"])
+        femur_mean = (femur_left + femur_right) / 2.0
+
+        if femur_mean < 1e-6:
+            continue
+
+        ratios.append(hip_width / femur_mean)
+
+    if not ratios:
+        return {
+            "deviation_angle_deg": 0.0,
+            "is_sagittal": True,
+            "hip_width_ratio": 0.0,
+            "confidence": 0.0,
+            "warning": "No valid frames to assess sagittal alignment.",
+        }
+
+    ratio = float(np.mean(ratios))
+    deviation_deg = float(np.degrees(np.arcsin(min(ratio, 1.0))))
+    is_sagittal = deviation_deg < threshold_deg
+    confidence = float(min(1.0, len(ratios) / max(1, len(frames))))
+
+    warning = None
+    if not is_sagittal:
+        warning = (
+            f"Camera appears oblique (deviation ~{deviation_deg:.1f} deg). "
+            f"Sagittal-plane angles may be inaccurate."
+        )
+
+    return {
+        "deviation_angle_deg": round(deviation_deg, 2),
+        "is_sagittal": is_sagittal,
+        "hip_width_ratio": round(ratio, 4),
+        "confidence": round(confidence, 3),
+        "warning": warning,
+    }
+
+
+# ── Auto-crop ROI ────────────────────────────────────────────────
+
+
+def auto_crop_roi(
+    video_path: str,
+    data: Optional[dict] = None,
+    padding: float = 0.15,
+    output_path: Optional[str] = None,
+) -> dict:
+    """Compute a bounding box around the subject and optionally crop the video.
+
+    When *data* is provided, the bounding box is derived from the global
+    extent of all landmarks across all frames. Otherwise, the full frame
+    is returned.
+
+    Parameters
+    ----------
+    video_path : str
+        Path to the source video.
+    data : dict, optional
+        Pivot JSON dict with ``frames`` populated.
+    padding : float
+        Fractional padding to add around the bounding box (default 0.15).
+    output_path : str, optional
+        If given, write a cropped video to this path.
+
+    Returns
+    -------
+    dict
+        Keys:
+
+        - ``bbox`` (tuple): ``(x1, y1, x2, y2)`` in pixel coordinates.
+        - ``output_path`` (str or None): path to cropped video if written.
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video: {video_path}")
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    src_fps = cap.get(cv2.CAP_PROP_FPS)
+
+    if data is not None and data.get("frames"):
+        xs, ys = [], []
+        for f in data["frames"]:
+            lm = f.get("landmarks", {})
+            for name, val in lm.items():
+                x, y = val.get("x"), val.get("y")
+                if x is not None and y is not None and not (np.isnan(x) or np.isnan(y)):
+                    xs.append(x)
+                    ys.append(y)
+
+        if xs and ys:
+            x_min, x_max = min(xs), max(xs)
+            y_min, y_max = min(ys), max(ys)
+        else:
+            x_min, y_min, x_max, y_max = 0.0, 0.0, 1.0, 1.0
+    else:
+        x_min, y_min, x_max, y_max = 0.0, 0.0, 1.0, 1.0
+
+    # Add padding
+    bw = x_max - x_min
+    bh = y_max - y_min
+    x_min = max(0.0, x_min - bw * padding)
+    y_min = max(0.0, y_min - bh * padding)
+    x_max = min(1.0, x_max + bw * padding)
+    y_max = min(1.0, y_max + bh * padding)
+
+    # Convert to pixel coordinates
+    x1 = int(x_min * width)
+    y1 = int(y_min * height)
+    x2 = int(x_max * width)
+    y2 = int(y_max * height)
+
+    written_path = None
+    if output_path is not None:
+        crop_w = x2 - x1
+        crop_h = y2 - y1
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(output_path, fourcc, src_fps, (crop_w, crop_h))
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            cropped = frame[y1:y2, x1:x2]
+            writer.write(cropped)
+        writer.release()
+        written_path = output_path
+        logger.info(f"Cropped video saved to {output_path}")
+
+    cap.release()
+
+    return {
+        "bbox": (x1, y1, x2, y2),
+        "output_path": written_path,
+    }
+
+
+# ── Person selection (placeholder) ───────────────────────────────
+
+
+def select_person(
+    data: dict,
+    strategy: str = "largest",
+    bbox: Optional[tuple] = None,
+) -> dict:
+    """Select or validate a single person in the pose data.
+
+    Currently the extraction pipeline supports only one person per
+    frame, so this function mainly validates the data and adds
+    selection metadata. When multi-person support is added, it will
+    filter landmarks to the chosen subject.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated.
+    strategy : str
+        Selection strategy: ``'largest'`` (biggest bounding box) or
+        ``'center'`` (closest to image centre). Default ``'largest'``.
+    bbox : tuple, optional
+        If provided ``(x1, y1, x2, y2)`` in normalised coordinates,
+        keep only landmarks within this box.
+
+    Returns
+    -------
+    dict
+        Keys:
+
+        - ``selected`` (bool): True if a valid person was found.
+        - ``strategy`` (str): the strategy used.
+        - ``n_frames_with_landmarks`` (int): frame count with data.
+        - ``bbox`` (tuple or None): bounding box of the selected person.
+        - ``multi_person_warning`` (bool): from extraction metadata.
+    """
+    frames = data.get("frames", [])
+    extraction = data.get("extraction", {}) or {}
+
+    n_with_lm = 0
+    all_xs, all_ys = [], []
+
+    for f in frames:
+        lm = f.get("landmarks", {})
+        if not lm:
+            continue
+        has_valid = False
+        for name, val in lm.items():
+            x, y = val.get("x"), val.get("y")
+            if x is not None and y is not None and not (np.isnan(x) or np.isnan(y)):
+                # If bbox filter is given, skip landmarks outside it
+                if bbox is not None:
+                    bx1, by1, bx2, by2 = bbox
+                    if not (bx1 <= x <= bx2 and by1 <= y <= by2):
+                        continue
+                all_xs.append(x)
+                all_ys.append(y)
+                has_valid = True
+        if has_valid:
+            n_with_lm += 1
+
+    person_bbox = None
+    if all_xs and all_ys:
+        person_bbox = (
+            round(min(all_xs), 4),
+            round(min(all_ys), 4),
+            round(max(all_xs), 4),
+            round(max(all_ys), 4),
+        )
+
+    return {
+        "selected": n_with_lm > 0,
+        "strategy": strategy,
+        "n_frames_with_landmarks": n_with_lm,
+        "bbox": person_bbox,
+        "multi_person_warning": bool(extraction.get("multi_person_warning", False)),
+    }
