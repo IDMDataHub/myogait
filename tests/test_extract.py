@@ -771,6 +771,28 @@ def test_walking_speed():
     assert "speed_mean" in result
 
 
+def test_step_length_treadmill_returns_not_reliable():
+    from myogait import detect_events, segment_cycles, step_length
+    data = _walking_data_with_angles()
+    data["extraction"] = {"treadmill": True}
+    detect_events(data)
+    cycles = segment_cycles(data)
+    result = step_length(data, cycles)
+    assert result["step_length_left"] is None
+    assert result["valid_for_progression"] is False
+
+
+def test_walking_speed_treadmill_returns_not_reliable():
+    from myogait import detect_events, segment_cycles, walking_speed
+    data = _walking_data_with_angles()
+    data["extraction"] = {"treadmill": True}
+    detect_events(data)
+    cycles = segment_cycles(data)
+    result = walking_speed(data, cycles)
+    assert result["speed_mean"] is None
+    assert result["valid_for_progression"] is False
+
+
 def test_detect_pathologies():
     from myogait import detect_events, segment_cycles, detect_pathologies
     data = _walking_data_with_angles()
@@ -782,6 +804,7 @@ def test_detect_pathologies():
         assert "pattern" in p
         assert "side" in p
         assert "severity" in p
+        assert "confidence" in p
 
 
 def test_analyze_gait_includes_new_metrics():

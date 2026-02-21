@@ -46,6 +46,10 @@ detect_pathologies
       patterns in spastic hemiplegia and spastic diplegia: a basis
       for a management algorithm. Eur J Neurol. 2001;8(Suppl 5):
       98-108. doi:10.1046/j.1468-1331.2001.00042.x
+compute_derivatives
+    Angular velocity and acceleration via central differences.
+    Ref: Winter DA. Biomechanics and Motor Control of Human Movement.
+    4th ed. Wiley; 2009. Chapter 2.
 
 Symmetry index formula:
     SI = |L - R| / (0.5 * (L + R)) * 100
@@ -536,6 +540,22 @@ def step_length(
         return {"step_length_left": None, "step_length_right": None,
                 "stride_length_left": None, "stride_length_right": None}
 
+    extraction = data.get("extraction", {})
+    if isinstance(extraction, dict) and extraction.get("treadmill") is True:
+        return {
+            "step_length_left": None,
+            "step_length_right": None,
+            "stride_length_left": None,
+            "stride_length_right": None,
+            "unit": "m" if height_m else "normalized",
+            "calibrated": height_m is not None,
+            "valid_for_progression": False,
+            "limitation": (
+                "Treadmill-like trial detected: image-progression step/stride length "
+                "is not reliable."
+            ),
+        }
+
     # Estimate pixel-to-meter scale
     # Use femur (hip-knee) length as reference: ~25% of body height
     scale = 1.0  # pixels per meter (default)
@@ -609,6 +629,7 @@ def step_length(
         "stride_length_right": _mean_or_none(stride_lengths["right"]),
         "unit": "m" if height_m else "normalized",
         "calibrated": height_m is not None,
+        "valid_for_progression": True,
     }
 
 
@@ -643,6 +664,20 @@ def walking_speed(
     """
     frames = data.get("frames", [])
     height_m_val = height_m or data.get("subject", {}).get("height_m") if data.get("subject") else height_m
+
+    extraction = data.get("extraction", {})
+    if isinstance(extraction, dict) and extraction.get("treadmill") is True:
+        return {
+            "speed_mean": None,
+            "speed_left": None,
+            "speed_right": None,
+            "unit": "m/s" if height_m_val else "norm/s",
+            "valid_for_progression": False,
+            "limitation": (
+                "Treadmill-like trial detected: walking speed from image progression "
+                "is not reliable."
+            ),
+        }
 
     # Compute scale factor (same logic as step_length)
     scale = 1.0
@@ -689,6 +724,7 @@ def walking_speed(
         "speed_left": _mean_or_none(speeds["left"]),
         "speed_right": _mean_or_none(speeds["right"]),
         "unit": "m/s" if height_m_val else "norm/s",
+        "valid_for_progression": True,
     }
 
 
@@ -748,11 +784,13 @@ def detect_pathologies(data: dict, cycles: dict) -> List[dict]:
             knee_mean = np.mean(knee_curves, axis=0)
             swing_knee_max = np.max(knee_mean[60:])  # swing phase
             if swing_knee_max < 40:
+                confidence = min(1.0, max(0.0, (40.0 - float(swing_knee_max)) / 20.0))
                 pathologies.append({
                     "pattern": "spastic",
                     "side": side,
                     "severity": "moderate" if swing_knee_max < 30 else "mild",
                     "value": round(float(swing_knee_max), 1),
+                    "confidence": round(confidence, 2),
                     "description": f"Reduced swing knee flexion ({swing_knee_max:.1f} deg, normal: 60-70)",
                 })
 
@@ -763,11 +801,15 @@ def detect_pathologies(data: dict, cycles: dict) -> List[dict]:
             swing_hip_max = np.max(hip_mean[60:])
             ankle_rom = np.ptp(ankle_mean)
             if swing_hip_max > 45 and ankle_rom < 15:
+                conf_hip = max(0.0, (float(swing_hip_max) - 45.0) / 25.0)
+                conf_ankle = max(0.0, (15.0 - float(ankle_rom)) / 10.0)
+                confidence = min(1.0, max(0.0, 0.5 * (conf_hip + conf_ankle)))
                 pathologies.append({
                     "pattern": "steppage",
                     "side": side,
                     "severity": "moderate" if ankle_rom < 10 else "mild",
                     "value": round(float(ankle_rom), 1),
+                    "confidence": round(confidence, 2),
                     "description": f"Suspected foot drop: ankle ROM={ankle_rom:.1f} deg, hip overflexion={swing_hip_max:.1f} deg",
                 })
 
@@ -776,11 +818,13 @@ def detect_pathologies(data: dict, cycles: dict) -> List[dict]:
             knee_mean = np.mean(knee_curves, axis=0)
             min_knee = np.min(knee_mean)
             if min_knee > 15:
+                confidence = min(1.0, max(0.0, (float(min_knee) - 15.0) / 20.0))
                 pathologies.append({
                     "pattern": "crouch",
                     "side": side,
                     "severity": "severe" if min_knee > 25 else "moderate",
                     "value": round(float(min_knee), 1),
+                    "confidence": round(confidence, 2),
                     "description": f"Persistent knee flexion (min={min_knee:.1f} deg, normal: ~0)",
                 })
 
@@ -791,11 +835,13 @@ def detect_pathologies(data: dict, cycles: dict) -> List[dict]:
     if pelvis_vals:
         pelvis_range = np.ptp([v for v in pelvis_vals if not np.isnan(v)])
         if pelvis_range > 10:
+            confidence = min(1.0, max(0.0, (float(pelvis_range) - 10.0) / 10.0))
             pathologies.append({
                 "pattern": "trendelenburg",
                 "side": "bilateral",
                 "severity": "moderate" if pelvis_range > 15 else "mild",
                 "value": round(float(pelvis_range), 1),
+                "confidence": round(confidence, 2),
                 "description": f"Excessive pelvis drop ({pelvis_range:.1f} deg range)",
             })
 
@@ -1888,3 +1934,430 @@ def postural_sway(
         "ml_range": round(ml_range, 6),
         "ap_range": round(ap_range, 6),
     }
+
+
+# ── PCA waveform analysis ───────────────────────────────────────────
+
+
+def pca_waveform_analysis(
+    cycles: dict,
+    joints: list = None,
+    n_components: int = 3,
+    n_points: int = 101,
+) -> dict:
+    """Principal component analysis of gait waveforms.
+
+    Performs PCA on time-normalized joint angle waveforms across gait
+    cycles. Extracts principal movement patterns (eigenvectors) and
+    scores that quantify each cycle's deviation along those patterns.
+
+    Parameters
+    ----------
+    cycles : dict
+        Output of segment_cycles(), containing ``cycles["cycles"]``
+        list where each cycle has ``angles`` dict with joint arrays.
+    joints : list of str, optional
+        Joint names to analyze. Defaults to ["hip_L", "knee_L", "ankle_L"].
+    n_components : int
+        Number of principal components to retain. Default 3.
+    n_points : int
+        Number of points for time normalization. Default 101 (0-100% gait cycle).
+
+    Returns
+    -------
+    dict
+        Per-joint results: {joint_name: {
+            "mean": np.ndarray (n_points,),
+            "components": np.ndarray (n_components, n_points),
+            "explained_variance_ratio": np.ndarray (n_components,),
+            "scores": np.ndarray (n_cycles, n_components),
+            "n_cycles_used": int
+        }}
+
+    Raises
+    ------
+    ValueError
+        If fewer than 3 valid cycles are available for any requested joint.
+
+    References
+    ----------
+    Deluzio KJ, Astephen JL. Biomechanical features of gait waveform
+    data associated with knee osteoarthritis. Gait Posture.
+    2007;25(1):86-93. doi:10.1016/j.gaitpost.2006.01.007
+    Federolf P, Boyer K, Andriacchi TP. Application of principal
+    component analysis in clinical gait research. J Biomech.
+    2013;46(15):2549-2555. doi:10.1016/j.jbiomech.2013.07.014
+    """
+    if joints is None:
+        joints = ["hip_L", "knee_L", "ankle_L"]
+
+    cycle_list = cycles.get("cycles", [])
+    results = {}
+
+    for joint in joints:
+        # Collect valid waveforms for this joint
+        waveforms = []
+        for c in cycle_list:
+            angles = c.get("angles", {})
+            waveform = angles.get(joint)
+            if waveform is None:
+                continue
+            # Skip all-None waveforms
+            if all(v is None for v in waveform):
+                continue
+            waveforms.append(waveform)
+
+        if len(waveforms) < 3:
+            raise ValueError(
+                f"Need at least 3 valid cycles for PCA on '{joint}', "
+                f"got {len(waveforms)}."
+            )
+
+        # Time-normalize each waveform to n_points using linear interpolation
+        normalized = np.empty((len(waveforms), n_points))
+        x_out = np.linspace(0, 1, n_points)
+        for i, wf in enumerate(waveforms):
+            x_in = np.linspace(0, 1, len(wf))
+            normalized[i, :] = np.interp(x_out, x_in, wf)
+
+        # Compute mean waveform and center the data
+        mean_waveform = np.mean(normalized, axis=0)
+        centered = normalized - mean_waveform
+
+        # SVD
+        U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+
+        # Clamp n_components to available singular values
+        k = min(n_components, len(S))
+
+        # Principal components (rows of Vt)
+        components = Vt[:k, :]
+
+        # Scores: project centered data onto principal components
+        scores = centered @ components.T
+
+        # Explained variance ratio
+        total_var = np.sum(S ** 2)
+        if total_var > np.finfo(float).eps:
+            explained_variance_ratio = S[:k] ** 2 / total_var
+        else:
+            explained_variance_ratio = np.zeros(k)
+
+        results[joint] = {
+            "mean": mean_waveform,
+            "components": components,
+            "explained_variance_ratio": explained_variance_ratio,
+            "scores": scores,
+            "n_cycles_used": len(waveforms),
+        }
+
+    return results
+
+
+# ── Angular derivatives ─────────────────────────────────────────────
+
+_DEFAULT_DERIVATIVE_JOINTS = [
+    "hip_L", "hip_R", "knee_L", "knee_R", "ankle_L", "ankle_R",
+]
+
+
+def compute_derivatives(
+    data: dict,
+    joints: list = None,
+    max_order: int = 2,
+) -> dict:
+    """Compute angular velocity and acceleration via central differences.
+
+    Calculates time derivatives of joint angle waveforms using
+    finite central differences. First derivative gives angular velocity
+    (deg/s), second derivative gives angular acceleration (deg/s²).
+
+    Parameters
+    ----------
+    data : dict
+        myogait data dict with ``data["angles"]["frames"]`` populated
+        and ``data["meta"]["fps"]`` available.
+    joints : list of str, optional
+        Joint names to compute derivatives for.
+        Defaults to ["hip_L", "hip_R", "knee_L", "knee_R",
+                      "ankle_L", "ankle_R"].
+    max_order : int
+        Maximum derivative order (1 or 2). Default 2.
+
+    Returns
+    -------
+    dict
+        ``data["derivatives"]``: dict with keys per joint, each containing
+        "velocity" (np.ndarray) and "acceleration" (np.ndarray, if max_order>=2).
+        Units: deg/s and deg/s².
+
+    Raises
+    ------
+    ValueError
+        If ``data["angles"]["frames"]`` is missing or empty.
+
+    References
+    ----------
+    Winter DA. Biomechanics and Motor Control of Human Movement.
+    4th ed. Wiley; 2009. Chapter 2.
+    """
+    # ── validate input ────────────────────────────────────────────
+    angles = data.get("angles")
+    if angles is None or not angles.get("frames"):
+        raise ValueError(
+            "data['angles']['frames'] must be populated before "
+            "computing derivatives."
+        )
+    angle_frames = angles["frames"]
+
+    fps = data.get("meta", {}).get("fps", 30.0)
+    dt = 1.0 / fps
+
+    if joints is None:
+        joints = list(_DEFAULT_DERIVATIVE_JOINTS)
+
+    # ── compute derivatives per joint ─────────────────────────────
+    derivatives: Dict[str, dict] = {}
+
+    for joint in joints:
+        # Extract angle time series, preserving None/NaN as NaN
+        raw = []
+        for af in angle_frames:
+            val = af.get(joint)
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                raw.append(np.nan)
+            else:
+                raw.append(float(val))
+
+        angles_arr = np.array(raw, dtype=np.float64)
+
+        # 1st derivative: angular velocity (deg/s)
+        velocity = np.gradient(angles_arr, dt)
+
+        joint_result: Dict[str, Any] = {"velocity": velocity}
+
+        # 2nd derivative: angular acceleration (deg/s²)
+        if max_order >= 2:
+            acceleration = np.gradient(velocity, dt)
+            joint_result["acceleration"] = acceleration
+
+        derivatives[joint] = joint_result
+
+    # ── store and return ──────────────────────────────────────────
+    data["derivatives"] = derivatives
+    return data["derivatives"]
+
+
+# ── Time-frequency analysis ──────────────────────────────────────────
+
+
+def time_frequency_analysis(
+    data: dict,
+    joints: list = None,
+    method: str = "cwt",
+    freq_range: tuple = (0.5, 15.0),
+    n_freqs: int = 50,
+) -> dict:
+    """Time-frequency analysis of gait angle signals.
+
+    Computes the time-frequency representation of joint angle
+    waveforms using continuous wavelet transform (CWT) or
+    short-time Fourier transform (STFT).
+
+    Parameters
+    ----------
+    data : dict
+        myogait data dict with ``data["angles"]["frames"]`` and
+        ``data["meta"]["fps"]``.
+    joints : list of str, optional
+        Joint names. Defaults to ["hip_L", "knee_L", "ankle_L"].
+    method : str
+        "cwt" (continuous wavelet transform using Morlet wavelet)
+        or "stft" (short-time Fourier transform). Default "cwt".
+    freq_range : tuple
+        (min_freq, max_freq) in Hz. Default (0.5, 15.0).
+    n_freqs : int
+        Number of frequency bins. Default 50.
+
+    Returns
+    -------
+    dict
+        Per-joint results: {joint_name: {
+            "power": np.ndarray (n_freqs, n_times),
+            "frequencies": np.ndarray (n_freqs,),
+            "times": np.ndarray (n_times,),
+            "dominant_frequency": float,
+            "method": str,
+        }}
+
+    References
+    ----------
+    Ismail AR, Asfour SS. Continuous wavelet transform application
+    to EMG signals during human gait. Conf Rec IEEE Eng Med Biol Soc.
+    1999.
+    """
+    if joints is None:
+        joints = ["hip_L", "knee_L", "ankle_L"]
+
+    angle_frames = data.get("angles", {}).get("frames", [])
+    fps = data.get("meta", {}).get("fps", 30.0)
+    n_frames = len(angle_frames)
+
+    results = {}
+
+    for joint in joints:
+        # Extract angle values for this joint
+        raw = []
+        for af in angle_frames:
+            val = af.get(joint)
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                raw.append(np.nan)
+            else:
+                raw.append(float(val))
+
+        signal = np.array(raw, dtype=np.float64)
+
+        # Interpolate NaN values
+        valid_mask = ~np.isnan(signal)
+        if valid_mask.sum() > 1:
+            x_idx = np.arange(len(signal))
+            signal[~valid_mask] = np.interp(
+                x_idx[~valid_mask], x_idx[valid_mask], signal[valid_mask]
+            )
+        elif valid_mask.sum() <= 1:
+            # Not enough valid data; fill with zeros
+            signal = np.zeros_like(signal)
+
+        # Remove mean to focus on oscillatory content
+        signal = signal - np.mean(signal)
+
+        times = np.arange(n_frames) / fps
+        frequencies = np.linspace(freq_range[0], freq_range[1], n_freqs)
+
+        if method == "cwt":
+            power = _cwt_morlet(signal, fs=fps, frequencies=frequencies)
+        elif method == "stft":
+            power, frequencies, times = _stft_analysis(
+                signal, fs=fps, freq_range=freq_range, n_freqs=n_freqs,
+                n_frames=n_frames,
+            )
+        else:
+            raise ValueError(f"Unknown method '{method}'. Use 'cwt' or 'stft'.")
+
+        # Dominant frequency: frequency with highest total power
+        total_power_per_freq = np.sum(power, axis=1)
+        dominant_idx = int(np.argmax(total_power_per_freq))
+        dominant_frequency = float(frequencies[dominant_idx])
+
+        results[joint] = {
+            "power": power,
+            "frequencies": frequencies,
+            "times": times,
+            "dominant_frequency": dominant_frequency,
+            "method": method,
+        }
+
+    return results
+
+
+def _cwt_morlet(
+    signal: np.ndarray,
+    fs: float,
+    frequencies: np.ndarray,
+    w0: float = 5.0,
+) -> np.ndarray:
+    """Compute CWT using Morlet wavelet via FFT convolution.
+
+    Parameters
+    ----------
+    signal : np.ndarray
+        1-D input signal.
+    fs : float
+        Sampling frequency in Hz.
+    frequencies : np.ndarray
+        Array of frequencies at which to evaluate the CWT.
+    w0 : float
+        Central frequency parameter of the Morlet wavelet (default 5.0).
+
+    Returns
+    -------
+    np.ndarray
+        Power matrix of shape (len(frequencies), len(signal)).
+    """
+    n = len(signal)
+    # Zero-pad for efficient FFT convolution
+    N = 2 ** int(np.ceil(np.log2(2 * n - 1)))
+    signal_fft = np.fft.fft(signal, N)
+    angular_freqs = 2 * np.pi * np.fft.fftfreq(N, d=1.0 / fs)
+
+    power = np.empty((len(frequencies), n))
+    for i, freq in enumerate(frequencies):
+        scale = w0 * fs / (2 * np.pi * freq)
+        # Morlet wavelet in frequency domain (analytic)
+        norm = (np.pi ** -0.25) * np.sqrt(2 * np.pi * scale / fs)
+        wavelet_fft = norm * np.exp(
+            -0.5 * (scale * angular_freqs / fs - w0) ** 2
+        )
+        # Keep only positive frequencies for analytic wavelet
+        wavelet_fft[angular_freqs < 0] = 0
+        wavelet_fft *= 2
+        # Convolution in frequency domain
+        coeff_fft = signal_fft * np.conj(wavelet_fft)
+        coeff = np.fft.ifft(coeff_fft)[:n]
+        power[i, :] = np.abs(coeff) ** 2
+
+    return power
+
+
+def _stft_analysis(
+    signal: np.ndarray,
+    fs: float,
+    freq_range: tuple,
+    n_freqs: int,
+    n_frames: int,
+) -> tuple:
+    """Compute STFT-based time-frequency representation.
+
+    Parameters
+    ----------
+    signal : np.ndarray
+        1-D input signal.
+    fs : float
+        Sampling frequency in Hz.
+    freq_range : tuple
+        (min_freq, max_freq) in Hz.
+    n_freqs : int
+        Desired number of frequency bins.
+    n_frames : int
+        Original number of frames (for time axis reference).
+
+    Returns
+    -------
+    tuple
+        (power, frequencies, times) where power has shape
+        (n_freq_bins, n_time_bins).
+    """
+    from scipy.signal import stft as scipy_stft
+
+    # Choose nperseg: try to get reasonable time-frequency resolution
+    nperseg = min(len(signal), max(16, 2 ** int(np.ceil(np.log2(len(signal) // 4)))))
+    noverlap = nperseg // 2
+
+    f_stft, t_stft, Zxx = scipy_stft(
+        signal, fs=fs, nperseg=nperseg, noverlap=noverlap,
+    )
+
+    # Compute power from complex STFT
+    stft_power = np.abs(Zxx) ** 2
+
+    # Restrict to freq_range
+    freq_mask = (f_stft >= freq_range[0]) & (f_stft <= freq_range[1])
+    if not np.any(freq_mask):
+        # If no frequencies in range, return all
+        freq_mask = np.ones(len(f_stft), dtype=bool)
+
+    frequencies = f_stft[freq_mask]
+    power = stft_power[freq_mask, :]
+    times = t_stft
+
+    return power, frequencies, times

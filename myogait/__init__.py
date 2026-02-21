@@ -46,12 +46,15 @@ from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_p
 from .normalize import (
     normalize,
     filter_median,
+    filter_wavelet,
     confidence_filter,
     detect_outliers,
     data_quality_score,
     fill_gaps,
     residual_analysis,
     auto_cutoff_frequency,
+    cross_correlation_lag,
+    align_signals,
 )
 from .angles import (
     compute_angles,
@@ -81,6 +84,9 @@ from .analysis import (
     compute_rom_summary,
     estimate_center_of_mass,
     postural_sway,
+    pca_waveform_analysis,
+    compute_derivatives,
+    time_frequency_analysis,
 )
 from .normative import (
     get_normative_curve,
@@ -145,12 +151,15 @@ __all__ = [
     "analyze_gait",
     # Quality & preprocessing
     "filter_median",
+    "filter_wavelet",
     "confidence_filter",
     "detect_outliers",
     "data_quality_score",
     "fill_gaps",
     "residual_analysis",
     "auto_cutoff_frequency",
+    "cross_correlation_lag",
+    "align_signals",
     # Analysis functions
     "regularity_index",
     "harmonic_ratio",
@@ -170,6 +179,9 @@ __all__ = [
     "compute_rom_summary",
     "estimate_center_of_mass",
     "postural_sway",
+    "pca_waveform_analysis",
+    "compute_derivatives",
+    "time_frequency_analysis",
     # Normative
     "get_normative_curve",
     "get_normative_band",
