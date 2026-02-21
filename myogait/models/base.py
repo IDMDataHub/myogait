@@ -1,7 +1,6 @@
 """Base class for pose extractors."""
 
 import numpy as np
-import pandas as pd
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 from dataclasses import dataclass, field

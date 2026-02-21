@@ -989,7 +989,7 @@ def test_sapiens_model_registry():
 def test_get_device_returns_valid():
     """_get_device returns cpu, cuda, or xpu."""
     from myogait.models.sapiens import _get_device
-    import torch
+    torch = pytest.importorskip("torch")
     device = _get_device()
     assert device.type in ("cpu", "cuda", "xpu")
 

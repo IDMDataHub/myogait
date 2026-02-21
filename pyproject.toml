@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77.0", "wheel"]
+requires = ["setuptools>=69.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -21,7 +21,6 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 
@@ -46,10 +45,15 @@ excel = ["openpyxl>=3.1"]
 yaml = ["pyyaml>=6.0"]
 all = ["myogait[mediapipe,yolo,sapiens,vitpose,rtmw,mmpose,excel,yaml,c3d]"]
 full = ["myogait[all,intel]"]
-dev = ["pytest>=7.0", "openpyxl>=3.1", "pyyaml>=6.0"]
+dev = ["pytest>=7.0", "openpyxl>=3.1", "pyyaml>=6.0", "build>=1.0", "twine>=5.0", "ruff>=0.4"]
 
 [project.scripts]
 myogait = "myogait.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/fferr/myogait"
+Repository = "https://github.com/fferr/myogait"
+"Bug Tracker" = "https://github.com/fferr/myogait/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

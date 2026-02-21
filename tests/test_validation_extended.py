@@ -13,7 +13,7 @@ from myogait.validation import (
     model_accuracy_info,
     validate_biomechanical_stratified,
 )
-from tests.conftest import run_full_pipeline
+from conftest import run_full_pipeline
 
 
 # ── stratified_ranges ────────────────────────────────────────────────

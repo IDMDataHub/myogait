@@ -17,7 +17,7 @@ from myogait.analysis import (
     detect_antalgic,
     detect_parkinsonian,
 )
-from tests.conftest import (
+from conftest import (
     make_walking_data,
     run_full_pipeline,
 )
