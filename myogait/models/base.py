@@ -1,12 +1,72 @@
 """Base class for pose extractors."""
 
-import numpy as np
-from abc import ABC, abstractmethod
-from typing import List, Optional
-from dataclasses import dataclass, field
 import logging
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def ensure_xpu_torch():
+    """On Windows, auto-upgrade CPU-only PyTorch to the XPU build.
+
+    PyPI distributes a CPU-only ``torch`` wheel for Windows.  Intel Arc / Xe
+    GPUs require the XPU build from PyTorch's dedicated index.  This function
+    detects the situation, upgrades ``torch`` automatically, and **restarts
+    the current Python process** so the new build is loaded transparently.
+
+    Call this in every extractor's ``setup()`` before touching the GPU.
+    On Linux/macOS or when CUDA/XPU is already available the function is a
+    no-op.
+    """
+    import platform
+
+    if platform.system() != "Windows":
+        return
+
+    try:
+        import torch
+    except ImportError:
+        return  # torch not installed yet — nothing to upgrade
+
+    if torch.cuda.is_available():
+        return
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        return
+
+    _is_cpu_build = "+cpu" in torch.__version__ or not hasattr(torch, "xpu")
+    if not _is_cpu_build:
+        return
+
+    logger.warning(
+        "Detected CPU-only PyTorch (%s) on Windows. "
+        "Upgrading to XPU build for Intel Arc GPU support...",
+        torch.__version__,
+    )
+    import os
+    import subprocess
+    import sys
+
+    try:
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install",
+            "--force-reinstall", "torch",
+            "--index-url", "https://download.pytorch.org/whl/xpu",
+        ])
+        logger.warning(
+            "PyTorch XPU installed successfully. "
+            "Restarting process to load the new build..."
+        )
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except subprocess.CalledProcessError:
+        logger.warning(
+            "Could not auto-install PyTorch XPU. Install manually:\n"
+            "  pip install torch --index-url "
+            "https://download.pytorch.org/whl/xpu"
+        )
 
 
 @dataclass

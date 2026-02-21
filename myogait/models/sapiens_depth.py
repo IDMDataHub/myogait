@@ -31,6 +31,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from .base import ensure_xpu_torch
 from .sapiens import (
     _DEFAULT_MODEL_PATHS,
     _get_device, _preprocess,
@@ -107,6 +108,7 @@ class SapiensDepthEstimator:
 
     def setup(self):
         import torch
+        ensure_xpu_torch()
         try:
             import intel_extension_for_pytorch  # noqa: F401
         except ImportError:

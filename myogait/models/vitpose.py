@@ -29,7 +29,7 @@ from typing import Optional
 
 import numpy as np
 
-from .base import BasePoseExtractor
+from .base import BasePoseExtractor, ensure_xpu_torch
 from ..constants import COCO_LANDMARK_NAMES
 
 logger = logging.getLogger(__name__)
@@ -45,30 +45,12 @@ _DETECTOR_REPO = "PekingU/rtdetr_r50vd_coco_o365"
 
 def _get_torch_device():
     """Select best device: CUDA > XPU > CPU."""
-    import logging
     import torch
 
     if torch.cuda.is_available():
         return "cuda"
     if hasattr(torch, "xpu") and torch.xpu.is_available():
         return "xpu"
-
-    _xpu_attr = hasattr(torch, "xpu")
-    _is_cpu_build = "+cpu" in torch.__version__ or (
-        not torch.cuda.is_available() and not _xpu_attr
-    )
-    if _is_cpu_build:
-        import platform
-        if platform.system() == "Windows":
-            logging.getLogger(__name__).warning(
-                "PyTorch was installed without GPU support (%s). "
-                "If you have an Intel Arc / Xe GPU, reinstall PyTorch "
-                "with XPU support:\n"
-                "  pip install torch --index-url "
-                "https://download.pytorch.org/whl/xpu\n"
-                "Falling back to CPU (much slower).",
-                torch.__version__,
-            )
     return "cpu"
 
 
@@ -107,6 +89,9 @@ class ViTPosePoseExtractor(BasePoseExtractor):
                 "HuggingFace Transformers is required for ViTPose. "
                 "Install with: pip install myogait[vitpose]"
             )
+
+        # Auto-upgrade CPU torch to XPU on Windows (Intel Arc)
+        ensure_xpu_torch()
 
         try:
             import intel_extension_for_pytorch  # noqa: F401
