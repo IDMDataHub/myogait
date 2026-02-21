@@ -25,6 +25,10 @@ Methods available:
       Gait Posture. 2007;25(3):469-474.
       doi:10.1016/j.gaitpost.2006.05.016
 
+    - "gk_bike", "gk_zeni", "gk_oconnor", etc.: gaitkit backends.
+      Requires the optional ``gaitkit`` package (``pip install gaitkit``).
+      10 individual methods plus "gk_ensemble" (multi-method voting).
+
 All methods are registered in EVENT_METHODS and can be extended
 via register_event_method().
 """
@@ -418,6 +422,15 @@ def event_consensus(
     # Collect events from each method
     all_results = []
     for method_name in methods:
+        # Lazy-register gaitkit methods if needed
+        if method_name.startswith("gk_") and method_name not in EVENT_METHODS:
+            if _is_gaitkit_available():
+                gk_name = method_name[3:]
+                if gk_name == "ensemble":
+                    EVENT_METHODS[method_name] = _make_gaitkit_ensemble_wrapper()
+                elif gk_name in _GAITKIT_METHODS:
+                    EVENT_METHODS[method_name] = _make_gaitkit_wrapper(gk_name)
+
         if method_name not in EVENT_METHODS:
             logger.warning(f"Skipping unknown method: {method_name}")
             continue
@@ -622,6 +635,357 @@ def validate_events(data: dict) -> dict:
     }
 
 
+# ── gaitkit integration (optional dependency) ───────────────────────
+
+# All 10 gaitkit methods that can be registered with the "gk_" prefix.
+_GAITKIT_METHODS = [
+    "bike", "zeni", "oconnor", "hreljac", "mickelborough",
+    "ghoussayni", "vancanneyt", "dgei", "intellevent", "deepevent",
+]
+
+
+def _is_gaitkit_available() -> bool:
+    """Check whether the gaitkit package is importable."""
+    try:
+        import importlib
+        importlib.import_module("gaitkit")
+        return True
+    except ImportError:
+        return False
+
+
+def _import_gaitkit():
+    """Import and return the gaitkit module, raising ImportError if absent."""
+    try:
+        import gaitkit
+        return gaitkit
+    except ImportError:
+        raise ImportError(
+            "gaitkit is not installed. Install it with: pip install gaitkit"
+        )
+
+
+def _convert_to_gaitkit_frames(data: dict) -> list:
+    """Convert myogait data dict to gaitkit angle frame format.
+
+    Maps myogait angle field names to gaitkit field names:
+        - frame_idx -> frame_index
+        - hip_L -> left_hip_angle, hip_R -> right_hip_angle
+        - knee_L -> left_knee_angle, knee_R -> right_knee_angle
+        - ankle_L -> left_ankle_angle, ankle_R -> right_ankle_angle
+
+    Landmark positions are converted from myogait format
+    ``{name: {x, y, visibility}}`` to gaitkit format
+    ``{name: (x, y, z)}`` where z defaults to 0.0.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``angles`` (preferred) or ``frames`` populated.
+
+    Returns
+    -------
+    list
+        List of gaitkit-compatible angle frame dicts.
+    """
+    # Field mapping from myogait angle keys to gaitkit keys
+    _angle_map = {
+        "hip_L": "left_hip_angle",
+        "hip_R": "right_hip_angle",
+        "knee_L": "left_knee_angle",
+        "knee_R": "right_knee_angle",
+        "ankle_L": "left_ankle_angle",
+        "ankle_R": "right_ankle_angle",
+    }
+
+    # Landmark name mapping: myogait UPPER_NAME -> gaitkit lower_name
+    _landmark_name_map = {
+        "LEFT_HIP": "left_hip",
+        "RIGHT_HIP": "right_hip",
+        "LEFT_KNEE": "left_knee",
+        "RIGHT_KNEE": "right_knee",
+        "LEFT_ANKLE": "left_ankle",
+        "RIGHT_ANKLE": "right_ankle",
+        "LEFT_HEEL": "left_heel",
+        "RIGHT_HEEL": "right_heel",
+        "LEFT_FOOT_INDEX": "left_foot_index",
+        "RIGHT_FOOT_INDEX": "right_foot_index",
+    }
+
+    # Determine source: prefer angles if available, fall back to frames
+    angle_frames = None
+    if data.get("angles") and data["angles"].get("frames"):
+        angle_frames = data["angles"]["frames"]
+
+    raw_frames = data.get("frames", [])
+
+    gaitkit_frames = []
+    n_frames = len(angle_frames) if angle_frames else len(raw_frames)
+
+    for i in range(n_frames):
+        gk_frame = {}
+
+        # -- frame_index --
+        if angle_frames and i < len(angle_frames):
+            af = angle_frames[i]
+            gk_frame["frame_index"] = af.get("frame_idx", i)
+
+            # Map angle fields
+            for mg_key, gk_key in _angle_map.items():
+                val = af.get(mg_key)
+                if val is not None and not (isinstance(val, float) and np.isnan(val)):
+                    gk_frame[gk_key] = float(val)
+                else:
+                    gk_frame[gk_key] = 0.0
+
+            # Landmark positions from angle frames
+            lp = af.get("landmark_positions", {})
+            gk_landmarks = {}
+            for gk_name, coords in lp.items():
+                # coords is [x, y, visibility] in myogait
+                if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                    gk_landmarks[gk_name] = (
+                        float(coords[0]), float(coords[1]), 0.0
+                    )
+            gk_frame["landmark_positions"] = gk_landmarks
+        else:
+            gk_frame["frame_index"] = i
+
+            # No angle data available: fill with zeros
+            for gk_key in _angle_map.values():
+                gk_frame[gk_key] = 0.0
+
+            gk_frame["landmark_positions"] = {}
+
+        # Enrich landmark positions from raw frames if available
+        if i < len(raw_frames):
+            rf = raw_frames[i]
+            landmarks = rf.get("landmarks", {})
+            existing_lp = gk_frame.get("landmark_positions", {})
+
+            for mp_name, gk_name in _landmark_name_map.items():
+                if gk_name not in existing_lp:
+                    lm = landmarks.get(mp_name)
+                    if lm and lm.get("x") is not None:
+                        x_val = lm["x"]
+                        y_val = lm.get("y", 0.0)
+                        if not (isinstance(x_val, float) and np.isnan(x_val)):
+                            existing_lp[gk_name] = (
+                                float(x_val), float(y_val), 0.0
+                            )
+
+            gk_frame["landmark_positions"] = existing_lp
+
+        gaitkit_frames.append(gk_frame)
+
+    return gaitkit_frames
+
+
+def _gaitkit_result_to_myogait(gk_result, fps: float) -> Dict[str, list]:
+    """Convert a gaitkit GaitResult to myogait event format.
+
+    Parameters
+    ----------
+    gk_result : gaitkit.GaitResult
+        Result from gaitkit.detect() with .left_hs, .right_hs,
+        .left_to, .right_to attributes.
+    fps : float
+        Frame rate (used only as fallback if time is missing).
+
+    Returns
+    -------
+    dict
+        Dict with keys: left_hs, right_hs, left_to, right_to.
+        Each value is a list of event dicts with frame, time, confidence.
+    """
+    result = {}
+    for event_type in ["left_hs", "right_hs", "left_to", "right_to"]:
+        gk_events = getattr(gk_result, event_type, [])
+        myogait_events = []
+        for ev in gk_events:
+            myogait_events.append({
+                "frame": int(ev.get("frame", 0)),
+                "time": round(float(ev.get("time", ev.get("frame", 0) / fps)), 4),
+                "confidence": round(float(ev.get("confidence", 1.0)), 3),
+            })
+        result[event_type] = myogait_events
+    return result
+
+
+def _detect_gaitkit(
+    data: dict,
+    fps: float,
+    method: str = "bike",
+    **kwargs,
+) -> Dict[str, list]:
+    """Detect gait events using a gaitkit method.
+
+    Parameters
+    ----------
+    data : dict
+        Full myogait data dict.
+    fps : float
+        Frame rate.
+    method : str
+        gaitkit method name (without "gk_" prefix).
+    **kwargs
+        Extra keyword arguments passed to gaitkit.detect().
+
+    Returns
+    -------
+    dict
+        Events in myogait format: {left_hs, right_hs, left_to, right_to}.
+    """
+    gaitkit = _import_gaitkit()
+    gk_frames = _convert_to_gaitkit_frames(data)
+    gk_result = gaitkit.detect(gk_frames, method=method, fps=fps, **kwargs)
+    return _gaitkit_result_to_myogait(gk_result, fps)
+
+
+def _detect_gaitkit_ensemble(
+    data: dict,
+    fps: float,
+    methods: list = None,
+    min_votes: int = 2,
+    tolerance_ms: float = 50.0,
+    weights: str = "benchmark",
+    **kwargs,
+) -> Dict[str, list]:
+    """Detect gait events using gaitkit multi-method ensemble voting.
+
+    Parameters
+    ----------
+    data : dict
+        Full myogait data dict.
+    fps : float
+        Frame rate.
+    methods : list, optional
+        gaitkit method names to use (default: ["bike", "zeni", "oconnor"]).
+    min_votes : int, optional
+        Minimum number of methods that must agree (default 2).
+    tolerance_ms : float, optional
+        Temporal tolerance in ms for clustering (default 50.0).
+    weights : str, optional
+        Weight scheme for voting (default "benchmark").
+    **kwargs
+        Extra keyword arguments passed to gaitkit.detect_ensemble().
+
+    Returns
+    -------
+    dict
+        Events in myogait format: {left_hs, right_hs, left_to, right_to}.
+    """
+    gaitkit = _import_gaitkit()
+    gk_frames = _convert_to_gaitkit_frames(data)
+
+    if methods is None:
+        methods = ["bike", "zeni", "oconnor"]
+
+    gk_result = gaitkit.detect_ensemble(
+        gk_frames,
+        methods=methods,
+        fps=fps,
+        min_votes=min_votes,
+        tolerance_ms=tolerance_ms,
+        weights=weights,
+        **kwargs,
+    )
+    return _gaitkit_result_to_myogait(gk_result, fps)
+
+
+def _detect_gaitkit_structured(
+    data: dict,
+    fps: float,
+    method: str = "bike",
+) -> Dict[str, list]:
+    """Detect gait events using gaitkit.detect_events_structured().
+
+    This uses gaitkit's structured API which can accept myogait data
+    directly. The returned dict is converted to myogait event format.
+
+    Parameters
+    ----------
+    data : dict
+        Full myogait data dict.
+    fps : float
+        Frame rate.
+    method : str
+        gaitkit method name (without "gk_" prefix).
+
+    Returns
+    -------
+    dict
+        Events in myogait format: {left_hs, right_hs, left_to, right_to}.
+    """
+    gaitkit = _import_gaitkit()
+    result_dict = gaitkit.detect_events_structured(method, data, fps=fps)
+
+    # Convert structured result to myogait event format
+    events = {"left_hs": [], "right_hs": [], "left_to": [], "right_to": []}
+
+    for hs in result_dict.get("heel_strikes", []):
+        side = hs.get("side", "left").lower()
+        key = f"{side}_hs"
+        if key in events:
+            events[key].append({
+                "frame": int(hs.get("frame", 0)),
+                "time": round(float(hs.get("time", hs.get("frame", 0) / fps)), 4),
+                "confidence": round(float(hs.get("confidence", 1.0)), 3),
+            })
+
+    for to in result_dict.get("toe_offs", []):
+        side = to.get("side", "left").lower()
+        key = f"{side}_to"
+        if key in events:
+            events[key].append({
+                "frame": int(to.get("frame", 0)),
+                "time": round(float(to.get("time", to.get("frame", 0) / fps)), 4),
+                "confidence": round(float(to.get("confidence", 1.0)), 3),
+            })
+
+    return events
+
+
+def _make_gaitkit_wrapper(gk_method_name: str) -> Callable:
+    """Create a wrapper function for a gaitkit method.
+
+    The returned function has the standard event method signature:
+    ``(frames, fps, min_cycle_duration, cutoff_freq) -> dict``
+
+    However, since gaitkit methods need the full data dict (for angle
+    and landmark information), this wrapper stores a reference to the
+    data dict in a closure via ``detect_events()``. The frames argument
+    is used to reconstruct a minimal data dict.
+
+    Parameters
+    ----------
+    gk_method_name : str
+        The gaitkit method name (e.g. "bike", "zeni").
+
+    Returns
+    -------
+    Callable
+        A function with the standard event detection signature.
+    """
+    def wrapper(frames, fps, min_cycle_duration=0.4, cutoff_freq=6.0):
+        # Reconstruct minimal data dict from frames
+        data_proxy = {"frames": frames, "meta": {"fps": fps}}
+        return _detect_gaitkit(data_proxy, fps, method=gk_method_name)
+    wrapper.__doc__ = f"gaitkit '{gk_method_name}' event detection method."
+    wrapper.__name__ = f"_detect_gk_{gk_method_name}"
+    return wrapper
+
+
+def _make_gaitkit_ensemble_wrapper() -> Callable:
+    """Create a wrapper for gaitkit ensemble method."""
+    def wrapper(frames, fps, min_cycle_duration=0.4, cutoff_freq=6.0):
+        data_proxy = {"frames": frames, "meta": {"fps": fps}}
+        return _detect_gaitkit_ensemble(data_proxy, fps)
+    wrapper.__doc__ = "gaitkit ensemble (multi-method voting) event detection."
+    wrapper.__name__ = "_detect_gk_ensemble"
+    return wrapper
+
+
 # ── Method registry ──────────────────────────────────────────────────
 
 
@@ -631,6 +995,12 @@ EVENT_METHODS: Dict[str, Callable] = {
     "velocity": _detect_velocity,
     "oconnor": _detect_oconnor,
 }
+
+# Register gaitkit methods if available
+if _is_gaitkit_available():
+    for _gk_method in _GAITKIT_METHODS:
+        EVENT_METHODS[f"gk_{_gk_method}"] = _make_gaitkit_wrapper(_gk_method)
+    EVENT_METHODS["gk_ensemble"] = _make_gaitkit_ensemble_wrapper()
 
 
 def register_event_method(name: str, func: Callable):
@@ -643,8 +1013,23 @@ def register_event_method(name: str, func: Callable):
 
 
 def list_event_methods() -> list:
-    """Return available event detection method names."""
-    return list(EVENT_METHODS.keys())
+    """Return available event detection method names.
+
+    When the optional ``gaitkit`` package is installed, the gaitkit
+    methods (prefixed with ``gk_``) are included automatically.
+    """
+    methods = list(EVENT_METHODS.keys())
+    # If gaitkit is available but methods were not yet registered
+    # (e.g. gaitkit was installed after module import), register now.
+    if _is_gaitkit_available():
+        for gk_method in _GAITKIT_METHODS:
+            name = f"gk_{gk_method}"
+            if name not in EVENT_METHODS:
+                EVENT_METHODS[name] = _make_gaitkit_wrapper(gk_method)
+        if "gk_ensemble" not in EVENT_METHODS:
+            EVENT_METHODS["gk_ensemble"] = _make_gaitkit_ensemble_wrapper()
+        methods = list(EVENT_METHODS.keys())
+    return methods
 
 
 def _adaptive_params(frames: list, fps: float) -> tuple:
@@ -764,6 +1149,15 @@ def detect_events(
         )
 
     logger.info(f"Detecting gait events with method={method}, fps={fps:.1f}")
+
+    # Lazy-register gaitkit methods if method looks like gk_* and gaitkit is available
+    if method.startswith("gk_") and method not in EVENT_METHODS:
+        if _is_gaitkit_available():
+            gk_name = method[3:]  # strip "gk_" prefix
+            if gk_name == "ensemble":
+                EVENT_METHODS[method] = _make_gaitkit_ensemble_wrapper()
+            elif gk_name in _GAITKIT_METHODS:
+                EVENT_METHODS[method] = _make_gaitkit_wrapper(gk_name)
 
     if method not in EVENT_METHODS:
         available = ", ".join(EVENT_METHODS.keys())
