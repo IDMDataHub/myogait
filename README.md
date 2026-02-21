@@ -222,8 +222,8 @@ cycles = segment_cycles(data)
 
 # 6. Compute spatio-temporal parameters
 stats = analyze_gait(data, cycles)
-print(f"Cadence: {stats['cadence']:.1f} steps/min")
-print(f"Walking speed: {stats['speed']:.2f} m/s")
+print(f"Cadence: {stats['spatiotemporal']['cadence_steps_per_min']:.1f} steps/min")
+print(f"Walking speed: {stats['walking_speed']['speed_mean']:.2f} m/s")
 ```
 
 ### Clinical Scores
@@ -237,17 +237,18 @@ from myogait import gait_variable_scores, movement_analysis_profile
 
 # GPS-2D: overall gait quality score (RMS deviation from normative)
 gps = gait_profile_score_2d(cycles)
-print(f"GPS-2D: {gps['gps']:.1f}")
+print(f"GPS-2D: {gps['gps_2d_overall']:.1f}")
 
 # SDI: Sagittal Deviation Index (0-120, 100 = normal)
 # Note: This is a z-score based index, NOT the GDI (Schwartz & Rozumalski 2008).
 sdi = sagittal_deviation_index(cycles)
-print(f"SDI: {sdi['sdi']:.1f}")
+print(f"SDI: {sdi['gdi_2d_overall']:.1f}")
 
 # Per-joint deviation scores
 gvs = gait_variable_scores(cycles)
-for joint, score in gvs["scores"].items():
-    print(f"  {joint}: {score:.1f}")
+for side in ("left", "right"):
+    for joint, score in gvs[side].items():
+        print(f"  {side} {joint}: {score:.1f}")
 ```
 
 ### Data Quality Assessment
@@ -282,7 +283,8 @@ fig = plot_normative_comparison(data, cycles, plane="both")
 fig.savefig("normative_comparison.png", dpi=150)
 
 # Access raw normative data
-mean, lower, upper = get_normative_band("hip_flexion", stratum="adult")
+band = get_normative_band("hip", stratum="adult")
+mean, lower, upper = band["mean"], band["lower"], band["upper"]
 ```
 
 ### Event Detection with gaitkit
