@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["gait", "pose-estimation", "biomechanics", "opensim", "markerless"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
     "Programming Language :: Python :: 3",
