@@ -5,7 +5,6 @@ used across all test modules.
 """
 
 import numpy as np
-import pytest
 
 
 def make_fake_data(n_frames, fps=30.0):

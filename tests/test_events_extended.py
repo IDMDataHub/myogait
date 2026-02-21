@@ -1,8 +1,6 @@
 """Tests for enhanced event detection functions."""
 
-import pytest
-import numpy as np
-from conftest import make_walking_data, walking_data_with_angles
+from conftest import make_walking_data
 
 
 def test_event_consensus_runs():

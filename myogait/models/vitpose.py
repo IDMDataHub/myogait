@@ -90,7 +90,6 @@ class ViTPosePoseExtractor(BasePoseExtractor):
                 "Install with: pip install myogait[vitpose]"
             )
 
-        import torch
         try:
             import intel_extension_for_pytorch  # noqa: F401
         except ImportError:

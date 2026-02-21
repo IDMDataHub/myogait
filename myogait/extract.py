@@ -318,7 +318,6 @@ def extract(
     extractor.setup()
 
     is_coco = extractor.is_coco_format
-    landmark_names = extractor.landmark_names
 
     # ── Optional auxiliary Sapiens models (depth / seg) ──────────
     depth_estimator = None
@@ -579,7 +578,6 @@ def detect_treadmill(data: dict) -> dict:
         extraction.treadmill_confidence added.
     """
     frames = data.get("frames", [])
-    width = data.get("meta", {}).get("width", 1920)
 
     if not frames:
         if data.get("extraction") is None:

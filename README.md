@@ -6,7 +6,7 @@ Markerless video-based gait analysis toolkit.
 [![PyPI](https://img.shields.io/pypi/v/myogait)](https://pypi.org/project/myogait/)
 [![Python 3.10|3.11|3.12](https://img.shields.io/pypi/pyversions/myogait)](https://pypi.org/project/myogait/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-749%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/github/actions/workflow/status/IDMDataHub/myogait/ci.yml?label=tests)](https://github.com/IDMDataHub/myogait/actions/workflows/ci.yml)
 [![Downloads](https://img.shields.io/pypi/dm/myogait)](https://pypi.org/project/myogait/)
 
 **Author:** Frederic Fer, Institut de Myologie ([f.fer@institut-myologie.org](mailto:f.fer@institut-myologie.org))

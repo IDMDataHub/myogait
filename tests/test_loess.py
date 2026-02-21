@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from conftest import make_walking_data
-from myogait.normalize import filter_loess, frames_to_dataframe, NORMALIZE_STEPS
+from myogait.normalize import filter_loess, NORMALIZE_STEPS
 
 
 class TestLoess:

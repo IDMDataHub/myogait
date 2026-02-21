@@ -1,6 +1,5 @@
 """Tests for extended spatio-temporal analysis functions (Group 5)."""
 
-import numpy as np
 import pytest
 import sys
 import os

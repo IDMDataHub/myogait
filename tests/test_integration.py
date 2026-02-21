@@ -566,7 +566,7 @@ class TestReportIntegration:
         import matplotlib.pyplot as plt
         data, cycles, stats = _run_full_pipeline()
         pdf_path = tmp_path / "report.pdf"
-        result = generate_report(data, cycles, stats, str(pdf_path))
+        generate_report(data, cycles, stats, str(pdf_path))
         assert pdf_path.exists()
         assert pdf_path.stat().st_size > 1000
         plt.close("all")

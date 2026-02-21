@@ -7,15 +7,12 @@ They will be automatically skipped if gaitkit is not installed.
 import pytest
 import numpy as np
 
-gaitkit = pytest.importorskip("gaitkit")
-
-from conftest import make_walking_data, walking_data_with_angles, run_full_pipeline
+from conftest import make_walking_data, walking_data_with_angles
 from myogait.events import (
     _convert_to_gaitkit_frames,
     _detect_gaitkit,
     _detect_gaitkit_ensemble,
     _detect_gaitkit_structured,
-    _gaitkit_result_to_myogait,
     _is_gaitkit_available,
     _GAITKIT_METHODS,
     detect_events,
@@ -23,6 +20,8 @@ from myogait.events import (
     event_consensus,
     EVENT_METHODS,
 )
+
+gaitkit = pytest.importorskip("gaitkit")
 
 
 # ---------------------------------------------------------------------------

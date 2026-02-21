@@ -37,7 +37,6 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e ".[dev]"
-          pip install gaitkit
 
       - name: Run linting
         run: ruff check myogait/ --select E,W,F --ignore E501

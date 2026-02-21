@@ -6,7 +6,6 @@ detection, foot progression angle, unwrap-without-median fix,
 and the compute_extended_angles() public API.
 """
 
-import copy
 
 import numpy as np
 import pytest
@@ -18,8 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from conftest import (
     make_walking_data,
-    make_standing_data,
-    make_fake_data,
     make_walking_data_with_depth,
     walking_data_with_angles,
 )

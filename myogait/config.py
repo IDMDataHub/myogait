@@ -20,7 +20,7 @@ DEFAULT_CONFIG : dict
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 
 logger = logging.getLogger(__name__)
 

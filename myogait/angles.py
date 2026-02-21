@@ -45,7 +45,6 @@ from typing import Callable, Dict, Optional
 
 import numpy as np
 
-from .constants import MP_LANDMARK_NAMES, MP_NAME_TO_INDEX
 
 logger = logging.getLogger(__name__)
 

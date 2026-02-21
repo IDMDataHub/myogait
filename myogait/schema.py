@@ -18,7 +18,7 @@ set_subject
 import json
 import numpy as np
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Union
 
 
 def _convert_numpy(obj: Any) -> Any:

@@ -9,7 +9,7 @@ def _register_lazy():
     global EXTRACTORS
     if EXTRACTORS:
         return EXTRACTORS
-    
+
     EXTRACTORS["mediapipe"] = "myogait.models.mediapipe.MediaPipePoseExtractor"
     EXTRACTORS["yolo"] = "myogait.models.yolo.YOLOPoseExtractor"
     EXTRACTORS["sapiens-quick"] = "myogait.models.sapiens.SapiensQuickExtractor"
@@ -26,27 +26,27 @@ def _register_lazy():
 
 def get_extractor(name: str, **kwargs) -> BasePoseExtractor:
     """Get a pose extractor by name.
-    
+
     Args:
         name: Model name (mediapipe, yolo, sapiens-quick, sapiens-top, hrnet, mmpose)
         **kwargs: Passed to the extractor constructor
-    
+
     Returns:
         Instantiated pose extractor
-    
+
     Raises:
         ValueError: If model name is not recognized
         ImportError: If required dependencies are not installed
     """
     _register_lazy()
-    
+
     if name not in EXTRACTORS:
         available = ", ".join(sorted(EXTRACTORS.keys()))
         raise ValueError(f"Unknown model '{name}'. Available: {available}")
-    
+
     class_path = EXTRACTORS[name]
     module_path, class_name = class_path.rsplit(".", 1)
-    
+
     import importlib
     try:
         module = importlib.import_module(module_path)
@@ -56,7 +56,7 @@ def get_extractor(name: str, **kwargs) -> BasePoseExtractor:
             f"Install with: pip install myogait[{name.split('-')[0]}]\n"
             f"Original error: {e}"
         ) from e
-    
+
     cls = getattr(module, class_name)
 
     # Pass model_size for ViTPose variants

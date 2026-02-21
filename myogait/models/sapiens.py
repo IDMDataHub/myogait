@@ -166,7 +166,7 @@ def _find_model(model_size: str, model_path: Optional[str] = None) -> str:
         )
 
 
-def _get_device() -> "torch.device":
+def _get_device():
     """Select the best available device: CUDA > XPU (Intel Arc) > CPU."""
     import torch
 
@@ -178,7 +178,7 @@ def _get_device() -> "torch.device":
     return torch.device("cpu")
 
 
-def _preprocess(frame_bgr: np.ndarray) -> "torch.Tensor":
+def _preprocess(frame_bgr: np.ndarray):
     """Resize, normalize, and convert to tensor."""
     import torch
 

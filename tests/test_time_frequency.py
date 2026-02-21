@@ -1,7 +1,6 @@
 """Tests for time_frequency_analysis."""
 
 import numpy as np
-import pytest
 
 from myogait.analysis import time_frequency_analysis
 

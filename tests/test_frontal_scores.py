@@ -1,7 +1,6 @@
 """Tests for frontal plane variables in myogait.scores."""
 
 import numpy as np
-import pytest
 
 from myogait.normative import get_normative_curve
 from myogait.scores import (

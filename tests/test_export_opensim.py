@@ -10,7 +10,6 @@ Covers:
 - Extended angles in .mot when present
 """
 
-import numpy as np
 import pytest
 from pathlib import Path
 

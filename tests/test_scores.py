@@ -2,7 +2,6 @@
 
 import warnings
 
-import numpy as np
 import pytest
 
 from conftest import run_full_pipeline

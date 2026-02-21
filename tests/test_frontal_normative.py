@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from myogait.normative import (
-    STRATA,
     get_normative_curve,
     get_normative_band,
     list_joints,

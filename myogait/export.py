@@ -183,7 +183,6 @@ def _compute_height_scale(data: dict) -> Optional[float]:
     if not frames:
         return None
 
-    w = data.get("meta", {}).get("width", 1920)
     h = data.get("meta", {}).get("height", 1080)
 
     # Sample up to first 30 stable frames (confidence > 0.5)

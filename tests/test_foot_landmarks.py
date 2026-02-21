@@ -11,10 +11,7 @@ Covers:
 - foot_progression_angle uses real toe data
 """
 
-import copy
-import math
 
-import numpy as np
 import pytest
 
 import sys
@@ -22,13 +19,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from conftest import make_walking_data, make_standing_data
+from conftest import make_walking_data
 
 from myogait.extract import _enrich_foot_landmarks
 from myogait.angles import (
     _estimate_foot_landmarks,
     _get_foot_index_from_toes,
-    _has_detected_foot,
     compute_angles,
     foot_progression_angle,
 )

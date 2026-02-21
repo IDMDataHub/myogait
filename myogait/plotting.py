@@ -384,7 +384,6 @@ def plot_summary(
         if summary is None:
             ax.text(0.5, 0.5, f"No {side} cycles", ha="center", va="center", transform=ax.transAxes)
             continue
-        color = _COLORS[side]
         for joint in ["hip", "knee", "ankle"]:
             mean = summary.get(f"{joint}_mean")
             std = summary.get(f"{joint}_std")

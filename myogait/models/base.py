@@ -2,7 +2,7 @@
 
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from dataclasses import dataclass, field
 import logging
 

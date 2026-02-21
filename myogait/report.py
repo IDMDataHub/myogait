@@ -22,7 +22,7 @@ generate_longitudinal_report
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import List
 
 import numpy as np
 import matplotlib

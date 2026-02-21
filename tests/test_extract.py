@@ -108,11 +108,6 @@ def test_coco_to_mediapipe_missing_are_nan():
 
 def test_filters_import():
     from myogait.normalize import (
-        filter_butterworth,
-        filter_savgol,
-        filter_moving_mean,
-        filter_kalman,
-        center_on_torso,
         NORMALIZE_STEPS,
     )
     assert "butterworth" in NORMALIZE_STEPS
@@ -498,7 +493,7 @@ def test_generate_report_creates_pdf(tmp_path):
     cycles = segment_cycles(data)
     stats = analyze_gait(data, cycles)
     pdf_path = tmp_path / "report.pdf"
-    result = generate_report(data, cycles, stats, str(pdf_path))
+    generate_report(data, cycles, stats, str(pdf_path))
     assert pdf_path.exists()
     assert pdf_path.stat().st_size > 1000  # non-trivial PDF
 
@@ -938,7 +933,7 @@ def test_goliath_landmark_names_count():
 
 
 def test_goliath_to_coco_mapping():
-    from myogait.constants import GOLIATH_TO_COCO, GOLIATH_LANDMARK_NAMES, COCO_LANDMARK_NAMES
+    from myogait.constants import GOLIATH_TO_COCO, GOLIATH_LANDMARK_NAMES
     # Check key body landmarks
     assert GOLIATH_TO_COCO[0] == 0   # nose → nose
     assert GOLIATH_TO_COCO[5] == 5   # left_shoulder → left_shoulder
@@ -1012,7 +1007,7 @@ def test_sapiens_model_registry():
 def test_get_device_returns_valid():
     """_get_device returns cpu, cuda, or xpu."""
     from myogait.models.sapiens import _get_device
-    torch = pytest.importorskip("torch")
+    pytest.importorskip("torch")
     device = _get_device()
     assert device.type in ("cpu", "cuda", "xpu")
 

@@ -120,7 +120,6 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from .constants import MP_LANDMARK_NAMES
 
 logger = logging.getLogger(__name__)
 

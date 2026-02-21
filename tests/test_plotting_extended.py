@@ -9,7 +9,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.figure
 
-import numpy as np
 import pytest
 
 from conftest import run_full_pipeline, make_walking_data

@@ -137,9 +137,9 @@ def analyze_gait(
         raise TypeError("data must be a dict")
     if not isinstance(cycles, dict):
         raise TypeError("cycles must be a dict")
+    fps = data.get("meta", {}).get("fps", 30.0)
     events = data.get("events", {})
     angles = data.get("angles", {})
-    fps = data.get("meta", {}).get("fps", 30.0)
     cycle_list = cycles.get("cycles", [])
 
     stats = {
@@ -447,7 +447,6 @@ def harmonic_ratio(data: dict, signal_key: str = "LEFT_ANKLE") -> dict:
     Smidt et al. (1971), Gage (1991).
     """
     frames = data.get("frames", [])
-    fps = data.get("meta", {}).get("fps", 30.0)
 
     if len(frames) < 60:
         return {"hr_ap": None, "hr_vertical": None}
@@ -534,7 +533,6 @@ def step_length(
     """
     frames = data.get("frames", [])
     events = data.get("events", {})
-    fps = data.get("meta", {}).get("fps", 30.0)
 
     if not frames or not events:
         return {"step_length_left": None, "step_length_right": None,

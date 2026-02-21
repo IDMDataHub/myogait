@@ -237,15 +237,6 @@ def export_opensim_scale_setup(
         },
     ]
 
-    # Compute actual measurement values for reference
-    femur_length = _compute_segment_length(data, "LEFT_HIP", "LEFT_KNEE")
-    tibia_length = _compute_segment_length(data, "LEFT_KNEE", "LEFT_ANKLE")
-    trunk_height = _compute_midpoint_distance(
-        data,
-        "LEFT_SHOULDER", "RIGHT_SHOULDER",
-        "LEFT_HIP", "RIGHT_HIP",
-    )
-
     marker_map = OPENSIM_MARKER_MAP.get("gait2392", {})
 
     for meas_def in measurements:

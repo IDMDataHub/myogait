@@ -31,7 +31,7 @@ from typing import Optional
 import numpy as np
 
 from .base import BasePoseExtractor
-from ..constants import COCO_LANDMARK_NAMES, WHOLEBODY_LANDMARK_NAMES
+from ..constants import COCO_LANDMARK_NAMES
 
 logger = logging.getLogger(__name__)
 

@@ -186,7 +186,7 @@ def cmd_analyze(args):
             fig.savefig(out_dir / f"cycles_{side}.png", dpi=150, bbox_inches="tight")
             plt.close(fig)
 
-        print(f"  Saved: summary.png, angles.png, events.png, cycles_left.png, cycles_right.png")
+        print("  Saved: summary.png, angles.png, events.png, cycles_left.png, cycles_right.png")
 
     # PDF report
     if args.pdf:
@@ -338,7 +338,7 @@ def cmd_download(args):
         print(f"  {'-'*22} {'-'*8} {'-'*50}")
         for name, (mtype, size, repo, _) in sorted(all_models.items()):
             print(f"  {name:<22} {mtype:<8} {repo}")
-        print(f"\nModels stored in: ~/.myogait/models/")
+        print("\nModels stored in: ~/.myogait/models/")
         return
 
     model_name = args.model

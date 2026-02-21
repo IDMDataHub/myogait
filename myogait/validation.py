@@ -47,7 +47,7 @@ validate_biomechanical_stratified
 
 import copy
 import logging
-from typing import Dict, List, Optional
+from typing import Optional
 
 import numpy as np
 

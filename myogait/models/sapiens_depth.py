@@ -32,7 +32,7 @@ import cv2
 import numpy as np
 
 from .sapiens import (
-    _INPUT_H, _INPUT_W, _DEFAULT_MODEL_PATHS,
+    _DEFAULT_MODEL_PATHS,
     _get_device, _preprocess,
 )
 

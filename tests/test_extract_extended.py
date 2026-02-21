@@ -4,7 +4,6 @@ Tests for detect_sagittal_alignment, auto_crop_roi, and select_person.
 """
 
 import os
-import tempfile
 
 import cv2
 import numpy as np
@@ -88,7 +87,7 @@ class TestDetectSagittalAlignment:
 
     def test_custom_threshold(self):
         data = make_walking_data(n_frames=30)
-        result_strict = detect_sagittal_alignment(data, threshold_deg=0.1)
+        detect_sagittal_alignment(data, threshold_deg=0.1)
         result_loose = detect_sagittal_alignment(data, threshold_deg=90.0)
         # With a very loose threshold, everything should be sagittal
         assert result_loose["is_sagittal"] is True
