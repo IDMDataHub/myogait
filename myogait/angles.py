@@ -344,7 +344,9 @@ def _method_sagittal_vertical_axis(frame: dict, model: str) -> dict:
             thigh_vector = knee - hip
             thigh_angle = np.arctan2(thigh_vector[0], thigh_vector[1])
             trunk_angle = np.arctan2(trunk_vec[0], trunk_vec[1])
-            result[f"hip_{side}"] = np.degrees(thigh_angle - trunk_angle)
+            raw = np.degrees(thigh_angle - trunk_angle)
+            # Normalize to [-180, 180] to avoid wrap-around artifacts
+            result[f"hip_{side}"] = float(((raw + 180) % 360) - 180)
         else:
             result[f"hip_{side}"] = np.nan
 
@@ -541,13 +543,13 @@ def compute_angles(
                 if v is not None and not np.isnan(v):
                     af[key] = v * correction_factor
 
-    # Unwrap hip angles (remove ±180 discontinuities)
+    # Normalize hip angles to [-180, 180] (no unwrap — gait is cyclic)
     for side in ("L", "R"):
         key = f"hip_{side}"
-        vals = [af.get(key, np.nan) for af in angle_frames]
-        unwrapped = _unwrap_angles(vals)
-        for i, af in enumerate(angle_frames):
-            af[key] = unwrapped[i]
+        for af in angle_frames:
+            v = af.get(key)
+            if v is not None and not np.isnan(v):
+                af[key] = float(((v + 180) % 360) - 180)
 
     # Neutral calibration
     if calibrate and len(angle_frames) >= calibration_frames:

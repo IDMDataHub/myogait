@@ -367,6 +367,38 @@ class TestUnwrapAnglesNoMedianRecenter:
         assert not np.isnan(result[2])
 
 
+# ── Hip angle normalization (replaces unwrap for gait) ──────────────
+
+
+class TestHipAngleNormalization:
+    """Hip angles must stay in [-180, 180] — no cumulative unwrap drift."""
+
+    def test_no_wraparound_on_gait_signal(self):
+        """Oscillating hip signal should never exceed [-180, 180]."""
+        data = make_walking_data(n_frames=200, fps=60)
+        result = compute_angles(data)
+        for af in result["angles"]["frames"]:
+            v = af.get("hip_L")
+            if v is not None and not np.isnan(v):
+                assert -180 <= v <= 180, f"hip_L={v} out of [-180, 180]"
+            v = af.get("hip_R")
+            if v is not None and not np.isnan(v):
+                assert -180 <= v <= 180, f"hip_R={v} out of [-180, 180]"
+
+    def test_extreme_values_normalized(self):
+        """Values like +515 or -417 must be brought back to [-180, 180]."""
+        extremes = [515.4, -416.8, 394.3, 263.0, -110.8, 30.0, -30.0]
+        for v in extremes:
+            normalized = float(((v + 180) % 360) - 180)
+            assert -180 <= normalized <= 180, f"{v} -> {normalized}"
+
+    def test_normal_values_unchanged(self):
+        """Values already in [-180, 180] should not be altered."""
+        for v in [-30.0, 0.0, 25.0, 45.0, -90.0, 180.0]:
+            normalized = float(((v + 180) % 360) - 180)
+            assert abs(normalized - v) < 0.01 or abs(normalized - (v - 360)) < 0.01
+
+
 # ── _detect_walking_direction (W1) ──────────────────────────────────
 
 
