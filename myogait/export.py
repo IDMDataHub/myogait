@@ -71,6 +71,9 @@ def export_csv(
     """
     if not isinstance(data, dict):
         raise TypeError("data must be a dict")
+    # Auto-detect cycles from pipeline data when not explicitly passed
+    if cycles is None:
+        cycles = data.get("cycles_data")
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     created = []
@@ -629,6 +632,9 @@ def export_excel(
     """
     if not isinstance(data, dict):
         raise TypeError("data must be a dict")
+    # Auto-detect cycles from pipeline data when not explicitly passed
+    if cycles is None:
+        cycles = data.get("cycles_data")
     try:
         import openpyxl  # noqa: F401
     except ImportError:
