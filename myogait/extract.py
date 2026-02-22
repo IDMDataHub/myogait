@@ -954,17 +954,19 @@ def _correct_label_inversions(landmarks_list: list) -> tuple:
                     result[i][ri].copy(), result[i][li].copy())
 
     # ── Pass 2: Per-pair velocity-based correction on corrected data ─
-    # After Pass 1 fixes global L/R swaps, some individual pairs may
-    # still be swapped (e.g. Sapiens swaps ankle labels while keeping
-    # heel/foot correct).  For each pair independently, compare the
-    # frame-to-frame displacement cost of keeping vs swapping.  When
-    # swapping produces a much smoother trajectory (lower total
-    # velocity), the labels are toggled for that pair.
+    # After Pass 1 fixes global L/R swaps, the ankle pair may still
+    # be swapped independently (Sapiens swaps ankle labels while
+    # keeping heel/foot correct).  We check the ankle pair only —
+    # hip/knee/shoulder cross naturally in sagittal view and produce
+    # false positives if checked independently.
     #
     # A velocity-reduction validation ensures the correction only
-    # applies when it genuinely smooths the trajectory, avoiding
-    # false positives from natural crossings (e.g. hips in sagittal).
-    for li, ri in _TRACK_PAIRS:
+    # applies when it genuinely smooths the trajectory.
+    _PASS2_PAIRS = [
+        (MP_NAME_TO_INDEX.get("LEFT_ANKLE", 27),
+         MP_NAME_TO_INDEX.get("RIGHT_ANKLE", 28)),
+    ]
+    for li, ri in _PASS2_PAIRS:
         pair_transitions = set()
         prev = None
         for i in range(n):
@@ -978,12 +980,19 @@ def _correct_label_inversions(landmarks_list: list) -> tuple:
                 prev = curr
                 continue
 
+            # Require minimum separation to avoid flagging natural
+            # crossings where L and R overlap.
+            sep = np.linalg.norm(curr[li, :2] - curr[ri, :2])
+            if sep < 0.03:
+                prev = curr
+                continue
+
             ck = (np.sum((prev[li, :2] - curr[li, :2]) ** 2)
                   + np.sum((prev[ri, :2] - curr[ri, :2]) ** 2))
             cs = (np.sum((prev[li, :2] - curr[ri, :2]) ** 2)
                   + np.sum((prev[ri, :2] - curr[li, :2]) ** 2))
 
-            if ck > 0 and cs / ck < 0.25:
+            if ck > 0 and cs / ck < 0.1:
                 pair_transitions.add(i)
 
             prev = curr

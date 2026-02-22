@@ -111,9 +111,10 @@ def load_vicon_trial_mat(trial_dir: str | Path, vicon_fps: float = 200.0) -> dic
         if arr is None:
             angles[out_name] = np.array([], dtype=float)
             continue
-        # Use first Euler component (flex/ext) when 2D with >=1 columns.
-        if arr.ndim == 2 and arr.shape[1] >= 1:
-            sig = arr[:, 0].astype(float)
+        # Vicon Y-X-Z Euler decomposition: col 0 = transverse rotation,
+        # col 1 = frontal (abd/add), col 2 = sagittal (flex/ext).
+        if arr.ndim == 2 and arr.shape[1] >= 3:
+            sig = arr[:, 2].astype(float)
         else:
             sig = arr.reshape(-1).astype(float)
         angles[out_name] = sig
