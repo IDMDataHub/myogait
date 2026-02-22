@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 # Input resolution expected by the model
 _INPUT_H, _INPUT_W = 1024, 768
 
+# Padding ratio around detected bounding box (20% on each side)
+_BBOX_PAD_RATIO = 0.20
+
 # ImageNet normalization
 _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -220,6 +223,84 @@ def _heatmaps_to_all(heatmaps: np.ndarray) -> np.ndarray:
     return landmarks
 
 
+# ── Person detection + crop ──────────────────────────────────────────
+
+
+class _PersonDetector:
+    """Lazy-loaded YOLOv8n person detector for top-down pose estimation.
+
+    Detects the largest person bounding box in a frame so that Sapiens
+    receives a cropped image where the person fills the field of view.
+    """
+
+    def __init__(self):
+        self._model = None
+
+    def setup(self):
+        if self._model is not None:
+            return
+        try:
+            from ultralytics import YOLO
+        except ImportError:
+            logger.warning(
+                "ultralytics not installed — Sapiens will run on full frames. "
+                "Install with: pip install ultralytics"
+            )
+            return
+        self._model = YOLO("yolov8n.pt")
+        logger.info("Person detector (YOLOv8n) loaded for Sapiens crop.")
+
+    def detect(self, frame_rgb: np.ndarray):
+        """Return (x1, y1, x2, y2) of largest person, or None."""
+        if self._model is None:
+            return None
+        results = self._model(frame_rgb, classes=[0], verbose=False)
+        if not results or len(results[0].boxes) == 0:
+            return None
+        # Pick the largest bounding box (by area)
+        boxes = results[0].boxes
+        areas = (boxes.xyxy[:, 2] - boxes.xyxy[:, 0]) * (boxes.xyxy[:, 3] - boxes.xyxy[:, 1])
+        best = int(areas.argmax())
+        return boxes.xyxy[best].cpu().numpy().astype(int)  # [x1, y1, x2, y2]
+
+    def teardown(self):
+        self._model = None
+
+
+def _crop_and_pad(frame_bgr: np.ndarray, bbox, pad_ratio=_BBOX_PAD_RATIO):
+    """Crop frame around bbox with padding.  Returns (crop, x_off, y_off, scale_x, scale_y)."""
+    h, w = frame_bgr.shape[:2]
+    x1, y1, x2, y2 = bbox
+    bw, bh = x2 - x1, y2 - y1
+
+    # Add padding
+    pad_x = int(bw * pad_ratio)
+    pad_y = int(bh * pad_ratio)
+    x1 = max(0, x1 - pad_x)
+    y1 = max(0, y1 - pad_y)
+    x2 = min(w, x2 + pad_x)
+    y2 = min(h, y2 + pad_y)
+
+    crop = frame_bgr[y1:y2, x1:x2]
+    return crop, x1, y1, (x2 - x1), (y2 - y1)
+
+
+def _remap_landmarks(landmarks: np.ndarray, x_off, y_off, crop_w, crop_h, frame_w, frame_h):
+    """Remap landmarks from crop-normalized [0,1] to frame-normalized [0,1]."""
+    out = landmarks.copy()
+    for i in range(len(out)):
+        if np.isnan(out[i, 0]):
+            continue
+        # crop-local pixel → frame pixel → frame-normalized
+        out[i, 0] = (out[i, 0] * crop_w + x_off) / frame_w
+        out[i, 1] = (out[i, 1] * crop_h + y_off) / frame_h
+    return out
+
+
+# Shared person detector instance (lazy, one per process)
+_person_detector = _PersonDetector()
+
+
 # ── Extractors ───────────────────────────────────────────────────────
 
 def _make_sapiens_extractor(name, model_size, label):
@@ -271,6 +352,8 @@ def _make_sapiens_extractor(name, model_size, label):
             )
             self._model = torch.jit.load(path, map_location=self._device)
             self._model.eval()
+            # Initialize person detector for top-down crop
+            _person_detector.setup()
             logger.info(f"Sapiens {label} ready.")
 
         def teardown(self):
@@ -284,15 +367,33 @@ def _make_sapiens_extractor(name, model_size, label):
             import torch
 
             frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-            tensor = _preprocess(frame_bgr).to(self._device)
+            h_frame, w_frame = frame_bgr.shape[:2]
+
+            # Top-down: detect person and crop before Sapiens
+            bbox = _person_detector.detect(frame_rgb)
+            if bbox is not None:
+                crop, x_off, y_off, crop_w, crop_h = _crop_and_pad(frame_bgr, bbox)
+                tensor = _preprocess(crop).to(self._device)
+            else:
+                # No detector or no person found: fall back to full frame
+                tensor = _preprocess(frame_bgr).to(self._device)
+                x_off, y_off, crop_w, crop_h = 0, 0, w_frame, h_frame
 
             with torch.no_grad():
                 out = self._model(tensor)
 
             heatmaps = out[0].cpu().numpy()
+            coco_lm = _heatmaps_to_coco(heatmaps)
+            all_lm = _heatmaps_to_all(heatmaps)
+
+            # Remap from crop-normalized to frame-normalized coordinates
+            if bbox is not None:
+                coco_lm = _remap_landmarks(coco_lm, x_off, y_off, crop_w, crop_h, w_frame, h_frame)
+                all_lm = _remap_landmarks(all_lm, x_off, y_off, crop_w, crop_h, w_frame, h_frame)
+
             return {
-                "landmarks": _heatmaps_to_coco(heatmaps),
-                "auxiliary_goliath308": _heatmaps_to_all(heatmaps),
+                "landmarks": coco_lm,
+                "auxiliary_goliath308": all_lm,
             }
 
     _SapiensExtractor.__name__ = f"Sapiens{label.replace(' ', '')}Extractor"
