@@ -843,27 +843,29 @@ def detect_multi_person(data: dict) -> dict:
 def _correct_label_inversions(landmarks_list: list) -> tuple:
     """Detect and correct left/right label swaps across frames.
 
-    Uses **position-proximity tracking** between consecutive raw
-    frames.  For each pair (i, i+1), the total squared displacement
-    of keeping L/R assignment vs swapping is compared across four
-    landmark pairs (hip, knee, ankle, shoulder).  When swapping is
-    cheaper a swap-transition is recorded and the inversion state is
-    toggled.
+    **Pass 1 – global detection** on raw data: for each consecutive
+    frame pair the total squared displacement of keeping vs swapping
+    is compared across four landmark pairs (hip, knee, ankle,
+    shoulder).  When swapping ALL pairs is 10× cheaper, a toggle
+    transition is recorded and the global inversion state is flipped.
 
-    This works in sagittal view where left/right landmarks overlap in x
-    and simple x-ordering heuristics fail, because it tracks positional
-    continuity rather than static ordering.
+    **Pass 2 – per-pair velocity-based correction** on the corrected
+    data from Pass 1: each pair is checked independently.  When
+    swapping a single pair produces a much smoother trajectory
+    (cost_swap / cost_keep < 0.25), a toggle is recorded for that
+    pair only.  This catches partial inversions where a pose model
+    swaps one landmark pair (e.g. ankle) while keeping others
+    correct.
 
-    A final majority-vote pass ensures the initial reference was correct:
-    if more than half the frames end up marked as inverted, the polarity
-    is flipped.
+    Both passes use majority-vote polarity to ensure the initial
+    reference was correct.
 
     Returns
     -------
     tuple
         ``(corrected_landmarks, inversion_mask)`` where *inversion_mask*
-        is a list of booleans indicating which frames had their
-        left/right labels swapped.
+        is a list of booleans indicating which frames had at least one
+        pair swapped.
     """
     # Landmark pairs used for proximity cost
     _TRACK_PAIRS = [
@@ -928,24 +930,131 @@ def _correct_label_inversions(landmarks_list: list) -> tuple:
         inversion_mask = [not m for m in inversion_mask]
         n_inv = sum(inversion_mask)
 
-    if n_inv == 0:
-        return landmarks_list, inversion_mask
+    if n_inv == 0 and not transitions:
+        # No global inversions; still run Pass 2 below.
+        pass
 
-    logger.info(f"Detected {n_inv} label inversions, correcting...")
+    if n_inv:
+        logger.info("Pass 1: corrected %d global label inversions", n_inv)
 
-    # Find all left/right index pairs
-    pairs = []
+    # Apply global corrections (swap ALL L/R pairs)
+    all_pairs = []
     for name in MP_LANDMARK_NAMES:
         if name.startswith("LEFT_"):
             right_name = name.replace("LEFT_", "RIGHT_")
             if right_name in MP_NAME_TO_INDEX:
-                pairs.append((MP_NAME_TO_INDEX[name], MP_NAME_TO_INDEX[right_name]))
+                all_pairs.append((MP_NAME_TO_INDEX[name],
+                                  MP_NAME_TO_INDEX[right_name]))
 
     result = [lm.copy() if lm is not None else None for lm in landmarks_list]
     for i, is_inv in enumerate(inversion_mask):
         if is_inv and result[i] is not None:
-            for li, ri in pairs:
-                result[i][li], result[i][ri] = result[i][ri].copy(), result[i][li].copy()
+            for li, ri in all_pairs:
+                result[i][li], result[i][ri] = (
+                    result[i][ri].copy(), result[i][li].copy())
+
+    # ── Pass 2: Per-pair velocity-based correction on corrected data ─
+    # After Pass 1 fixes global L/R swaps, some individual pairs may
+    # still be swapped (e.g. Sapiens swaps ankle labels while keeping
+    # heel/foot correct).  For each pair independently, compare the
+    # frame-to-frame displacement cost of keeping vs swapping.  When
+    # swapping produces a much smoother trajectory (lower total
+    # velocity), the labels are toggled for that pair.
+    #
+    # A velocity-reduction validation ensures the correction only
+    # applies when it genuinely smooths the trajectory, avoiding
+    # false positives from natural crossings (e.g. hips in sagittal).
+    for li, ri in _TRACK_PAIRS:
+        pair_transitions = set()
+        prev = None
+        for i in range(n):
+            curr = result[i]
+            if curr is None or np.any(np.isnan(curr[[li, ri], :2])):
+                continue
+            if prev is None:
+                prev = curr
+                continue
+            if np.any(np.isnan(prev[[li, ri], :2])):
+                prev = curr
+                continue
+
+            ck = (np.sum((prev[li, :2] - curr[li, :2]) ** 2)
+                  + np.sum((prev[ri, :2] - curr[ri, :2]) ** 2))
+            cs = (np.sum((prev[li, :2] - curr[ri, :2]) ** 2)
+                  + np.sum((prev[ri, :2] - curr[li, :2]) ** 2))
+
+            if ck > 0 and cs / ck < 0.25:
+                pair_transitions.add(i)
+
+            prev = curr
+
+        if not pair_transitions:
+            continue
+
+        # Toggle mask for this pair
+        pair_mask = [False] * n
+        in_inv = False
+        for i in range(n):
+            if i in pair_transitions:
+                in_inv = not in_inv
+            pair_mask[i] = in_inv
+
+        p_inv = sum(pair_mask)
+        if p_inv > n / 2:
+            pair_mask = [not m for m in pair_mask]
+            p_inv = sum(pair_mask)
+
+        if p_inv == 0:
+            continue
+
+        # Validate: only apply if swapping reduces total velocity
+        # for this pair.  Compute sum of squared displacements with
+        # and without the proposed swap.
+        total_vel_before = 0.0
+        total_vel_after = 0.0
+        prev_idx = None
+        for i in range(n):
+            curr = result[i]
+            if curr is None or np.any(np.isnan(curr[[li, ri], :2])):
+                continue
+            if prev_idx is None:
+                prev_idx = i
+                continue
+            p = result[prev_idx]
+            # Before: current positions
+            total_vel_before += (
+                np.sum((p[li, :2] - curr[li, :2]) ** 2)
+                + np.sum((p[ri, :2] - curr[ri, :2]) ** 2))
+            # After: apply proposed swap at frame i if flagged
+            ci_l = curr[ri, :2] if pair_mask[i] else curr[li, :2]
+            ci_r = curr[li, :2] if pair_mask[i] else curr[ri, :2]
+            pi_l = result[prev_idx][ri, :2] if pair_mask[prev_idx] else p[li, :2]
+            pi_r = result[prev_idx][li, :2] if pair_mask[prev_idx] else p[ri, :2]
+            total_vel_after += (
+                np.sum((pi_l - ci_l) ** 2)
+                + np.sum((pi_r - ci_r) ** 2))
+            prev_idx = i
+
+        if total_vel_after >= total_vel_before * 0.95:
+            # Swap doesn't reduce velocity by at least 5% — skip
+            continue
+
+        # Apply per-pair swap (only for frames not already corrected
+        # by Pass 1, to avoid double-swap)
+        n_applied = 0
+        for i, should_swap in enumerate(pair_mask):
+            if should_swap and result[i] is not None and not inversion_mask[i]:
+                result[i][li], result[i][ri] = (
+                    result[i][ri].copy(), result[i][li].copy())
+                inversion_mask[i] = True
+                n_applied += 1
+
+        if n_applied:
+            reduction = (1 - total_vel_after / total_vel_before) * 100
+            logger.info(
+                "Pass 2: corrected %d partial inversions for pair "
+                "%d/%d (velocity reduced %.1f%%)",
+                n_applied, li, ri, reduction)
 
     return result, inversion_mask
 
