@@ -335,6 +335,68 @@ GOLIATH_LANDMARK_NAMES = [
 
 GOLIATH_NAME_TO_INDEX = {name: i for i, name in enumerate(GOLIATH_LANDMARK_NAMES)}
 
+# Skeleton connections for Goliath 308 (index pairs).
+# Body + feet + hands + additional body points.  No face (70-307).
+GOLIATH_SKELETON_CONNECTIONS = [
+    # ── Head ──
+    (0, 69),   # nose → neck
+    (0, 1),    # nose → left_eye
+    (0, 2),    # nose → right_eye
+    (1, 3),    # left_eye → left_ear
+    (2, 4),    # right_eye → right_ear
+    # ── Neck → shoulders (via acromion) ──
+    (69, 67),  # neck → left_acromion
+    (69, 68),  # neck → right_acromion
+    (67, 5),   # left_acromion → left_shoulder
+    (68, 6),   # right_acromion → right_shoulder
+    # ── Arms ──
+    (5, 7),    # left_shoulder → left_elbow
+    (6, 8),    # right_shoulder → right_elbow
+    (7, 62),   # left_elbow → left_wrist
+    (8, 41),   # right_elbow → right_wrist
+    # ── Elbow detail ──
+    (7, 63),   # left_elbow → left_olecranon
+    (7, 65),   # left_elbow → left_cubital_fossa
+    (8, 64),   # right_elbow → right_olecranon
+    (8, 66),   # right_elbow → right_cubital_fossa
+    # ── Torso ──
+    (5, 9),    # left_shoulder → left_hip
+    (6, 10),   # right_shoulder → right_hip
+    (9, 10),   # left_hip → right_hip
+    # ── Legs ──
+    (9, 11),   # left_hip → left_knee
+    (10, 12),  # right_hip → right_knee
+    (11, 13),  # left_knee → left_ankle
+    (12, 14),  # right_knee → right_ankle
+    # ── Left foot ──
+    (13, 17),  # left_ankle → left_heel
+    (13, 15),  # left_ankle → left_big_toe
+    (17, 15),  # left_heel → left_big_toe
+    (15, 16),  # left_big_toe → left_small_toe
+    # ── Right foot ──
+    (14, 20),  # right_ankle → right_heel
+    (14, 18),  # right_ankle → right_big_toe
+    (20, 18),  # right_heel → right_big_toe
+    (18, 19),  # right_big_toe → right_small_toe
+    # ── Right hand (wrist = 41) ──
+    (41, 24), (24, 23), (23, 22), (22, 21),  # thumb chain
+    (41, 28), (28, 27), (27, 26), (26, 25),  # forefinger chain
+    (41, 32), (32, 31), (31, 30), (30, 29),  # middle finger chain
+    (41, 36), (36, 35), (35, 34), (34, 33),  # ring finger chain
+    (41, 40), (40, 39), (39, 38), (38, 37),  # pinky chain
+    (24, 28), (28, 32), (32, 36), (36, 40),  # palm (base joints)
+    # ── Left hand (wrist = 62) ──
+    (62, 45), (45, 44), (44, 43), (43, 42),  # thumb chain
+    (62, 49), (49, 48), (48, 47), (47, 46),  # forefinger chain
+    (62, 53), (53, 52), (52, 51), (51, 50),  # middle finger chain
+    (62, 57), (57, 56), (56, 55), (55, 54),  # ring finger chain
+    (62, 61), (61, 60), (60, 59), (59, 58),  # pinky chain
+    (45, 49), (49, 53), (53, 57), (57, 61),  # palm (base joints)
+]
+
+# Indices 0–69 are body/feet/hands/additional.  70–307 are face detail.
+GOLIATH_FACE_START = 70
+
 # Mapping from Goliath indices to COCO 17 indices.
 # NOTE: Goliath ordering differs from COCO — wrists are at 41/62, not 9/10.
 GOLIATH_TO_COCO = {
