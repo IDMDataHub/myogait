@@ -1363,7 +1363,11 @@ def plot_session_comparison(
             ax = axes[row, col]
             for sess, color in zip([session_a, session_b], session_colors):
                 label = sess.get("label", "Session")
-                summary = sess["cycles"].get("summary", {}).get(side)
+                cycles_obj = sess.get("cycles", {})
+                # Accept both segment_cycles() output dict and raw cycles list
+                if isinstance(cycles_obj, list):
+                    continue  # no summary available from raw list
+                summary = cycles_obj.get("summary", {}).get(side)
                 if summary is None:
                     continue
                 mean = summary.get(f"{joint}_mean")
