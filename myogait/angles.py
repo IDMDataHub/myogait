@@ -363,12 +363,15 @@ def _method_sagittal_vertical_axis(frame: dict, model: str) -> dict:
         else:
             result[f"knee_{side}"] = np.nan
 
-        # Ankle: 90 - signed angle(shank, foot)
-        if knee is not None and ankle is not None and foot is not None:
-            shank = ankle - knee
-            foot_vec = foot - ankle
-            unsigned = _angle_between(shank, foot_vec)
-            cross = float(shank[0] * foot_vec[1] - shank[1] * foot_vec[0])
+        # Ankle: angle between shank and foot segment (heel→toe)
+        # Using the foot segment (heel→toe) instead of ankle→toe gives a
+        # stable angle because both landmarks sit on the same rigid body.
+        heel = _get_xy(f, f"{prefix}_HEEL")
+        if knee is not None and ankle is not None and heel is not None and foot is not None:
+            shank = knee - ankle  # points up along the leg
+            foot_seg = foot - heel  # points forward along the foot
+            unsigned = _angle_between(shank, foot_seg)
+            cross = float(shank[0] * foot_seg[1] - shank[1] * foot_seg[0])
             result[f"ankle_{side}"] = (90.0 - unsigned) if cross >= 0 else -(90.0 - unsigned)
         else:
             result[f"ankle_{side}"] = np.nan
@@ -432,12 +435,13 @@ def _method_sagittal_classic(frame: dict, model: str) -> dict:
         else:
             result[f"knee_{side}"] = np.nan
 
-        # Ankle: 90 - signed angle(shank, foot)
-        if knee is not None and ankle is not None and foot is not None:
-            shank = ankle - knee
-            foot_vec = foot - ankle
-            unsigned = _angle_between(shank, foot_vec)
-            cross = float(shank[0] * foot_vec[1] - shank[1] * foot_vec[0])
+        # Ankle: angle between shank and foot segment (heel→toe)
+        heel = _get_xy(f, f"{prefix}_HEEL")
+        if knee is not None and ankle is not None and heel is not None and foot is not None:
+            shank = knee - ankle
+            foot_seg = foot - heel
+            unsigned = _angle_between(shank, foot_seg)
+            cross = float(shank[0] * foot_seg[1] - shank[1] * foot_seg[0])
             result[f"ankle_{side}"] = (90.0 - unsigned) if cross >= 0 else -(90.0 - unsigned)
         else:
             result[f"ankle_{side}"] = np.nan
