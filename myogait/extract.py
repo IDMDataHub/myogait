@@ -22,7 +22,7 @@ import numpy as np
 from .constants import (
     MP_LANDMARK_NAMES, COCO_LANDMARK_NAMES, COCO_TO_MP, MP_NAME_TO_INDEX,
     GOLIATH_LANDMARK_NAMES, GOLIATH_SEG_CLASSES, WHOLEBODY_LANDMARK_NAMES,
-    GOLIATH_FOOT_INDICES, RTMW_FOOT_INDICES,
+    GOLIATH_FOOT_INDICES, RTMW_FOOT_INDICES, GOLIATH_TO_MP,
 )
 from .models import get_extractor
 from .schema import create_empty
@@ -66,6 +66,47 @@ def _coco_to_mediapipe(landmarks_17: np.ndarray) -> np.ndarray:
         if mp_name and mp_name in MP_NAME_TO_INDEX:
             mp_idx = MP_NAME_TO_INDEX[mp_name]
             mp33[mp_idx] = landmarks_17[coco_idx]
+    return mp33
+
+
+def _goliath_to_mediapipe(landmarks_308: np.ndarray) -> np.ndarray:
+    """Convert 308 Goliath landmarks directly to 33 MediaPipe format.
+
+    Maps 31 landmarks via direct correspondence (GOLIATH_TO_MP) and
+    computes LEFT/RIGHT_FOOT_INDEX as midpoint of big_toe and small_toe.
+
+    Args:
+        landmarks_308: Array of shape (308, 3) with [x, y, confidence].
+
+    Returns:
+        Array of shape (33, 3) in MediaPipe order.
+    """
+    mp33 = np.full((33, 3), np.nan)
+    for goliath_idx, mp_name in GOLIATH_TO_MP.items():
+        if goliath_idx >= len(landmarks_308):
+            continue
+        mp_idx = MP_NAME_TO_INDEX[mp_name]
+        mp33[mp_idx] = landmarks_308[goliath_idx]
+
+    # FOOT_INDEX = midpoint(big_toe, small_toe) — more robust than
+    # mapping a single toe landmark.
+    for big_idx, small_idx, mp_name in [
+        (15, 16, "LEFT_FOOT_INDEX"),
+        (18, 19, "RIGHT_FOOT_INDEX"),
+    ]:
+        if big_idx >= len(landmarks_308) or small_idx >= len(landmarks_308):
+            continue
+        big = landmarks_308[big_idx]
+        small = landmarks_308[small_idx]
+        if np.isnan(big[0]) or np.isnan(small[0]):
+            continue
+        mp_idx = MP_NAME_TO_INDEX[mp_name]
+        mp33[mp_idx] = [
+            (big[0] + small[0]) / 2.0,
+            (big[1] + small[1]) / 2.0,
+            min(big[2], small[2]),
+        ]
+
     return mp33
 
 
@@ -406,12 +447,21 @@ def extract(
             if lm is not None:
                 detected_count += 1
                 if is_coco:
-                    lm = lm.copy()
-                    # Normalize pixel coords to [0,1] if needed
-                    if lm[:, 0].max() > 1.5:  # likely pixel coordinates
-                        lm[:, 0] /= width
-                        lm[:, 1] /= height
-                    lm = _coco_to_mediapipe(lm)
+                    # Prefer direct Goliath 308 → MediaPipe 33 mapping
+                    # (fills all 33 landmarks including eyes, mouth, hands, feet)
+                    if auxiliary is not None and auxiliary.shape[0] == 308:
+                        aux_copy = auxiliary.copy()
+                        if aux_copy[:, 0].max() > 1.5:
+                            aux_copy[:, 0] /= width
+                            aux_copy[:, 1] /= height
+                        lm = _goliath_to_mediapipe(aux_copy)
+                    else:
+                        lm = lm.copy()
+                        # Normalize pixel coords to [0,1] if needed
+                        if lm[:, 0].max() > 1.5:  # likely pixel coordinates
+                            lm[:, 0] /= width
+                            lm[:, 1] /= height
+                        lm = _coco_to_mediapipe(lm)
 
             raw_landmarks.append(lm)
             auxiliary_list.append(auxiliary)

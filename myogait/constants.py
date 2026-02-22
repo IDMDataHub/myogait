@@ -397,6 +397,49 @@ GOLIATH_SKELETON_CONNECTIONS = [
 # Indices 0–69 are body/feet/hands/additional.  70–307 are face detail.
 GOLIATH_FACE_START = 70
 
+# Direct mapping from Goliath 308 indices to MediaPipe 33 landmark names.
+# Bypasses the lossy COCO 17 intermediate step, filling all 33 landmarks.
+# FOOT_INDEX is not mapped here — computed as midpoint(big_toe, small_toe).
+GOLIATH_TO_MP = {
+    # Body core (same as COCO, but maps directly to MP names)
+    0: "NOSE",
+    1: "LEFT_EYE",
+    2: "RIGHT_EYE",
+    3: "LEFT_EAR",
+    4: "RIGHT_EAR",
+    5: "LEFT_SHOULDER",
+    6: "RIGHT_SHOULDER",
+    7: "LEFT_ELBOW",
+    8: "RIGHT_ELBOW",
+    9: "LEFT_HIP",
+    10: "RIGHT_HIP",
+    11: "LEFT_KNEE",
+    12: "RIGHT_KNEE",
+    13: "LEFT_ANKLE",
+    14: "RIGHT_ANKLE",
+    # Feet
+    17: "LEFT_HEEL",
+    20: "RIGHT_HEEL",
+    # Wrists
+    41: "RIGHT_WRIST",
+    62: "LEFT_WRIST",
+    # Hand fingertips (tip = "4" suffix in Goliath)
+    21: "RIGHT_THUMB",          # right_thumb4
+    25: "RIGHT_INDEX",          # right_forefinger4
+    37: "RIGHT_PINKY",          # right_pinky_finger4
+    42: "LEFT_THUMB",           # left_thumb4
+    46: "LEFT_INDEX",           # left_forefinger4
+    58: "LEFT_PINKY",           # left_pinky_finger4
+    # Eye inner/outer corners (from lash line endpoints)
+    96: "LEFT_EYE_INNER",       # l_inner_end_of_upper_lash_line
+    97: "LEFT_EYE_OUTER",       # l_outer_end_of_upper_lash_line
+    120: "RIGHT_EYE_INNER",     # r_inner_end_of_upper_lash_line
+    121: "RIGHT_EYE_OUTER",     # r_outer_end_of_upper_lash_line
+    # Mouth corners
+    189: "MOUTH_LEFT",          # l_outer_corner_of_mouth
+    188: "MOUTH_RIGHT",         # r_outer_corner_of_mouth
+}
+
 # Mapping from Goliath indices to COCO 17 indices.
 # NOTE: Goliath ordering differs from COCO — wrists are at 41/62, not 9/10.
 GOLIATH_TO_COCO = {
