@@ -114,9 +114,21 @@ def _detect_zeni(
     # Pelvis midpoint
     pelvis_x = (left_hip_x + right_hip_x) / 2
 
+    # Detect walking direction from pelvis displacement
+    valid_pelvis = pelvis_x[~np.isnan(pelvis_x)]
+    if len(valid_pelvis) >= 2:
+        walking_right = valid_pelvis[-1] > valid_pelvis[0]
+    else:
+        walking_right = True  # default left-to-right
+
     # Relative ankle position
     left_ankle_rel = left_ankle_x - pelvis_x
     right_ankle_rel = right_ankle_x - pelvis_x
+
+    # Flip signal for right-to-left walking so peaks always = anterior
+    if not walking_right:
+        left_ankle_rel = -left_ankle_rel
+        right_ankle_rel = -right_ankle_rel
 
     # Low-pass filter
     left_ankle_rel = _lowpass_filter(left_ankle_rel, cutoff_freq, fps)
@@ -191,8 +203,15 @@ def _detect_crossing(
     left_ankle_x = _lowpass_filter(left_ankle_x, cutoff_freq, fps)
     right_ankle_x = _lowpass_filter(right_ankle_x, cutoff_freq, fps)
 
+    # Detect walking direction from ankle displacement
+    valid_la = left_ankle_x[~np.isnan(left_ankle_x)]
+    walking_right = len(valid_la) >= 2 and valid_la[-1] > valid_la[0]
+
     # Compute crossing signal (difference between left and right knee x)
+    # Flip for right-to-left walking so rising crossing always = left forward
     knee_diff = left_knee_x - right_knee_x
+    if not walking_right:
+        knee_diff = -knee_diff
 
     # Find zero-crossings
     crossings = []
@@ -331,6 +350,10 @@ def _detect_oconnor(
 
     pelvis_x = (left_hip_x + right_hip_x) / 2
 
+    # Detect walking direction
+    valid_pelvis = pelvis_x[~np.isnan(pelvis_x)]
+    walking_right = len(valid_pelvis) >= 2 and valid_pelvis[-1] > valid_pelvis[0]
+
     results = {}
     for side, heel_name in [("left", "LEFT_HEEL"), ("right", "RIGHT_HEEL")]:
         heel_x = _fill_nan(_extract_landmark_series(frames, heel_name, "x"))
@@ -347,6 +370,9 @@ def _detect_oconnor(
 
         # Relative heel position to pelvis
         heel_rel = heel_x - pelvis_x
+        # Flip for right-to-left so positive velocity = forward
+        if not walking_right:
+            heel_rel = -heel_rel
         heel_rel = _lowpass_filter(heel_rel, cutoff_freq, fps)
 
         # Velocity of relative heel position

@@ -1,5 +1,6 @@
 """Tests for enhanced event detection functions."""
 
+import numpy as np
 from conftest import make_walking_data
 
 
@@ -126,3 +127,48 @@ def test_detect_events_backward_compat():
     assert len(data1["events"]["right_hs"]) == len(data2["events"]["right_hs"])
     for i in range(len(data1["events"]["left_hs"])):
         assert data1["events"]["left_hs"][i]["frame"] == data2["events"]["left_hs"][i]["frame"]
+
+
+def _make_walking_data_rtl(n_frames=300, fps=30.0):
+    """Walking data simulating right-to-left movement (hip x decreasing)."""
+    data = make_walking_data(n_frames, fps)
+    for i, frame in enumerate(data["frames"]):
+        # Shift hip x from 0.8 to 0.2 (right-to-left)
+        drift = 0.8 - 0.6 * (i / n_frames)
+        for name, lm in frame["landmarks"].items():
+            lm["x"] = lm["x"] - 0.50 + drift
+    return data
+
+
+def test_zeni_rtl_detects_events():
+    """Zeni method should detect events even when walking right-to-left."""
+    from myogait.events import detect_events
+    data = _make_walking_data_rtl(300, fps=30.0)
+    detect_events(data, method="zeni")
+    assert len(data["events"]["left_hs"]) > 0
+    assert len(data["events"]["right_hs"]) > 0
+    assert len(data["events"]["left_to"]) > 0
+    assert len(data["events"]["right_to"]) > 0
+
+
+def test_zeni_rtl_same_count_as_ltr():
+    """RTL and LTR walking should detect similar event counts."""
+    from myogait.events import detect_events
+    import copy
+    data_ltr = make_walking_data(300, fps=30.0)
+    data_rtl = _make_walking_data_rtl(300, fps=30.0)
+    detect_events(data_ltr, method="zeni")
+    detect_events(data_rtl, method="zeni")
+    ltr_hs = len(data_ltr["events"]["left_hs"])
+    rtl_hs = len(data_rtl["events"]["left_hs"])
+    # Should be within ±2 events of each other
+    assert abs(ltr_hs - rtl_hs) <= 2, f"LTR={ltr_hs} vs RTL={rtl_hs}"
+
+
+def test_oconnor_rtl_detects_events():
+    """O'Connor method should detect events for right-to-left walking."""
+    from myogait.events import detect_events
+    data = _make_walking_data_rtl(300, fps=30.0)
+    detect_events(data, method="oconnor")
+    assert len(data["events"]["left_hs"]) > 0
+    assert len(data["events"]["right_hs"]) > 0
