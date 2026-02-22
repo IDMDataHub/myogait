@@ -267,6 +267,8 @@ def _detect_walking_direction(data: dict) -> str:
 
     xs = []
     for frame in frames:
+        if frame.get("confidence", 1.0) < 0.1:
+            continue
         lm = frame.get("landmarks", {})
         lh = lm.get("LEFT_HIP")
         rh = lm.get("RIGHT_HIP")
@@ -467,6 +469,7 @@ def compute_angles(
     calibrate: bool = True,
     calibration_frames: int = 30,
     calibration_joints: Optional[list] = None,
+    min_confidence: float = 0.0,
 ) -> dict:
     """Compute joint angles and add to pivot JSON.
 
@@ -486,6 +489,11 @@ def compute_angles(
         Number of frames for neutral calibration (default 30).
     calibration_joints : list of str, optional
         Joints to calibrate (default: ``["ankle_L", "ankle_R"]``).
+    min_confidence : float, optional
+        Skip angle computation on frames with confidence below this
+        threshold (default 0.0, i.e. compute on all frames).  Skipped
+        frames still appear in the output with all joint values set to
+        ``None`` so that frame indices stay aligned.
 
     Returns
     -------
@@ -514,8 +522,27 @@ def compute_angles(
     walking_direction = _detect_walking_direction(data)
     logger.info("Detected walking direction: %s", walking_direction)
 
-    # Compute per-frame angles
-    angle_frames = [method_func(frame, model) for frame in data["frames"]]
+    # Compute per-frame angles (skip low-confidence frames)
+    joint_keys = ["hip_L", "hip_R", "knee_L", "knee_R", "ankle_L", "ankle_R"]
+    angle_frames = []
+    n_skipped = 0
+    for frame in data["frames"]:
+        conf = frame.get("confidence", 0.0)
+        if conf < min_confidence:
+            # Placeholder with None values so frame indices stay aligned
+            af = {"frame_idx": frame["frame_idx"]}
+            for k in joint_keys:
+                af[k] = np.nan
+            af["trunk_angle"] = np.nan
+            af["pelvis_tilt"] = np.nan
+            af["landmark_positions"] = {}
+            angle_frames.append(af)
+            n_skipped += 1
+        else:
+            angle_frames.append(method_func(frame, model))
+    if n_skipped:
+        logger.info("Skipped %d/%d low-confidence frames (< %.2f)",
+                     n_skipped, len(data["frames"]), min_confidence)
 
     # If the subject walks right-to-left the sagittal_vertical_axis
     # hip sign is mirrored.  Invert so that flexion stays positive.

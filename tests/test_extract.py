@@ -1222,3 +1222,40 @@ def test_swap_auxiliary_lr():
     # Midline landmarks (e.g. nose) should be unchanged
     nose_i = GOLIATH_LANDMARK_NAMES.index("nose")
     np.testing.assert_array_equal(swapped[nose_i], aux[nose_i])
+
+
+def test_label_inversion_non_contiguous():
+    """Majority-vote detects non-contiguous inversions independently."""
+    from myogait.extract import _correct_label_inversions
+    from myogait.constants import MP_NAME_TO_INDEX
+
+    lh = MP_NAME_TO_INDEX["LEFT_HIP"]
+    rh = MP_NAME_TO_INDEX["RIGHT_HIP"]
+    lk = MP_NAME_TO_INDEX["LEFT_KNEE"]
+    rk = MP_NAME_TO_INDEX["RIGHT_KNEE"]
+
+    # 20 frames: normal ordering
+    frames = []
+    for _ in range(20):
+        lm = np.zeros((33, 3), dtype=np.float32)
+        lm[lh] = [0.3, 0.5, 0.9]
+        lm[rh] = [0.7, 0.5, 0.9]
+        lm[lk] = [0.3, 0.7, 0.9]
+        lm[rk] = [0.7, 0.7, 0.9]
+        frames.append(lm)
+
+    # Invert frames 3, 10, 15 (non-contiguous)
+    for i in [3, 10, 15]:
+        frames[i][lh], frames[i][rh] = frames[i][rh].copy(), frames[i][lh].copy()
+        frames[i][lk], frames[i][rk] = frames[i][rk].copy(), frames[i][lk].copy()
+
+    result, mask = _correct_label_inversions(frames)
+    # Only the 3 inverted frames should be marked
+    assert sum(mask) == 3
+    assert mask[3] is True
+    assert mask[10] is True
+    assert mask[15] is True
+    # Non-inverted frames should not be marked
+    assert mask[0] is False
+    assert mask[4] is False
+    assert mask[11] is False

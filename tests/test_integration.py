@@ -330,6 +330,23 @@ class TestEdgeCases:
             assert af["hip_L"] is None
             assert af["knee_L"] is None
 
+    def test_min_confidence_skips_low_frames(self):
+        """min_confidence skips angle computation on low-confidence frames."""
+        from myogait import compute_angles
+        data = _make_standing_data(10)
+        # Set frames 3, 7 to low confidence
+        data["frames"][3]["confidence"] = 0.0
+        data["frames"][7]["confidence"] = 0.05
+        compute_angles(data, correction_factor=1.0, calibrate=False, min_confidence=0.1)
+        afs = data["angles"]["frames"]
+        assert len(afs) == 10  # all frames present
+        # Skipped frames have None angles
+        assert afs[3]["hip_L"] is None
+        assert afs[7]["hip_L"] is None
+        # Normal frames have computed angles
+        assert afs[0]["hip_L"] is not None
+        assert afs[5]["hip_L"] is not None
+
     def test_missing_landmark_keys(self):
         """Frames missing some landmark keys should still compute available angles."""
         from myogait import compute_angles

@@ -802,7 +802,9 @@ def detect_multi_person(data: dict) -> dict:
 def _correct_label_inversions(landmarks_list: list) -> tuple:
     """Detect and correct left/right label swaps across frames.
 
-    Uses hip and knee x-coordinate ordering to detect inversions.
+    Uses majority-vote on hip and knee x-coordinate ordering: the
+    dominant ordering across all frames is assumed correct, and frames
+    where *both* hips and knees disagree with the majority are swapped.
 
     Returns
     -------
@@ -816,33 +818,48 @@ def _correct_label_inversions(landmarks_list: list) -> tuple:
     lk = MP_NAME_TO_INDEX.get("LEFT_KNEE", 25)
     rk = MP_NAME_TO_INDEX.get("RIGHT_KNEE", 26)
 
-    inversions = []
-    for i in range(1, len(landmarks_list)):
-        prev = landmarks_list[i - 1]
-        curr = landmarks_list[i]
-        if prev is None or curr is None:
+    # Step 1: Classify each frame's hip/knee ordering
+    hip_orders = []   # True = left_hip.x < right_hip.x, None = unknown
+    knee_orders = []
+    for lm in landmarks_list:
+        if lm is None:
+            hip_orders.append(None)
+            knee_orders.append(None)
             continue
+        if np.any(np.isnan(lm[[lh, rh], 0])):
+            hip_orders.append(None)
+        else:
+            hip_orders.append(bool(lm[lh, 0] < lm[rh, 0]))
+        if np.any(np.isnan(lm[[lk, rk], 0])):
+            knee_orders.append(None)
+        else:
+            knee_orders.append(bool(lm[lk, 0] < lm[rk, 0]))
 
-        if np.any(np.isnan(prev[[lh, rh], 0])) or np.any(np.isnan(curr[[lh, rh], 0])):
-            continue
-
-        prev_hip_order = prev[lh, 0] < prev[rh, 0]
-        curr_hip_order = curr[lh, 0] < curr[rh, 0]
-
-        if prev_hip_order != curr_hip_order:
-            # Confirm with knees
-            if np.any(np.isnan(prev[[lk, rk], 0])) or np.any(np.isnan(curr[[lk, rk], 0])):
-                continue
-            prev_knee_order = prev[lk, 0] < prev[rk, 0]
-            curr_knee_order = curr[lk, 0] < curr[rk, 0]
-            if prev_knee_order != curr_knee_order:
-                inversions.append(i)
-
+    # Step 2: Determine dominant ordering via majority vote
+    valid_hip = [o for o in hip_orders if o is not None]
+    valid_knee = [o for o in knee_orders if o is not None]
     inversion_mask = [False] * len(landmarks_list)
-    if not inversions:
+
+    if not valid_hip or not valid_knee:
         return landmarks_list, inversion_mask
 
-    logger.info(f"Detected {len(inversions)} label inversions, correcting...")
+    dominant_hip = sum(valid_hip) > len(valid_hip) / 2
+    dominant_knee = sum(valid_knee) > len(valid_knee) / 2
+
+    # Step 3: Mark frames where BOTH hip and knee disagree with dominant
+    n_inv = 0
+    for i in range(len(landmarks_list)):
+        ho = hip_orders[i]
+        ko = knee_orders[i]
+        if ho is not None and ko is not None:
+            if ho != dominant_hip and ko != dominant_knee:
+                inversion_mask[i] = True
+                n_inv += 1
+
+    if n_inv == 0:
+        return landmarks_list, inversion_mask
+
+    logger.info(f"Detected {n_inv} label inversions, correcting...")
 
     # Find left/right index pairs
     pairs = []
@@ -853,14 +870,8 @@ def _correct_label_inversions(landmarks_list: list) -> tuple:
                 pairs.append((MP_NAME_TO_INDEX[name], MP_NAME_TO_INDEX[right_name]))
 
     result = [lm.copy() if lm is not None else None for lm in landmarks_list]
-    inversions_set = set(inversions)
-    in_inversion = False
-
-    for i in range(len(result)):
-        if i in inversions_set:
-            in_inversion = not in_inversion
-        inversion_mask[i] = in_inversion
-        if in_inversion and result[i] is not None:
+    for i, is_inv in enumerate(inversion_mask):
+        if is_inv and result[i] is not None:
             for li, ri in pairs:
                 result[i][li], result[i][ri] = result[i][ri].copy(), result[i][li].copy()
 
