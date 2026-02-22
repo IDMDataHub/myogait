@@ -164,10 +164,10 @@ class TestGPS2DNoteMentions2D:
 # ── GDI-2D tests ─────────────────────────────────────────────────────
 
 class TestGDI2DStructure:
-    """Test gait_deviation_index_2d return structure."""
+    """Test sagittal_deviation_index return structure."""
 
     def test_has_required_keys(self, pipeline_cycles):
-        result = gait_deviation_index_2d(pipeline_cycles)
+        result = sagittal_deviation_index(pipeline_cycles)
         for key in ("gdi_2d_left", "gdi_2d_right", "gdi_2d_overall", "note"):
             assert key in result, f"Missing key: {key}"
 
@@ -176,7 +176,7 @@ class TestGDI2DNormalAround100:
     """Normal gait should produce GDI-2D around 100."""
 
     def test_normative_gdi_near_100(self, normative_cycles):
-        result = gait_deviation_index_2d(normative_cycles)
+        result = sagittal_deviation_index(normative_cycles)
         for key in ("gdi_2d_left", "gdi_2d_right", "gdi_2d_overall"):
             val = result[key]
             if val is not None:
@@ -192,7 +192,7 @@ class TestGDI2DPathologicalBelow100:
     """Pathological gait (large deviations) should score below 100."""
 
     def test_pathological_gdi_below_100(self, pathological_cycles):
-        result = gait_deviation_index_2d(pathological_cycles)
+        result = sagittal_deviation_index(pathological_cycles)
         for key in ("gdi_2d_left", "gdi_2d_right", "gdi_2d_overall"):
             val = result[key]
             if val is not None:
@@ -205,7 +205,7 @@ class TestGDI2DNoteMentions2D:
     """GDI-2D note should mention '2D'."""
 
     def test_note_contains_2d(self, pipeline_cycles):
-        result = gait_deviation_index_2d(pipeline_cycles)
+        result = sagittal_deviation_index(pipeline_cycles)
         assert "2D" in result["note"] or "2d" in result["note"].lower()
 
 
@@ -256,7 +256,7 @@ class TestScoresWithRealPipeline:
 
     def test_full_pipeline_gdi(self):
         _data, cycles, _stats = run_full_pipeline()
-        result = gait_deviation_index_2d(cycles)
+        result = sagittal_deviation_index(cycles)
         # Overall should be computed if any side has data
         assert "gdi_2d_overall" in result
 
@@ -282,7 +282,7 @@ class TestScoresMissingSummary:
 
     def test_gdi_no_summary_raises(self):
         with pytest.raises(ValueError, match="summary"):
-            gait_deviation_index_2d({"cycles": []})
+            sagittal_deviation_index({"cycles": []})
 
     def test_map_no_summary_raises(self):
         with pytest.raises(ValueError, match="summary"):

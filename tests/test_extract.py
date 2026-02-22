@@ -1312,6 +1312,9 @@ def test_label_inversion_non_contiguous():
 
 def test_extract_trims_leading_trailing_no_detection():
     """Frames before first and after last detection are trimmed."""
+    import sys
+    import myogait.extract  # noqa: F811 – ensure the module is in sys.modules
+    _extract_mod = sys.modules["myogait.extract"]
     from myogait.extract import extract
     from unittest.mock import patch, MagicMock
     import tempfile, os, cv2
@@ -1343,7 +1346,7 @@ def test_extract_trims_leading_trailing_no_detection():
         mock_ext.return_value.process_frame = mock_process
         mock_ext.return_value.is_coco = True
 
-        with patch("myogait.extract.get_extractor", return_value=mock_ext.return_value):
+        with patch.object(_extract_mod, "get_extractor", return_value=mock_ext.return_value):
             data = extract(tmp_path, model="mediapipe")
 
         frames = data["frames"]

@@ -104,6 +104,7 @@ def test_wavelet_handles_nan():
 
 def test_wavelet_custom_level():
     """Explicit decomposition level parameter should work."""
+    import warnings
     np.random.seed(55)
     t = np.linspace(0, 1, 200)
     noisy = np.sin(2 * np.pi * 2 * t) * 30 + np.random.randn(200) * 5
@@ -112,7 +113,9 @@ def test_wavelet_custom_level():
 
     # Low level = less denoising; high level = more aggressive
     result_low = filter_wavelet(df, level=2)
-    result_high = filter_wavelet(df, level=5)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        result_high = filter_wavelet(df, level=5)
 
     assert result_low.shape == df.shape
     assert result_high.shape == df.shape
