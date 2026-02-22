@@ -497,14 +497,43 @@ def extract(
                             auxiliary_list[i], aux_names,
                         )
 
-    # Build frames — trim leading/trailing frames with no person detected
-    # but keep everything in between (continuous timeline).
+    # Build frames — trim leading/trailing frames where legs are not
+    # fully visible, but keep everything in between (continuous timeline).
     has_auxiliary = any(a is not None for a in auxiliary_list)
 
-    # Find first and last frames where a person was detected
-    first_det = next((i for i, lm in enumerate(raw_landmarks) if lm is not None), 0)
-    last_det = next((i for i, lm in enumerate(reversed(raw_landmarks)) if lm is not None), 0)
-    last_det = len(raw_landmarks) - 1 - last_det
+    # A frame has "visible legs" when hip, knee and ankle landmarks are
+    # detected, not NaN, and not stuck at the image edge.
+    _LEG_INDICES = [
+        MP_NAME_TO_INDEX.get("LEFT_HIP", 23),
+        MP_NAME_TO_INDEX.get("RIGHT_HIP", 24),
+        MP_NAME_TO_INDEX.get("LEFT_KNEE", 25),
+        MP_NAME_TO_INDEX.get("RIGHT_KNEE", 26),
+        MP_NAME_TO_INDEX.get("LEFT_ANKLE", 27),
+        MP_NAME_TO_INDEX.get("RIGHT_ANKLE", 28),
+    ]
+    _EDGE = 0.02  # 2% margin from image border
+
+    _MIN_LEG_VIS = 0.3  # minimum visibility for each leg landmark
+
+    def _legs_visible(lm):
+        """Return True if all leg landmarks are detected with good confidence
+        and not stuck at the image edge."""
+        if lm is None:
+            return False
+        for idx in _LEG_INDICES:
+            x, y, vis = lm[idx, 0], lm[idx, 1], lm[idx, 2]
+            if np.isnan(x) or np.isnan(y):
+                return False
+            if x <= _EDGE or x >= 1.0 - _EDGE or y <= _EDGE or y >= 1.0 - _EDGE:
+                return False
+            if np.isnan(vis) or vis < _MIN_LEG_VIS:
+                return False
+        return True
+
+    # Find first and last frames where legs are fully visible
+    first_det = next((i for i in range(len(raw_landmarks)) if _legs_visible(raw_landmarks[i])), 0)
+    last_det = next((i for i in range(len(raw_landmarks) - 1, -1, -1) if _legs_visible(raw_landmarks[i])),
+                    len(raw_landmarks) - 1)
     if first_det > 0 or last_det < len(raw_landmarks) - 1:
         logger.info("Trimming frames: keeping %d-%d (dropped %d leading, %d trailing)",
                      first_det, last_det,
