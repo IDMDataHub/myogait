@@ -135,13 +135,16 @@ class SapiensDepthEstimator:
         import torch
 
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-        tensor = _preprocess(frame_bgr).to(self._device)
+        tensor, pad_info = _preprocess(frame_bgr)
+        tensor = tensor.to(self._device)
 
         with torch.no_grad():
             out = self._model(tensor)
 
-        # out shape: (1, 1, 1024, 768)
+        # out shape: (1, 1, 1024, 768) — crop to content (remove letterbox)
         depth = out[0, 0].cpu().numpy()
+        pl, pt, cw, ch = pad_info
+        depth = depth[pt:pt + ch, pl:pl + cw]
 
         # Normalise: closer = higher (invert raw values)
         d_min, d_max = depth.min(), depth.max()

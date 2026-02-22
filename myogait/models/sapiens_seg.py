@@ -129,13 +129,16 @@ class SapiensSegEstimator:
         import torch
 
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-        tensor = _preprocess(frame_bgr).to(self._device)
+        tensor, pad_info = _preprocess(frame_bgr)
+        tensor = tensor.to(self._device)
 
         with torch.no_grad():
             out = self._model(tensor)
 
-        # out shape: (1, 28, 1024, 768) — class logits
+        # out shape: (1, 28, 1024, 768) — crop to content (remove letterbox)
         seg_mask = out[0].argmax(dim=0).cpu().numpy().astype(np.uint8)
+        pl, pt, cw, ch = pad_info
+        seg_mask = seg_mask[pt:pt + ch, pl:pl + cw]
         return seg_mask
 
     def get_body_mask(self, seg_mask: np.ndarray) -> np.ndarray:

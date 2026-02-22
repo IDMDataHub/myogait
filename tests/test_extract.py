@@ -961,11 +961,13 @@ def test_goliath_to_coco_mapping():
 
 
 def test_heatmaps_to_all():
-    from myogait.models.sapiens import _heatmaps_to_all
+    from myogait.models.sapiens import _heatmaps_to_all, _INPUT_W, _INPUT_H
     # Synthetic heatmaps: 308 channels, 8x6 resolution
     rng = np.random.RandomState(42)
     heatmaps = rng.rand(308, 8, 6).astype(np.float32)
-    result = _heatmaps_to_all(heatmaps)
+    # No padding (content fills the full canvas)
+    pad_info = (0, 0, _INPUT_W, _INPUT_H)
+    result = _heatmaps_to_all(heatmaps, pad_info)
     assert result.shape == (308, 3)
     # x,y in [0,1], conf in [0,1]
     assert np.all(result[:, 0] >= 0) and np.all(result[:, 0] <= 1)
@@ -974,10 +976,11 @@ def test_heatmaps_to_all():
 
 
 def test_heatmaps_to_coco():
-    from myogait.models.sapiens import _heatmaps_to_coco
+    from myogait.models.sapiens import _heatmaps_to_coco, _INPUT_W, _INPUT_H
     rng = np.random.RandomState(42)
     heatmaps = rng.rand(308, 8, 6).astype(np.float32)
-    result = _heatmaps_to_coco(heatmaps)
+    pad_info = (0, 0, _INPUT_W, _INPUT_H)
+    result = _heatmaps_to_coco(heatmaps, pad_info)
     assert result.shape == (17, 3)
     # All 17 COCO keypoints should be populated
     assert not np.any(np.isnan(result))

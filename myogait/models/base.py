@@ -10,6 +10,45 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def letterbox_resize(img, target_w, target_h):
+    """Resize image preserving aspect ratio, pad remaining area with black.
+
+    Parameters
+    ----------
+    img : np.ndarray
+        Input image (H, W, 3), any dtype.
+    target_w, target_h : int
+        Desired output dimensions.
+
+    Returns
+    -------
+    canvas : np.ndarray
+        Resized+padded image at (target_h, target_w, 3).
+    pad_left : int
+        Horizontal padding (left side) in pixels.
+    pad_top : int
+        Vertical padding (top side) in pixels.
+    content_w : int
+        Width of the actual image content within the canvas.
+    content_h : int
+        Height of the actual image content within the canvas.
+    """
+    import cv2
+
+    h, w = img.shape[:2]
+    scale = min(target_w / w, target_h / h)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+    canvas = np.zeros((target_h, target_w, 3), dtype=img.dtype)
+    pad_left = (target_w - new_w) // 2
+    pad_top = (target_h - new_h) // 2
+    canvas[pad_top:pad_top + new_h, pad_left:pad_left + new_w] = resized
+
+    return canvas, pad_left, pad_top, new_w, new_h
+
+
 def ensure_xpu_torch():
     """On Windows, auto-upgrade CPU-only PyTorch to the XPU build.
 

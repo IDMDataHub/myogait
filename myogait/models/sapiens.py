@@ -34,7 +34,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from .base import BasePoseExtractor, ensure_xpu_torch
+from .base import BasePoseExtractor, ensure_xpu_torch, letterbox_resize
 from ..constants import COCO_LANDMARK_NAMES, GOLIATH_TO_COCO
 
 logger = logging.getLogger(__name__)
@@ -181,18 +181,35 @@ def _get_device():
 
 
 def _preprocess(frame_bgr: np.ndarray):
-    """Resize, normalize, and convert to tensor."""
+    """Letterbox-resize, normalize, and convert to tensor.
+
+    Returns
+    -------
+    tensor : torch.Tensor
+        (1, 3, H, W) normalized input tensor.
+    pad_info : tuple
+        (pad_left, pad_top, content_w, content_h) describing where the
+        actual image content sits inside the letterboxed canvas.
+    """
     import torch
 
-    img = cv2.resize(frame_bgr, (_INPUT_W, _INPUT_H), interpolation=cv2.INTER_LINEAR)
+    img, pad_left, pad_top, content_w, content_h = letterbox_resize(
+        frame_bgr, _INPUT_W, _INPUT_H,
+    )
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     img = (img - _MEAN) / _STD
     tensor = torch.from_numpy(img.transpose(2, 0, 1)).unsqueeze(0)
-    return tensor
+    return tensor, (pad_left, pad_top, content_w, content_h)
 
 
-def _heatmaps_to_coco(heatmaps: np.ndarray) -> np.ndarray:
-    """Convert selected Goliath heatmaps to (17, 3) COCO keypoints."""
+def _heatmaps_to_coco(heatmaps: np.ndarray, pad_info: tuple) -> np.ndarray:
+    """Convert selected Goliath heatmaps to (17, 3) COCO keypoints.
+
+    Coordinates are returned normalised to the *content* region
+    (i.e. excluding letterbox padding), so they map directly to [0, 1]
+    of the original input image.
+    """
+    pad_left, pad_top, content_w, content_h = pad_info
     n_kp, hm_h, hm_w = heatmaps.shape
     landmarks = np.full((17, 3), np.nan)
 
@@ -203,13 +220,22 @@ def _heatmaps_to_coco(heatmaps: np.ndarray) -> np.ndarray:
         flat_idx = np.argmax(hm)
         y_hm, x_hm = np.unravel_index(flat_idx, (hm_h, hm_w))
         conf = float(hm[y_hm, x_hm])
-        landmarks[coco_idx] = [x_hm / hm_w, y_hm / hm_h, max(0.0, min(1.0, conf))]
+        # heatmap pixel → model-input pixel → content-normalised
+        x_input = x_hm / hm_w * _INPUT_W
+        y_input = y_hm / hm_h * _INPUT_H
+        x_norm = max(0.0, min(1.0, (x_input - pad_left) / content_w))
+        y_norm = max(0.0, min(1.0, (y_input - pad_top) / content_h))
+        landmarks[coco_idx] = [x_norm, y_norm, max(0.0, min(1.0, conf))]
 
     return landmarks
 
 
-def _heatmaps_to_all(heatmaps: np.ndarray) -> np.ndarray:
-    """Convert all (N, hm_h, hm_w) heatmaps to (N, 3) keypoints."""
+def _heatmaps_to_all(heatmaps: np.ndarray, pad_info: tuple) -> np.ndarray:
+    """Convert all (N, hm_h, hm_w) heatmaps to (N, 3) keypoints.
+
+    Same letterbox-aware remapping as :func:`_heatmaps_to_coco`.
+    """
+    pad_left, pad_top, content_w, content_h = pad_info
     n_kp, hm_h, hm_w = heatmaps.shape
     landmarks = np.full((n_kp, 3), np.nan)
 
@@ -218,7 +244,11 @@ def _heatmaps_to_all(heatmaps: np.ndarray) -> np.ndarray:
         flat_idx = np.argmax(hm)
         y_hm, x_hm = np.unravel_index(flat_idx, (hm_h, hm_w))
         conf = float(hm[y_hm, x_hm])
-        landmarks[i] = [x_hm / hm_w, y_hm / hm_h, max(0.0, min(1.0, conf))]
+        x_input = x_hm / hm_w * _INPUT_W
+        y_input = y_hm / hm_h * _INPUT_H
+        x_norm = max(0.0, min(1.0, (x_input - pad_left) / content_w))
+        y_norm = max(0.0, min(1.0, (y_input - pad_top) / content_h))
+        landmarks[i] = [x_norm, y_norm, max(0.0, min(1.0, conf))]
 
     return landmarks
 
@@ -373,18 +403,20 @@ def _make_sapiens_extractor(name, model_size, label):
             bbox = _person_detector.detect(frame_rgb)
             if bbox is not None:
                 crop, x_off, y_off, crop_w, crop_h = _crop_and_pad(frame_bgr, bbox)
-                tensor = _preprocess(crop).to(self._device)
+                tensor, pad_info = _preprocess(crop)
             else:
                 # No detector or no person found: fall back to full frame
-                tensor = _preprocess(frame_bgr).to(self._device)
+                tensor, pad_info = _preprocess(frame_bgr)
                 x_off, y_off, crop_w, crop_h = 0, 0, w_frame, h_frame
+
+            tensor = tensor.to(self._device)
 
             with torch.no_grad():
                 out = self._model(tensor)
 
             heatmaps = out[0].cpu().numpy()
-            coco_lm = _heatmaps_to_coco(heatmaps)
-            all_lm = _heatmaps_to_all(heatmaps)
+            coco_lm = _heatmaps_to_coco(heatmaps, pad_info)
+            all_lm = _heatmaps_to_all(heatmaps, pad_info)
 
             # Remap from crop-normalized to frame-normalized coordinates
             if bbox is not None:
