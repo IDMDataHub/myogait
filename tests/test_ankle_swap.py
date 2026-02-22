@@ -447,10 +447,10 @@ class TestConsistencyWithPipeline:
     """Verify that Method A gives the same result as the existing
     _method_sagittal_vertical_axis ankle computation."""
 
-    def test_method_b_matches_existing(self):
-        """Method B (Heel-Pivot) reproduces the pipeline ankle angle."""
+    def test_pipeline_formula_e(self):
+        """Pipeline uses Formula E (90 - arccos + cross product sign)."""
         knee = np.array([0.50, 0.55])
-        heel = np.array([0.48, 0.82])
+        ankle = np.array([0.50, 0.80])
         foot_index = np.array([0.56, 0.82])
 
         # Build a full frame and compute angles with the pipeline
@@ -479,12 +479,22 @@ class TestConsistencyWithPipeline:
             "extraction": {"model": "sapiens-quick"},
             "frames": [frame],
         }
-        data = compute_angles(data, calibrate=False, correction_factor=1.0)
+        data = compute_angles(
+            data, calibrate=False, correction_factor=1.0,
+            correct_ankle_sliding=False,
+        )
 
         pipeline_ankle_R = data["angles"]["frames"][0]["ankle_R"]
-        method_b_ankle_R = ankle_angle_method_B(knee, heel, foot_index)
 
-        # Pipeline now uses Heel-Pivot (Method B)
-        assert pipeline_ankle_R == pytest.approx(method_b_ankle_R, abs=0.01), (
-            f"Pipeline={pipeline_ankle_R}, Method B={method_b_ankle_R}"
+        # Manually compute Formula E: 90 - arccos + cross product sign
+        shank = knee - ankle
+        foot_seg = foot_index - ankle
+        denom = np.linalg.norm(shank) * np.linalg.norm(foot_seg)
+        cos_val = np.clip(np.dot(shank, foot_seg) / denom, -1, 1)
+        unsigned = np.degrees(np.arccos(cos_val))
+        cross = shank[0] * foot_seg[1] - shank[1] * foot_seg[0]
+        expected = (90.0 - unsigned) if cross >= 0 else -(90.0 - unsigned)
+
+        assert pipeline_ankle_R == pytest.approx(expected, abs=0.01), (
+            f"Pipeline={pipeline_ankle_R}, expected={expected}"
         )
