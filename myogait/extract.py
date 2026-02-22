@@ -497,10 +497,22 @@ def extract(
                             auxiliary_list[i], aux_names,
                         )
 
-    # Build frames
+    # Build frames — trim leading/trailing frames with no person detected
+    # but keep everything in between (continuous timeline).
     has_auxiliary = any(a is not None for a in auxiliary_list)
+
+    # Find first and last frames where a person was detected
+    first_det = next((i for i, lm in enumerate(raw_landmarks) if lm is not None), 0)
+    last_det = next((i for i, lm in enumerate(reversed(raw_landmarks)) if lm is not None), 0)
+    last_det = len(raw_landmarks) - 1 - last_det
+    if first_det > 0 or last_det < len(raw_landmarks) - 1:
+        logger.info("Trimming frames: keeping %d-%d (dropped %d leading, %d trailing)",
+                     first_det, last_det,
+                     first_det, len(raw_landmarks) - 1 - last_det)
+
     frames = []
-    for idx, lm in enumerate(raw_landmarks):
+    for idx in range(first_det, last_det + 1):
+        lm = raw_landmarks[idx]
         frame_data = {
             "frame_idx": idx,
             "time_s": round(idx / fps, 4) if fps > 0 else 0.0,
@@ -508,14 +520,14 @@ def extract(
             "confidence": 0.0,
         }
         if lm is not None:
+            valid_vis = lm[:, 2][~np.isnan(lm[:, 2])]
+            frame_data["confidence"] = float(np.mean(valid_vis)) if len(valid_vis) > 0 else 0.0
             for i, name in enumerate(MP_LANDMARK_NAMES):
                 frame_data["landmarks"][name] = {
                     "x": float(lm[i, 0]),
                     "y": float(lm[i, 1]),
                     "visibility": float(lm[i, 2]) if not np.isnan(lm[i, 2]) else 0.0,
                 }
-            valid_vis = lm[:, 2][~np.isnan(lm[:, 2])]
-            frame_data["confidence"] = float(np.mean(valid_vis)) if len(valid_vis) > 0 else 0.0
 
         # Store auxiliary keypoints (e.g. Goliath 308 from Sapiens)
         aux = auxiliary_list[idx] if idx < len(auxiliary_list) else None

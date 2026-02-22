@@ -401,13 +401,11 @@ def _make_sapiens_extractor(name, model_size, label):
 
             # Top-down: detect person and crop before Sapiens
             bbox = _person_detector.detect(frame_rgb)
-            if bbox is not None:
-                crop, x_off, y_off, crop_w, crop_h = _crop_and_pad(frame_bgr, bbox)
-                tensor, pad_info = _preprocess(crop)
-            else:
-                # No detector or no person found: fall back to full frame
-                tensor, pad_info = _preprocess(frame_bgr)
-                x_off, y_off, crop_w, crop_h = 0, 0, w_frame, h_frame
+            if bbox is None:
+                # No person detected — skip this frame entirely
+                return None
+            crop, x_off, y_off, crop_w, crop_h = _crop_and_pad(frame_bgr, bbox)
+            tensor, pad_info = _preprocess(crop)
 
             tensor = tensor.to(self._device)
 
@@ -419,9 +417,8 @@ def _make_sapiens_extractor(name, model_size, label):
             all_lm = _heatmaps_to_all(heatmaps, pad_info)
 
             # Remap from crop-normalized to frame-normalized coordinates
-            if bbox is not None:
-                coco_lm = _remap_landmarks(coco_lm, x_off, y_off, crop_w, crop_h, w_frame, h_frame)
-                all_lm = _remap_landmarks(all_lm, x_off, y_off, crop_w, crop_h, w_frame, h_frame)
+            coco_lm = _remap_landmarks(coco_lm, x_off, y_off, crop_w, crop_h, w_frame, h_frame)
+            all_lm = _remap_landmarks(all_lm, x_off, y_off, crop_w, crop_h, w_frame, h_frame)
 
             return {
                 "landmarks": coco_lm,

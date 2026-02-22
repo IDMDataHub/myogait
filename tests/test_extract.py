@@ -1308,3 +1308,52 @@ def test_label_inversion_non_contiguous():
     assert mask[0] is False
     assert mask[4] is False
     assert mask[11] is False
+
+
+def test_extract_trims_leading_trailing_no_detection():
+    """Frames before first and after last detection are trimmed."""
+    from myogait.extract import extract
+    from unittest.mock import patch, MagicMock
+    import tempfile, os, cv2
+
+    # Create a tiny 10-frame video
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+        tmp_path = f.name
+    try:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        out = cv2.VideoWriter(tmp_path, fourcc, 30, (64, 64))
+        for _ in range(10):
+            out.write(np.zeros((64, 64, 3), dtype=np.uint8))
+        out.release()
+
+        # Mock extractor: returns None for frames 0-2 and 8-9, landmarks for 3-7
+        call_count = {"n": 0}
+        def mock_process(frame_rgb):
+            idx = call_count["n"]
+            call_count["n"] += 1
+            if idx < 3 or idx >= 8:
+                return None  # No person detected
+            lm = np.full((17, 3), 0.5, dtype=np.float32)
+            lm[:, 2] = 0.9  # good confidence
+            return lm
+
+        mock_ext = MagicMock()
+        mock_ext.return_value = MagicMock()
+        mock_ext.return_value.setup = MagicMock()
+        mock_ext.return_value.process_frame = mock_process
+        mock_ext.return_value.is_coco = True
+
+        with patch("myogait.extract.get_extractor", return_value=mock_ext.return_value):
+            data = extract(tmp_path, model="mediapipe")
+
+        frames = data["frames"]
+        # Should have frames 3-7 only (5 frames), not 0-9 (10 frames)
+        assert len(frames) == 5
+        assert frames[0]["frame_idx"] == 3
+        assert frames[-1]["frame_idx"] == 7
+        # All kept frames should have landmarks
+        for fr in frames:
+            assert len(fr["landmarks"]) > 0
+            assert fr["confidence"] > 0
+    finally:
+        os.unlink(tmp_path)
