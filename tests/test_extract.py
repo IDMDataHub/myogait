@@ -1162,3 +1162,63 @@ def test_extract_handles_wholebody_auxiliary():
     # COCO to MP conversion should work on landmarks
     mp33 = _coco_to_mediapipe(result["landmarks"])
     assert mp33.shape == (33, 3)
+
+
+def test_label_inversion_correction_returns_mask():
+    """_correct_label_inversions returns (corrected, mask) tuple."""
+    from myogait.extract import _correct_label_inversions
+    from myogait.constants import MP_NAME_TO_INDEX
+
+    lh = MP_NAME_TO_INDEX["LEFT_HIP"]
+    rh = MP_NAME_TO_INDEX["RIGHT_HIP"]
+    lk = MP_NAME_TO_INDEX["LEFT_KNEE"]
+    rk = MP_NAME_TO_INDEX["RIGHT_KNEE"]
+
+    # Build 10 frames: normal ordering (left_hip.x < right_hip.x)
+    frames = []
+    for _ in range(10):
+        lm = np.zeros((33, 3), dtype=np.float32)
+        lm[lh] = [0.3, 0.5, 0.9]
+        lm[rh] = [0.7, 0.5, 0.9]
+        lm[lk] = [0.3, 0.7, 0.9]
+        lm[rk] = [0.7, 0.7, 0.9]
+        frames.append(lm)
+
+    # Invert frames 4 and 5 (swap L/R hips & knees)
+    for i in [4, 5]:
+        frames[i][lh], frames[i][rh] = frames[i][rh].copy(), frames[i][lh].copy()
+        frames[i][lk], frames[i][rk] = frames[i][rk].copy(), frames[i][lk].copy()
+
+    result, mask = _correct_label_inversions(frames)
+    assert isinstance(mask, list)
+    assert len(mask) == 10
+    # Frames 0-3: not inverted
+    assert not any(mask[:4])
+    # Frames 4-5 were inverted → they should be corrected
+    # The correction detects the inversion toggles at frames 4 and 6
+    assert mask[4] is True
+    assert mask[5] is True
+    # Frames 6-9: back to normal
+    assert not any(mask[6:])
+
+
+def test_swap_auxiliary_lr():
+    """_swap_auxiliary_lr swaps L/R pairs without x-mirror."""
+    from myogait.extract import _swap_auxiliary_lr
+    from myogait.constants import GOLIATH_LANDMARK_NAMES
+
+    n = len(GOLIATH_LANDMARK_NAMES)
+    aux = np.arange(n * 3, dtype=np.float32).reshape(n, 3)
+    swapped = _swap_auxiliary_lr(aux, GOLIATH_LANDMARK_NAMES)
+
+    # Find a known L/R pair
+    li = GOLIATH_LANDMARK_NAMES.index("left_shoulder")
+    ri = GOLIATH_LANDMARK_NAMES.index("right_shoulder")
+
+    # After swap, left_shoulder should have right_shoulder's original values
+    np.testing.assert_array_equal(swapped[li], aux[ri])
+    np.testing.assert_array_equal(swapped[ri], aux[li])
+
+    # Midline landmarks (e.g. nose) should be unchanged
+    nose_i = GOLIATH_LANDMARK_NAMES.index("nose")
+    np.testing.assert_array_equal(swapped[nose_i], aux[nose_i])

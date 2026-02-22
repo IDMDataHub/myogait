@@ -479,7 +479,23 @@ def extract(
 
     # Label inversion correction
     if correct_inversions:
-        raw_landmarks = _correct_label_inversions(raw_landmarks)
+        raw_landmarks, inversion_mask = _correct_label_inversions(raw_landmarks)
+        # Also correct auxiliary data (goliath308, wholebody133)
+        if any(inversion_mask):
+            aux_names = None
+            first_aux = next((a for a in auxiliary_list if a is not None), None)
+            if first_aux is not None:
+                n_aux = first_aux.shape[0]
+                if n_aux == 308:
+                    aux_names = GOLIATH_LANDMARK_NAMES
+                elif n_aux == 133:
+                    aux_names = WHOLEBODY_LANDMARK_NAMES
+            if aux_names is not None:
+                for i, is_inv in enumerate(inversion_mask):
+                    if is_inv and i < len(auxiliary_list) and auxiliary_list[i] is not None:
+                        auxiliary_list[i] = _swap_auxiliary_lr(
+                            auxiliary_list[i], aux_names,
+                        )
 
     # Build frames
     has_auxiliary = any(a is not None for a in auxiliary_list)
@@ -783,10 +799,17 @@ def detect_multi_person(data: dict) -> dict:
     return data
 
 
-def _correct_label_inversions(landmarks_list: list) -> list:
+def _correct_label_inversions(landmarks_list: list) -> tuple:
     """Detect and correct left/right label swaps across frames.
 
     Uses hip and knee x-coordinate ordering to detect inversions.
+
+    Returns
+    -------
+    tuple
+        ``(corrected_landmarks, inversion_mask)`` where *inversion_mask*
+        is a list of booleans indicating which frames had their
+        left/right labels swapped.
     """
     lh = MP_NAME_TO_INDEX.get("LEFT_HIP", 23)
     rh = MP_NAME_TO_INDEX.get("RIGHT_HIP", 24)
@@ -815,8 +838,9 @@ def _correct_label_inversions(landmarks_list: list) -> list:
             if prev_knee_order != curr_knee_order:
                 inversions.append(i)
 
+    inversion_mask = [False] * len(landmarks_list)
     if not inversions:
-        return landmarks_list
+        return landmarks_list, inversion_mask
 
     logger.info(f"Detected {len(inversions)} label inversions, correcting...")
 
@@ -835,11 +859,44 @@ def _correct_label_inversions(landmarks_list: list) -> list:
     for i in range(len(result)):
         if i in inversions_set:
             in_inversion = not in_inversion
+        inversion_mask[i] = in_inversion
         if in_inversion and result[i] is not None:
             for li, ri in pairs:
                 result[i][li], result[i][ri] = result[i][ri].copy(), result[i][li].copy()
 
-    return result
+    return result, inversion_mask
+
+
+def _swap_auxiliary_lr(aux: np.ndarray, landmark_names: list) -> np.ndarray:
+    """Swap left/right landmark pairs in auxiliary data (no x mirror).
+
+    Used to correct label inversions in auxiliary keypoints (Goliath 308,
+    WholeBody 133) when the main landmarks have been corrected.
+    """
+    swapped = aux.copy()
+    n = len(landmark_names)
+    visited = set()
+    for i, name in enumerate(landmark_names):
+        if i >= n or i in visited:
+            continue
+        partner_name = None
+        if "left_" in name:
+            partner_name = name.replace("left_", "right_")
+        elif "right_" in name:
+            partner_name = name.replace("right_", "left_")
+        elif name.startswith("l_"):
+            partner_name = "r_" + name[2:]
+        elif name.startswith("r_"):
+            partner_name = "l_" + name[2:]
+        if partner_name is None:
+            continue
+        for j in range(n):
+            if j != i and landmark_names[j] == partner_name:
+                swapped[i], swapped[j] = aux[j].copy(), aux[i].copy()
+                visited.add(i)
+                visited.add(j)
+                break
+    return swapped
 
 
 # ── Sagittal alignment detection ─────────────────────────────────
