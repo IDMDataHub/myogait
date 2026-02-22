@@ -352,19 +352,24 @@ def _method_sagittal_vertical_axis(frame: dict, model: str) -> dict:
         else:
             result[f"hip_{side}"] = np.nan
 
-        # Knee: 180 - interior angle
+        # Knee: signed flexion angle (positive = flexion, negative = hyperextension)
         if hip is not None and knee is not None and ankle is not None:
             thigh = hip - knee
             shank = ankle - knee
-            result[f"knee_{side}"] = 180.0 - _angle_between(thigh, shank)
+            unsigned = _angle_between(thigh, shank)
+            # Cross product sign: positive when shank is "behind" thigh (flexion)
+            cross = float(thigh[0] * shank[1] - thigh[1] * shank[0])
+            result[f"knee_{side}"] = (180.0 - unsigned) if cross >= 0 else -(180.0 - unsigned)
         else:
             result[f"knee_{side}"] = np.nan
 
-        # Ankle: 90 - angle(shank, foot)
+        # Ankle: 90 - signed angle(shank, foot)
         if knee is not None and ankle is not None and foot is not None:
             shank = ankle - knee
             foot_vec = foot - ankle
-            result[f"ankle_{side}"] = 90.0 - _angle_between(shank, foot_vec)
+            unsigned = _angle_between(shank, foot_vec)
+            cross = float(shank[0] * foot_vec[1] - shank[1] * foot_vec[0])
+            result[f"ankle_{side}"] = (90.0 - unsigned) if cross >= 0 else -(90.0 - unsigned)
         else:
             result[f"ankle_{side}"] = np.nan
 
@@ -417,19 +422,23 @@ def _method_sagittal_classic(frame: dict, model: str) -> dict:
         else:
             result[f"hip_{side}"] = np.nan
 
-        # Knee: 180 - angle(hip, knee, ankle)
+        # Knee: signed flexion angle (positive = flexion, negative = hyperextension)
         if hip is not None and knee is not None and ankle is not None:
             thigh = hip - knee
             shank = ankle - knee
-            result[f"knee_{side}"] = 180.0 - _angle_between(thigh, shank)
+            unsigned = _angle_between(thigh, shank)
+            cross = float(thigh[0] * shank[1] - thigh[1] * shank[0])
+            result[f"knee_{side}"] = (180.0 - unsigned) if cross >= 0 else -(180.0 - unsigned)
         else:
             result[f"knee_{side}"] = np.nan
 
-        # Ankle: 90 - angle(knee, ankle, foot)
+        # Ankle: 90 - signed angle(shank, foot)
         if knee is not None and ankle is not None and foot is not None:
             shank = ankle - knee
             foot_vec = foot - ankle
-            result[f"ankle_{side}"] = 90.0 - _angle_between(shank, foot_vec)
+            unsigned = _angle_between(shank, foot_vec)
+            cross = float(shank[0] * foot_vec[1] - shank[1] * foot_vec[0])
+            result[f"ankle_{side}"] = (90.0 - unsigned) if cross >= 0 else -(90.0 - unsigned)
         else:
             result[f"ankle_{side}"] = np.nan
 
