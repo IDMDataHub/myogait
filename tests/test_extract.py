@@ -1224,8 +1224,57 @@ def test_swap_auxiliary_lr():
     np.testing.assert_array_equal(swapped[nose_i], aux[nose_i])
 
 
+def test_label_inversion_sagittal_view():
+    """Position-proximity detects inversions even when L/R overlap in x."""
+    from myogait.extract import _correct_label_inversions
+    from myogait.constants import MP_NAME_TO_INDEX
+
+    ls = MP_NAME_TO_INDEX["LEFT_SHOULDER"]
+    rs = MP_NAME_TO_INDEX["RIGHT_SHOULDER"]
+    lh = MP_NAME_TO_INDEX["LEFT_HIP"]
+    rh = MP_NAME_TO_INDEX["RIGHT_HIP"]
+    lk = MP_NAME_TO_INDEX["LEFT_KNEE"]
+    rk = MP_NAME_TO_INDEX["RIGHT_KNEE"]
+    la = MP_NAME_TO_INDEX["LEFT_ANKLE"]
+    ra = MP_NAME_TO_INDEX["RIGHT_ANKLE"]
+
+    # Sagittal view: L/R overlap in x but differ in y (near vs far leg)
+    frames = []
+    for i in range(30):
+        lm = np.zeros((33, 3), dtype=np.float32)
+        # Walking oscillation
+        phase = 2 * np.pi * i / 15  # 15-frame period
+        # Shoulders: nearly overlapping
+        lm[ls] = [0.50, 0.25, 0.9]
+        lm[rs] = [0.51, 0.25, 0.9]
+        # Hips: nearly overlapping, tiny y difference
+        lm[lh] = [0.50, 0.50, 0.9]
+        lm[rh] = [0.51, 0.51, 0.9]
+        # Knees: oscillate in x with gait
+        lm[lk] = [0.50 + 0.05 * np.sin(phase), 0.65, 0.9]
+        lm[rk] = [0.51 + 0.05 * np.sin(phase + np.pi), 0.66, 0.9]
+        # Ankles: wider oscillation
+        lm[la] = [0.50 + 0.08 * np.sin(phase), 0.80, 0.9]
+        lm[ra] = [0.51 + 0.08 * np.sin(phase + np.pi), 0.81, 0.9]
+        frames.append(lm)
+
+    # Invert frames 12, 13 (swap L/R)
+    for i in [12, 13]:
+        for a, b in [(ls, rs), (lh, rh), (lk, rk), (la, ra)]:
+            frames[i][a], frames[i][b] = frames[i][b].copy(), frames[i][a].copy()
+
+    result, mask = _correct_label_inversions(frames)
+    assert mask[12] is True
+    assert mask[13] is True
+    # Frames around the inversion should NOT be marked
+    assert mask[10] is False
+    assert mask[11] is False
+    assert mask[14] is False
+    assert mask[15] is False
+
+
 def test_label_inversion_non_contiguous():
-    """Majority-vote detects non-contiguous inversions independently."""
+    """Detects non-contiguous inversions independently."""
     from myogait.extract import _correct_label_inversions
     from myogait.constants import MP_NAME_TO_INDEX
 

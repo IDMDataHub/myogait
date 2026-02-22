@@ -802,9 +802,20 @@ def detect_multi_person(data: dict) -> dict:
 def _correct_label_inversions(landmarks_list: list) -> tuple:
     """Detect and correct left/right label swaps across frames.
 
-    Uses majority-vote on hip and knee x-coordinate ordering: the
-    dominant ordering across all frames is assumed correct, and frames
-    where *both* hips and knees disagree with the majority are swapped.
+    Uses **position-proximity tracking** between consecutive raw
+    frames.  For each pair (i, i+1), the total squared displacement
+    of keeping L/R assignment vs swapping is compared across four
+    landmark pairs (hip, knee, ankle, shoulder).  When swapping is
+    cheaper a swap-transition is recorded and the inversion state is
+    toggled.
+
+    This works in sagittal view where left/right landmarks overlap in x
+    and simple x-ordering heuristics fail, because it tracks positional
+    continuity rather than static ordering.
+
+    A final majority-vote pass ensures the initial reference was correct:
+    if more than half the frames end up marked as inverted, the polarity
+    is flipped.
 
     Returns
     -------
@@ -813,55 +824,75 @@ def _correct_label_inversions(landmarks_list: list) -> tuple:
         is a list of booleans indicating which frames had their
         left/right labels swapped.
     """
-    lh = MP_NAME_TO_INDEX.get("LEFT_HIP", 23)
-    rh = MP_NAME_TO_INDEX.get("RIGHT_HIP", 24)
-    lk = MP_NAME_TO_INDEX.get("LEFT_KNEE", 25)
-    rk = MP_NAME_TO_INDEX.get("RIGHT_KNEE", 26)
+    # Landmark pairs used for proximity cost
+    _TRACK_PAIRS = [
+        (MP_NAME_TO_INDEX.get("LEFT_HIP", 23),
+         MP_NAME_TO_INDEX.get("RIGHT_HIP", 24)),
+        (MP_NAME_TO_INDEX.get("LEFT_KNEE", 25),
+         MP_NAME_TO_INDEX.get("RIGHT_KNEE", 26)),
+        (MP_NAME_TO_INDEX.get("LEFT_ANKLE", 27),
+         MP_NAME_TO_INDEX.get("RIGHT_ANKLE", 28)),
+        (MP_NAME_TO_INDEX.get("LEFT_SHOULDER", 11),
+         MP_NAME_TO_INDEX.get("RIGHT_SHOULDER", 12)),
+    ]
 
-    # Step 1: Classify each frame's hip/knee ordering
-    hip_orders = []   # True = left_hip.x < right_hip.x, None = unknown
-    knee_orders = []
-    for lm in landmarks_list:
-        if lm is None:
-            hip_orders.append(None)
-            knee_orders.append(None)
-            continue
-        if np.any(np.isnan(lm[[lh, rh], 0])):
-            hip_orders.append(None)
-        else:
-            hip_orders.append(bool(lm[lh, 0] < lm[rh, 0]))
-        if np.any(np.isnan(lm[[lk, rk], 0])):
-            knee_orders.append(None)
-        else:
-            knee_orders.append(bool(lm[lk, 0] < lm[rk, 0]))
-
-    # Step 2: Determine dominant ordering via majority vote
-    valid_hip = [o for o in hip_orders if o is not None]
-    valid_knee = [o for o in knee_orders if o is not None]
-    inversion_mask = [False] * len(landmarks_list)
-
-    if not valid_hip or not valid_knee:
+    n = len(landmarks_list)
+    inversion_mask = [False] * n
+    if n < 2:
         return landmarks_list, inversion_mask
 
-    dominant_hip = sum(valid_hip) > len(valid_hip) / 2
-    dominant_knee = sum(valid_knee) > len(valid_knee) / 2
+    # ── Step 1: Detect swap transitions between consecutive frames ───
+    transitions = set()
+    prev = None
+    for i in range(n):
+        curr = landmarks_list[i]
+        if curr is None or np.all(np.isnan(curr[:, 0])):
+            continue
+        if prev is None:
+            prev = curr
+            continue
 
-    # Step 3: Mark frames where BOTH hip and knee disagree with dominant
-    n_inv = 0
-    for i in range(len(landmarks_list)):
-        ho = hip_orders[i]
-        ko = knee_orders[i]
-        if ho is not None and ko is not None:
-            if ho != dominant_hip and ko != dominant_knee:
-                inversion_mask[i] = True
-                n_inv += 1
+        cost_keep = 0.0
+        cost_swap = 0.0
+        n_valid = 0
+        for li, ri in _TRACK_PAIRS:
+            if (np.any(np.isnan(prev[[li, ri], :2]))
+                    or np.any(np.isnan(curr[[li, ri], :2]))):
+                continue
+            cost_keep += (np.sum((prev[li, :2] - curr[li, :2]) ** 2)
+                          + np.sum((prev[ri, :2] - curr[ri, :2]) ** 2))
+            cost_swap += (np.sum((prev[li, :2] - curr[ri, :2]) ** 2)
+                          + np.sum((prev[ri, :2] - curr[li, :2]) ** 2))
+            n_valid += 1
+
+        if n_valid > 0 and cost_keep > 0:
+            # Only flag when swap is SIGNIFICANTLY cheaper (ratio < 0.1).
+            # At natural leg crossings cost_swap ≈ cost_keep (ratio ~0.2-0.5);
+            # at true label inversions the ratio is near zero.
+            if cost_swap / cost_keep < 0.1:
+                transitions.add(i)
+
+        prev = curr
+
+    # ── Step 2: Toggle inversion state at each transition ────────────
+    in_inversion = False
+    for i in range(n):
+        if i in transitions:
+            in_inversion = not in_inversion
+        inversion_mask[i] = in_inversion
+
+    # ── Step 3: Majority-vote polarity check ─────────────────────────
+    n_inv = sum(inversion_mask)
+    if n_inv > n / 2:
+        inversion_mask = [not m for m in inversion_mask]
+        n_inv = sum(inversion_mask)
 
     if n_inv == 0:
         return landmarks_list, inversion_mask
 
     logger.info(f"Detected {n_inv} label inversions, correcting...")
 
-    # Find left/right index pairs
+    # Find all left/right index pairs
     pairs = []
     for name in MP_LANDMARK_NAMES:
         if name.startswith("LEFT_"):
