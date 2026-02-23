@@ -1,7 +1,6 @@
 """Security and I/O validation tests for model download and lookup paths."""
 
 import os
-import re
 import types
 from pathlib import Path
 
@@ -139,12 +138,13 @@ def test_find_model_import_error_from_download_is_wrapped(monkeypatch, tmp_path)
         lambda *_args, **_kwargs: (_ for _ in ()).throw(ImportError("no hub")),
     )
 
-    with pytest.raises(FileNotFoundError, match="huggin"):
+    with pytest.raises(FileNotFoundError) as exc:
         sapiens_mod._find_model("0.3b")
 
-    # Includes explicit searched locations for I/O debugging.
-    with pytest.raises(FileNotFoundError, match=re.escape(str(tmp_path / filename))):
-        sapiens_mod._find_model("0.3b")
+    msg = str(exc.value)
+    assert "huggingface-hub" in msg
+    assert "Searched:" in msg
+    assert filename in msg
 
 
 def test_find_model_generic_download_error_is_wrapped(monkeypatch, tmp_path):
