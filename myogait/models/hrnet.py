@@ -39,6 +39,7 @@ class HRNETPoseExtractor(BasePoseExtractor):
         self._detector = None
 
     def setup(self):
+        self._ensure_mmcv()
         try:
             from mmpose.apis import init_model
             from ultralytics import YOLO
@@ -52,6 +53,20 @@ class HRNETPoseExtractor(BasePoseExtractor):
                 "MMPose/YOLO not installed. Install with: pip install myogait[mmpose,yolo]\n"
                 f"Original error: {e}"
             )
+
+    @staticmethod
+    def _ensure_mmcv():
+        """Auto-install mmcv via openmim if missing (PyPI has no Windows wheels)."""
+        try:
+            import mmcv  # noqa: F401
+        except ImportError:
+            logger.info("mmcv not found — installing via openmim (first run only)...")
+            import subprocess, sys
+            subprocess.check_call(
+                [sys.executable, "-m", "mim", "install", "mmcv"],
+                stdout=subprocess.DEVNULL,
+            )
+            logger.info("mmcv installed successfully.")
 
     def teardown(self):
         self._pose_model = None
