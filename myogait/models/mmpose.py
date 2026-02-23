@@ -60,7 +60,8 @@ class MMPosePoseExtractor(BasePoseExtractor):
             import mmcv  # noqa: F401
         except ImportError:
             logger.info("mmcv not found — installing via openmim (first run only)...")
-            import subprocess, sys
+            import subprocess
+            import sys
             subprocess.check_call(
                 [sys.executable, "-m", "mim", "install", "mmcv"],
                 stdout=subprocess.DEVNULL,
