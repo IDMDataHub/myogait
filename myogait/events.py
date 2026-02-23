@@ -837,15 +837,40 @@ def _gaitkit_result_to_myogait(gk_result, fps: float) -> Dict[str, list]:
         Dict with keys: left_hs, right_hs, left_to, right_to.
         Each value is a list of event dicts with frame, time, confidence.
     """
+    def _event_value(ev, *keys, default=None):
+        """Get an event field from dict-like or attribute-like objects."""
+        if isinstance(ev, dict):
+            for key in keys:
+                if key in ev and ev[key] is not None:
+                    return ev[key]
+            return default
+
+        for key in keys:
+            val = getattr(ev, key, None)
+            if val is not None:
+                return val
+        return default
+
     result = {}
     for event_type in ["left_hs", "right_hs", "left_to", "right_to"]:
         gk_events = getattr(gk_result, event_type, [])
         myogait_events = []
         for ev in gk_events:
+            frame_val = _event_value(ev, "frame", "frame_idx", "index", "idx", default=0)
+            time_val = _event_value(ev, "time", "time_s", "timestamp", default=None)
+            confidence_val = _event_value(
+                ev,
+                "confidence",
+                "conf",
+                "score",
+                "agreement",
+                "vote_ratio",
+                default=1.0,
+            )
             myogait_events.append({
-                "frame": int(ev.get("frame", 0)),
-                "time": round(float(ev.get("time", ev.get("frame", 0) / fps)), 4),
-                "confidence": round(float(ev.get("confidence", 1.0)), 3),
+                "frame": int(frame_val),
+                "time": round(float(time_val if time_val is not None else int(frame_val) / fps), 4),
+                "confidence": round(float(confidence_val), 3),
             })
         result[event_type] = myogait_events
     return result

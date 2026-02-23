@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "myogait"
-version = "0.4.0"
+version = "0.4.1"
 description = "Markerless video-based gait analysis toolkit"
 readme = "README.md"
 license = "MIT"
@@ -30,7 +30,7 @@ dependencies = [
     "scipy>=1.11",
     "opencv-python-headless>=4.8",
     "matplotlib>=3.7",
-    "gaitkit>=1.2",
+    "gaitkit==1.3.0",
 ]
 
 [project.optional-dependencies]
