@@ -1,7 +1,6 @@
 """Tests for letterbox resize and Sapiens padding-aware heatmap decoding."""
 
 import numpy as np
-import pytest
 
 
 def test_letterbox_preserves_aspect_ratio():
@@ -91,7 +90,7 @@ def test_heatmap_to_coco_no_padding():
 
 def test_heatmap_to_coco_with_padding():
     """With left padding, x coordinates should shift appropriately."""
-    from myogait.models.sapiens import _heatmaps_to_coco, _INPUT_W, _INPUT_H
+    from myogait.models.sapiens import _heatmaps_to_coco, _INPUT_H
     from myogait.constants import GOLIATH_TO_COCO
 
     hm_h, hm_w = 256, 192
@@ -119,7 +118,7 @@ def test_heatmap_to_coco_with_padding():
 
 def test_heatmap_to_all_with_padding():
     """_heatmaps_to_all should apply the same letterbox correction."""
-    from myogait.models.sapiens import _heatmaps_to_all, _INPUT_W, _INPUT_H
+    from myogait.models.sapiens import _heatmaps_to_all, _INPUT_H
 
     hm_h, hm_w = 256, 192
     heatmaps = np.zeros((2, hm_h, hm_w), dtype=np.float32)

@@ -1313,11 +1313,12 @@ def test_label_inversion_non_contiguous():
 def test_extract_trims_leading_trailing_no_detection():
     """Frames before first and after last detection are trimmed."""
     import sys
-    import myogait.extract  # noqa: F811 – ensure the module is in sys.modules
     _extract_mod = sys.modules["myogait.extract"]
     from myogait.extract import extract
     from unittest.mock import patch, MagicMock
-    import tempfile, os, cv2
+    import tempfile
+    import os
+    import cv2
 
     # Create a tiny 10-frame video
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:

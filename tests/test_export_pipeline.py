@@ -5,7 +5,6 @@ called after the full pipeline (extract, angles, events, cycles).
 Regression test for Bug 3: export returning empty results.
 """
 
-import pytest
 from pathlib import Path
 
 from conftest import make_walking_data, walking_data_with_angles, run_full_pipeline

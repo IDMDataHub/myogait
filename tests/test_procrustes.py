@@ -10,10 +10,8 @@ Gower JC. Generalized procrustes analysis. Psychometrika.
 1975;40(1):33-51. doi:10.1007/BF02291478
 """
 
-import copy
 
 import numpy as np
-import pytest
 
 from myogait.normalize import procrustes_align
 
@@ -218,7 +216,6 @@ class TestProcrustesAlign:
 
     def test_single_frame_no_crash(self):
         """Single frame should return without error."""
-        lm_names = ["A", "B"]
         frames = [{
             "landmarks": {
                 "A": {"x": 0.0, "y": 0.0, "visibility": 1.0},

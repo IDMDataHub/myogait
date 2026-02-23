@@ -346,8 +346,7 @@ class TestCorrectAnkleSwaps:
 
         # Get the Method B reference before correction
         pf = data["frames"][2]
-        result = detect_ankle_swap(pf, "RIGHT")
-        expected_angle = result["angle_method_B"]
+        detect_ankle_swap(pf, "RIGHT")
 
         data = correct_ankle_swaps(data)
         corrected = data["angles"]["frames"][2]["ankle_R"]

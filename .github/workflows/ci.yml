@@ -40,10 +40,14 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Run linting
-        run: ruff check myogait/ --select E,W,F --ignore E501
+        run: ruff check myogait/ tests/ --select E,W,F --ignore E501
 
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short -q
+
+      - name: Coverage gate (myogait >= 75%)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: python -m pytest tests/ --cov=myogait --cov-report=term-missing --cov-fail-under=75 -q
 
   build:
     needs: test

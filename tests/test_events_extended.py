@@ -1,6 +1,5 @@
 """Tests for enhanced event detection functions."""
 
-import numpy as np
 from conftest import make_walking_data
 
 
@@ -154,7 +153,6 @@ def test_zeni_rtl_detects_events():
 def test_zeni_rtl_same_count_as_ltr():
     """RTL and LTR walking should detect similar event counts."""
     from myogait.events import detect_events
-    import copy
     data_ltr = make_walking_data(300, fps=30.0)
     data_rtl = _make_walking_data_rtl(300, fps=30.0)
     detect_events(data_ltr, method="zeni")
