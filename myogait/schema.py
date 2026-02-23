@@ -160,7 +160,7 @@ def save_json(data: dict, path: Union[str, Path], indent: int = 2) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     converted = _convert_numpy(data)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(converted, f, indent=indent, ensure_ascii=False)
 
 
@@ -188,7 +188,7 @@ def load_json(path: Union[str, Path]) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
     if not isinstance(data, dict):

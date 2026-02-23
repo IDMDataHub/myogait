@@ -1,0 +1,52 @@
+name: Security Audit
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+  schedule:
+    - cron: "0 3 * * 1"
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit
+
+      - name: Build audit requirements (exclude gaitkit)
+        run: |
+          python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          deps = pyproject["project"]["dependencies"]
+          filtered = [d for d in deps if not d.strip().lower().startswith("gaitkit")]
+          Path("requirements-audit.txt").write_text(
+              "".join(f"{dep}\n" for dep in filtered),
+              encoding="utf-8",
+          )
+          print("Audited dependencies:")
+          for dep in filtered:
+              print(f"  - {dep}")
+          PY
+
+      - name: Run pip-audit
+        run: pip-audit -r requirements-audit.txt

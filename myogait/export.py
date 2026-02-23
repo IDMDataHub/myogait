@@ -393,7 +393,7 @@ def export_mot(
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(f"{path.stem}\n")
         f.write("version=1\n")
         f.write(f"nRows={len(df)}\n")
@@ -521,7 +521,7 @@ def export_trc(
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         # Header line 1
         f.write("PathFileType\t4\t(X/Y/Z)\t{}\n".format(path.name))
         # Header line 2
@@ -973,7 +973,7 @@ def export_summary_json(
 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, default=str)
 
     logger.info(f"Exported summary JSON: {path}")
@@ -1137,7 +1137,7 @@ def export_openpose_json(
 
         fname = f"{prefix}{idx:012d}_keypoints.json"
         fpath = out / fname
-        with open(fpath, "w") as f:
+        with open(fpath, "w", encoding="utf-8") as f:
             json.dump(openpose_dict, f, indent=2)
         created.append(str(fpath))
 

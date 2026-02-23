@@ -312,7 +312,7 @@ def export_opensim_scale_setup(
     xml_str = _prettify(root)
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write('<?xml version="1.0" encoding="UTF-8" ?>\n')
         f.write(xml_str)
 
@@ -413,7 +413,7 @@ def export_ik_setup(
     xml_str = _prettify(root)
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write('<?xml version="1.0" encoding="UTF-8" ?>\n')
         f.write(xml_str)
 
@@ -533,7 +533,7 @@ def export_moco_setup(
     xml_str = _prettify(root)
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write('<?xml version="1.0" encoding="UTF-8" ?>\n')
         f.write(xml_str)
 

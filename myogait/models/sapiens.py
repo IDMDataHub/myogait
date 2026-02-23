@@ -27,7 +27,9 @@ References
 - Models: https://huggingface.co/collections/facebook/sapiens-66d22047daa6402d565cb2fc
 """
 
+import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -73,8 +75,55 @@ _MODELS = {
     ),
 }
 
+# Optional integrity metadata from environment variables.
+_MODEL_SHA256 = {
+    "0.3b": os.getenv("MYOGAIT_SAPIENS_03B_SHA256"),
+    "0.6b": os.getenv("MYOGAIT_SAPIENS_06B_SHA256"),
+    "1b": os.getenv("MYOGAIT_SAPIENS_1B_SHA256"),
+}
+_MODEL_REVISIONS = {
+    "0.3b": os.getenv("MYOGAIT_SAPIENS_03B_REVISION", "main"),
+    "0.6b": os.getenv("MYOGAIT_SAPIENS_06B_REVISION", "main"),
+    "1b": os.getenv("MYOGAIT_SAPIENS_1B_REVISION", "main"),
+}
+_STRICT_MODEL_CHECKSUM = os.getenv("MYOGAIT_STRICT_MODEL_CHECKSUM", "").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+
 # Back-compat alias used in tests
 _MODEL_FILENAMES = {k: v[0] for k, v in _MODELS.items()}
+
+
+def _sha256_file(path: str) -> str:
+    """Compute SHA256 checksum of a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _verify_model_integrity(path: str, expected_sha256: Optional[str], label: str) -> None:
+    """Verify model checksum when configured.
+
+    If no expected checksum is configured, behavior depends on
+    ``MYOGAIT_STRICT_MODEL_CHECKSUM``.
+    """
+    if not expected_sha256:
+        msg = (
+            f"No SHA256 configured for {label} at {path}. "
+            "Set env var to enable checksum verification."
+        )
+        if _STRICT_MODEL_CHECKSUM:
+            raise RuntimeError(msg)
+        logger.warning(msg)
+        return
+
+    actual_sha256 = _sha256_file(path)
+    if actual_sha256.lower() != expected_sha256.lower():
+        raise RuntimeError(
+            f"Checksum mismatch for {label}: expected {expected_sha256}, got {actual_sha256}"
+        )
 
 
 def download_model(model_size: str = "0.3b", dest: Optional[str] = None) -> str:
@@ -110,17 +159,30 @@ def download_model(model_size: str = "0.3b", dest: Optional[str] = None) -> str:
         )
 
     filename, repo_id = _MODELS[model_size]
+    revision = _MODEL_REVISIONS[model_size]
+    expected_sha256 = _MODEL_SHA256[model_size]
     dest_dir = dest or str(Path.home() / ".myogait" / "models")
+
+    if revision in {"main", "master"}:
+        logger.warning(
+            "Sapiens %s is using mutable HuggingFace revision '%s'. "
+            "Set MYOGAIT_SAPIENS_%s_REVISION to a commit hash for strict pinning.",
+            model_size,
+            revision,
+            model_size.replace(".", "").upper(),
+        )
 
     logger.info(
         f"Downloading Sapiens {model_size} from {repo_id} "
-        f"to {dest_dir}..."
+        f"(revision={revision}) to {dest_dir}..."
     )
     path = hf_hub_download(
         repo_id=repo_id,
         filename=filename,
         local_dir=dest_dir,
+        revision=revision,
     )
+    _verify_model_integrity(path, expected_sha256, f"sapiens-{model_size}")
     logger.info(f"Downloaded: {path}")
     return path
 
@@ -137,11 +199,13 @@ def _find_model(model_size: str, model_path: Optional[str] = None) -> str:
         )
 
     filename = _MODELS[model_size][0]
+    expected_sha256 = _MODEL_SHA256[model_size]
 
     # Search local paths
     for d in _DEFAULT_MODEL_PATHS:
         p = d / filename
         if p.exists():
+            _verify_model_integrity(str(p), expected_sha256, f"sapiens-{model_size}")
             return str(p)
 
     # Auto-download from HuggingFace

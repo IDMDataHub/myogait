@@ -116,12 +116,12 @@ def load_config(path: Union[str, Path]) -> dict:
     if suffix in (".yaml", ".yml"):
         try:
             import yaml
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
         except ImportError:
             raise ImportError("PyYAML required for YAML configs: pip install pyyaml")
     else:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             cfg = json.load(f)
 
     if not isinstance(cfg, dict):
@@ -160,12 +160,12 @@ def save_config(config: dict, path: Union[str, Path]) -> str:
     if suffix in (".yaml", ".yml"):
         try:
             import yaml
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         except ImportError:
             raise ImportError("PyYAML required for YAML configs: pip install pyyaml")
     else:
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
 
     logger.info(f"Saved config to {path}")

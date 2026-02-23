@@ -25,6 +25,7 @@ References
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +35,7 @@ import numpy as np
 from .base import ensure_xpu_torch
 from .sapiens import (
     _DEFAULT_MODEL_PATHS,
+    _verify_model_integrity,
     _get_device, _preprocess,
 )
 
@@ -58,6 +60,18 @@ _DEPTH_MODELS = {
         "facebook/sapiens-depth-2b-torchscript",
     ),
 }
+_DEPTH_SHA256 = {
+    "0.3b": os.getenv("MYOGAIT_SAPIENS_DEPTH_03B_SHA256"),
+    "0.6b": os.getenv("MYOGAIT_SAPIENS_DEPTH_06B_SHA256"),
+    "1b": os.getenv("MYOGAIT_SAPIENS_DEPTH_1B_SHA256"),
+    "2b": os.getenv("MYOGAIT_SAPIENS_DEPTH_2B_SHA256"),
+}
+_DEPTH_REVISIONS = {
+    "0.3b": os.getenv("MYOGAIT_SAPIENS_DEPTH_03B_REVISION", "main"),
+    "0.6b": os.getenv("MYOGAIT_SAPIENS_DEPTH_06B_REVISION", "main"),
+    "1b": os.getenv("MYOGAIT_SAPIENS_DEPTH_1B_REVISION", "main"),
+    "2b": os.getenv("MYOGAIT_SAPIENS_DEPTH_2B_REVISION", "main"),
+}
 
 
 def _find_depth_model(model_size: str, model_path: Optional[str] = None) -> str:
@@ -72,10 +86,13 @@ def _find_depth_model(model_size: str, model_path: Optional[str] = None) -> str:
         )
 
     filename, repo_id = _DEPTH_MODELS[model_size]
+    expected_sha256 = _DEPTH_SHA256[model_size]
+    revision = _DEPTH_REVISIONS[model_size]
 
     for d in _DEFAULT_MODEL_PATHS:
         p = d / filename
         if p.exists():
+            _verify_model_integrity(str(p), expected_sha256, f"sapiens-depth-{model_size}")
             return str(p)
 
     # Auto-download
@@ -87,8 +104,22 @@ def _find_depth_model(model_size: str, model_path: Optional[str] = None) -> str:
             f"Sapiens depth {model_size} model not found and huggingface-hub "
             f"is not installed.  Install with: pip install huggingface-hub"
         )
+    if revision in {"main", "master"}:
+        logger.warning(
+            "Sapiens depth %s uses mutable revision '%s'. "
+            "Set MYOGAIT_SAPIENS_DEPTH_%s_REVISION to a commit hash for strict pinning.",
+            model_size,
+            revision,
+            model_size.replace(".", "").upper(),
+        )
     dest_dir = str(Path.home() / ".myogait" / "models")
-    path = hf_hub_download(repo_id=repo_id, filename=filename, local_dir=dest_dir)
+    path = hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        local_dir=dest_dir,
+        revision=revision,
+    )
+    _verify_model_integrity(path, expected_sha256, f"sapiens-depth-{model_size}")
     logger.info(f"Downloaded: {path}")
     return path
 
