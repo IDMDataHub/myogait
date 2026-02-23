@@ -1,6 +1,7 @@
 """Security and I/O validation tests for model download and lookup paths."""
 
 import os
+import re
 import types
 from pathlib import Path
 
@@ -142,7 +143,7 @@ def test_find_model_import_error_from_download_is_wrapped(monkeypatch, tmp_path)
         sapiens_mod._find_model("0.3b")
 
     # Includes explicit searched locations for I/O debugging.
-    with pytest.raises(FileNotFoundError, match=str(tmp_path / filename)):
+    with pytest.raises(FileNotFoundError, match=re.escape(str(tmp_path / filename))):
         sapiens_mod._find_model("0.3b")
 
 
