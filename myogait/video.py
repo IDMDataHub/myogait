@@ -683,7 +683,11 @@ def render_stickfigure_animation(
         try:
             writer_cls = animation.FFMpegWriter(fps=anim_fps)
             anim.save(output_path, writer=writer_cls)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "FFMpeg MP4 export failed; falling back to imageio (%s)",
+                exc,
+            )
             # Fallback: save frames with imageio
             try:
                 import imageio

@@ -155,6 +155,29 @@ class TestResidualAnalysisFindsCorrectCutoff:
                 f"Column {col} cutoff {fc} outside range [2, 30]"
             )
 
+    def test_failed_column_is_ignored_not_zero_biased(self, monkeypatch):
+        """A failing column should be excluded instead of contributing zeros."""
+        import scipy.signal as sig
+
+        df = _make_noisy_signal(n=400, fs=100.0)
+        y_ref = df["LM_y"].to_numpy()
+        orig_filtfilt = sig.filtfilt
+
+        def _patched_filtfilt(b, a, x, *args, **kwargs):
+            if np.allclose(np.asarray(x), y_ref):
+                raise ValueError("synthetic failure for LM_y")
+            return orig_filtfilt(b, a, x, *args, **kwargs)
+
+        monkeypatch.setattr(sig, "filtfilt", _patched_filtfilt)
+
+        result = residual_analysis(
+            df, fs=100.0, freq_range=(2.0, 20.0), freq_step=1.0, order=2
+        )
+
+        assert "LM_x" in result["per_column"]
+        assert "LM_y" not in result["per_column"]
+        assert result["optimal_cutoff"] == result["per_column"]["LM_x"]
+
 
 # ── test_auto_cutoff_wraps_residual ─────────────────────────────────
 

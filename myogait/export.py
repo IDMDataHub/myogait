@@ -967,7 +967,8 @@ def export_summary_json(
             "gps_right": gps.get("gps_2d_right"),
             "gps_overall": gps.get("gps_2d_overall"),
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not compute GPS-2D summary: %s", exc)
         summary["gps_2d"] = None
 
     path = Path(output_path)

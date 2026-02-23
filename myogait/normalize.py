@@ -337,8 +337,12 @@ def filter_kalman(
             smoothed, _ = kf.smooth(observations)
             df[cx] = smoothed[:, 0]
             df[cy] = smoothed[:, 1]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Kalman smoothing failed for landmark %s; keeping interpolated signal (%s)",
+                pt,
+                exc,
+            )
 
     return df
 
@@ -837,7 +841,9 @@ def residual_analysis(
             try:
                 filtered = filtfilt(b, a, raw)
             except Exception:
-                col_residuals[c][float(fc)] = 0.0
+                # Keep failures as NaN so they do not artificially lower
+                # residual means or bias cutoff selection.
+                col_residuals[c][float(fc)] = float("nan")
                 continue
             rms = float(np.sqrt(np.mean((raw - filtered) ** 2)))
             col_residuals[c][float(fc)] = rms
@@ -845,13 +851,23 @@ def residual_analysis(
     # Find optimal cutoff per column
     per_column = {}
     for c, res_dict in col_residuals.items():
-        per_column[c] = _find_knee_frequency(freqs, res_dict)
+        finite_residuals = {
+            k: v for k, v in res_dict.items() if np.isfinite(v)
+        }
+        if not finite_residuals:
+            logger.debug("Residual analysis skipped for column %s (no valid residuals).", c)
+            continue
+        per_column[c] = _find_knee_frequency(freqs, finite_residuals)
 
     # Mean residual across columns per frequency
     mean_residuals = {}
     for fc in freqs:
-        vals = [col_residuals[c].get(float(fc), 0.0) for c in raw_signals]
-        mean_residuals[float(fc)] = float(np.mean(vals)) if vals else 0.0
+        vals = [
+            col_residuals[c].get(float(fc), float("nan"))
+            for c in raw_signals
+        ]
+        finite_vals = [v for v in vals if np.isfinite(v)]
+        mean_residuals[float(fc)] = float(np.mean(finite_vals)) if finite_vals else 0.0
 
     # Overall optimal cutoff: median across per-column optima
     if per_column:
@@ -893,23 +909,36 @@ def _find_knee_frequency(freqs: np.ndarray, res_dict: dict) -> float:
     float
         Optimal cutoff frequency.
     """
-    residuals = np.array([res_dict.get(float(f), 0.0) for f in freqs])
+    residuals = np.array(
+        [
+            res_dict.get(float(f), float("nan"))
+            for f in freqs
+        ],
+        dtype=float,
+    )
     n = len(freqs)
 
     if n < 4:
+        return float(freqs[n // 2])
+
+    valid = np.isfinite(residuals)
+    if valid.sum() < 2:
         return float(freqs[n // 2])
 
     # Fit line to the upper quarter of the curve (high-freq tail)
     upper_start = n * 3 // 4
     if n - upper_start < 2:
         upper_start = max(n // 2, 0)
-    x_upper = freqs[upper_start:]
-    y_upper = residuals[upper_start:]
+    x_upper = freqs[upper_start:][np.isfinite(residuals[upper_start:])]
+    y_upper = residuals[upper_start:][np.isfinite(residuals[upper_start:])]
 
     if len(x_upper) < 2:
-        return float(freqs[n // 2])
+        x_upper = freqs[valid]
+        y_upper = residuals[valid]
+        if len(x_upper) < 2:
+            return float(freqs[n // 2])
 
-    res_range = float(residuals.max() - residuals.min())
+    res_range = float(np.nanmax(residuals) - np.nanmin(residuals))
     if res_range < 1e-15:
         # Flat curve -- no meaningful distinction
         return float(freqs[n // 2])
@@ -930,6 +959,8 @@ def _find_knee_frequency(freqs: np.ndarray, res_dict: dict) -> float:
     # Scan from high frequency toward low; find the first frequency
     # where the deviation crosses the threshold
     for i in range(n - 1, -1, -1):
+        if not np.isfinite(deviations[i]):
+            continue
         if deviations[i] > threshold:
             return float(freqs[i])
 
