@@ -30,7 +30,7 @@ dependencies = [
     "scipy>=1.11",
     "opencv-python-headless>=4.8",
     "matplotlib>=3.7",
-    "gaitkit==1.3.0",
+    "gaitkit==1.3.1",
 ]
 
 [project.optional-dependencies]

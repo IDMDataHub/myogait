@@ -983,6 +983,15 @@ def _detect_gaitkit_structured(
     """
     gaitkit = _import_gaitkit()
     result_dict = gaitkit.detect_events_structured(method, data, fps=fps)
+    if result_dict is None:
+        raise RuntimeError(
+            f"gaitkit structured detector '{method}' returned None"
+        )
+    if not isinstance(result_dict, dict):
+        raise TypeError(
+            f"gaitkit structured detector '{method}' returned "
+            f"{type(result_dict).__name__}, expected dict"
+        )
 
     # Convert structured result to myogait event format
     events = {"left_hs": [], "right_hs": [], "left_to": [], "right_to": []}
