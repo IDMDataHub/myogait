@@ -21,6 +21,7 @@ def _register_lazy():
     EXTRACTORS["vitpose-large"] = "myogait.models.vitpose.ViTPosePoseExtractor"
     EXTRACTORS["vitpose-huge"] = "myogait.models.vitpose.ViTPosePoseExtractor"
     EXTRACTORS["rtmw"] = "myogait.models.rtmw.RTMWPoseExtractor"
+    EXTRACTORS["openpose"] = "myogait.models.openpose.OpenPosePoseExtractor"
     return EXTRACTORS
 
 
