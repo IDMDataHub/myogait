@@ -156,8 +156,29 @@ def analyze_gait(
 
     # Detect pathology flags
     stats["pathology_flags"] = _detect_flags(stats)
+    _add_legacy_summary_aliases(stats)
 
     return stats
+
+
+def _add_legacy_summary_aliases(stats: dict) -> None:
+    """Expose backward-compatible top-level summary keys."""
+    st = stats.get("spatiotemporal", {})
+    ws = stats.get("walking_speed", {})
+
+    cadence = st.get("cadence_steps_per_min")
+    if cadence is not None:
+        stats["cadence"] = cadence
+
+    speed = ws.get("speed_mean")
+    if speed is not None:
+        stats["speed"] = speed
+
+    stance_left = st.get("stance_pct_left")
+    stance_right = st.get("stance_pct_right")
+    stance_vals = [v for v in (stance_left, stance_right) if v is not None]
+    if stance_vals:
+        stats["stance_pct"] = round(float(np.mean(stance_vals)), 1)
 
 
 def _spatiotemporal(cycle_list: list, events: dict, fps: float) -> dict:

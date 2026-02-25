@@ -153,6 +153,15 @@ class TestFullPipeline:
         assert "symmetry" in stats
         assert "variability" in stats
 
+    def test_analyze_gait_keeps_legacy_summary_keys(self):
+        """Backward compatibility for tutorial keys at top-level stats."""
+        _, _, stats = _run_full_pipeline()
+        assert "cadence" in stats
+        assert "speed" in stats
+        assert "stance_pct" in stats
+        assert stats["cadence"] == stats["spatiotemporal"]["cadence_steps_per_min"]
+        assert stats["speed"] == stats["walking_speed"]["speed_mean"]
+
     def test_pipeline_preserves_original_frames(self):
         """Normalization should preserve raw frames in frames_raw."""
         data, _, _ = _run_full_pipeline()
