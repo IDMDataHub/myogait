@@ -15,7 +15,7 @@ Markerless video-based gait analysis toolkit.
 
 ## Features
 
-- **Multi-model pose extraction** — MediaPipe, YOLO, Sapiens (3 sizes), ViTPose, RTMW, HRNet, RTMPose
+- **Multi-model pose extraction** — MediaPipe, YOLO, Sapiens (3 sizes), ViTPose, RTMW, HRNet, RTMPose, OpenPose, AlphaPose, Detectron2
 - **Sapiens depth estimation** — monocular relative depth per landmark
 - **Sapiens body segmentation** — 28-class body-part labels per landmark
 - Butterworth, Savitzky-Golay, and Kalman filtering
@@ -49,6 +49,8 @@ pip install myogait[sapiens]     # Sapiens (Meta AI) + Intel Arc GPU support
 pip install myogait[vitpose]     # ViTPose via HuggingFace Transformers
 pip install myogait[rtmw]        # RTMW 133-keypoint whole-body
 pip install myogait[mmpose]      # HRNet / RTMPose via MMPose
+pip install myogait[alphapose]   # AlphaPose FastPose
+pip install myogait[detectron2]  # Detectron2 Keypoint R-CNN
 pip install myogait[all]         # All backends
 ```
 
@@ -62,6 +64,9 @@ pip install myogait[all]         # All backends
 | Sapiens | `pip install myogait[sapiens]` | Meta model, depth estimation |
 | RTMPose/RTMLib | `pip install myogait[rtmw]` | Real-time, ONNX optimized |
 | MMPose | `pip install myogait[mmpose]` | Academic reference, many models |
+| OpenPose | Built-in (OpenCV DNN) | Historical baseline, bottom-up. 17 COCO keypoints |
+| AlphaPose | `pip install myogait[alphapose]` | Top-down baseline, biomechanics standard |
+| Detectron2 | `pip install myogait[detectron2]` | Meta academic baseline, Keypoint R-CNN |
 
 ## GPU Support
 
@@ -76,6 +81,9 @@ All models support **NVIDIA CUDA** GPUs.  Sapiens and ViTPose also support
 | ViTPose | yes | yes | yes |
 | RTMW | yes (onnxruntime) | — | yes |
 | HRNet / RTMPose | yes | — | yes |
+| OpenPose | yes (OpenCV DNN) | — | yes |
+| AlphaPose | yes | yes | yes |
+| Detectron2 | yes | — | yes |
 
 ## Supported Pose Models
 
@@ -92,6 +100,9 @@ All models support **NVIDIA CUDA** GPUs.  Sapiens and ViTPose also support
 | `rtmw` | 17 COCO + 133 whole-body | COCO | RTMW via rtmlib | `pip install myogait[rtmw]` |
 | `hrnet` | 17 | COCO | HRNet-W48 via MMPose | `pip install myogait[mmpose]` |
 | `mmpose` | 17 | COCO | RTMPose-m via MMPose | `pip install myogait[mmpose]` |
+| `openpose` | 17 | COCO | CMU OpenPose via OpenCV DNN | Built-in |
+| `alphapose` | 17 | COCO | AlphaPose FastPose (ResNet-50) | `pip install myogait[alphapose]` |
+| `detectron2` | 17 | COCO | Keypoint R-CNN (R50-FPN, 3x) | `pip install myogait[detectron2]` |
 
 ## Sapiens Auxiliary Models
 
@@ -285,6 +296,32 @@ HRNet-W48 and RTMPose-m via the OpenMMLab MMPose framework — 17 COCO keypoints
 - **MMPose:** [github.com/open-mmlab/mmpose](https://github.com/open-mmlab/mmpose)
 - **HRNet:** Sun et al., *Deep High-Resolution Representation Learning for Visual Recognition*, TPAMI 2019
 - **RTMPose:** Jiang et al., *RTMPose: Real-Time Multi-Person Pose Estimation based on MMPose*, 2023
+
+### OpenPose
+
+CMU OpenPose — historical bottom-up baseline, 17 COCO keypoints via OpenCV DNN.
+No extra dependency needed (uses OpenCV DNN, included in core install).
+Model auto-downloaded on first use (~200 MB).
+
+- **Paper:** Cao et al., *Realtime Multi-Person 2D Pose Estimation using Part Affinity Fields*, CVPR 2017
+- **Code:** [github.com/CMU-Perceptual-Computing-Lab/openpose](https://github.com/CMU-Perceptual-Computing-Lab/openpose)
+
+### AlphaPose
+
+AlphaPose FastPose (ResNet-50) — top-down baseline widely used in biomechanics.
+Uses YOLO person detection + heatmap-based pose estimation.
+Supports both the official AlphaPose library and a fallback PyTorch reimplementation.
+
+- **Paper:** Fang et al., *AlphaPose: Whole-Body Regional Multi-Person Pose Estimation and Tracking in Real-Time*, TPAMI 2022
+- **Code:** [github.com/MVIG-SJTU/AlphaPose](https://github.com/MVIG-SJTU/AlphaPose)
+
+### Detectron2 / Keypoint R-CNN
+
+Meta's Detectron2 with Keypoint R-CNN (ResNet-50-FPN, 3x schedule) — academic baseline.
+Built-in person detection and 17 COCO keypoint estimation in a single pass.
+
+- **Paper:** Wu et al., *Detectron2*, 2019 ; He et al., *Mask R-CNN*, ICCV 2017
+- **Code:** [github.com/facebookresearch/detectron2](https://github.com/facebookresearch/detectron2)
 
 ## Tutorials & Examples
 

@@ -49,7 +49,7 @@ excel = ["openpyxl>=3.1"]
 yaml = ["pyyaml>=6.0"]
 loess = ["statsmodels>=0.14"]
 wavelet = ["PyWavelets>=1.5"]
-all = ["myogait[mediapipe,yolo,sapiens,vitpose,rtmw,excel,yaml,c3d,loess,wavelet]"]
+all = ["myogait[mediapipe,yolo,sapiens,vitpose,rtmw,openpose,alphapose,detectron2,excel,yaml,c3d,loess,wavelet]"]
 full = ["myogait[all,intel]"]
 dev = ["pytest>=7.0", "pytest-cov>=5.0", "openpyxl>=3.1", "pyyaml>=6.0", "build>=1.0", "twine>=5.0", "ruff>=0.4", "statsmodels>=0.14", "PyWavelets>=1.5"]
 
