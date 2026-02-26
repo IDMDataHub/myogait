@@ -8,6 +8,7 @@ Reference: Fang et al., "AlphaPose: Whole-Body Regional Multi-Person Pose
 Estimation and Tracking in Real-Time", TPAMI 2022.
 """
 
+import hashlib
 import logging
 import os
 import numpy as np
@@ -20,15 +21,18 @@ logger = logging.getLogger(__name__)
 _MODEL_DIR = os.path.join(os.path.expanduser("~"), ".myogait", "models", "alphapose")
 
 _FASTPOSE_URL = (
-    "https://github.com/MVIG-SJTU/AlphaPose/releases/download/v0.6.0/"
-    "fast_res50_256x192.pth"
+    "https://drive.usercontent.google.com/download?"
+    "id=1kQhnMRURFiy7NsdS8EFL-8vtqEXOgECn&export=download&confirm=t"
 )
 _FASTPOSE_FILE = "fast_res50_256x192.pth"
+_FASTPOSE_MIN_BYTES = 100_000_000  # ~155 MB expected
 
 _INPUT_H = 256
 _INPUT_W = 192
 _IMAGENET_MEAN = (0.485, 0.456, 0.406)
 _IMAGENET_STD = (0.229, 0.224, 0.225)
+
+_MIN_KEYPOINTS = 3
 
 
 def _ensure_checkpoint(custom_path=None):
@@ -41,10 +45,16 @@ def _ensure_checkpoint(custom_path=None):
 
     dest = os.path.join(_MODEL_DIR, _FASTPOSE_FILE)
     if os.path.exists(dest):
-        return dest
+        size = os.path.getsize(dest)
+        if size >= _FASTPOSE_MIN_BYTES:
+            return dest
+        logger.warning(
+            "Checkpoint %s is too small (%d bytes), re-downloading.", dest, size,
+        )
+        os.remove(dest)
 
     os.makedirs(_MODEL_DIR, exist_ok=True)
-    logger.info("Downloading AlphaPose FastPose (~150 MB) to %s ...", dest)
+    logger.info("Downloading AlphaPose FastPose (~155 MB) to %s ...", dest)
     import tempfile
     import urllib.request
 
@@ -52,6 +62,14 @@ def _ensure_checkpoint(custom_path=None):
     try:
         os.close(tmp_fd)
         urllib.request.urlretrieve(_FASTPOSE_URL, tmp_path)
+
+        size = os.path.getsize(tmp_path)
+        if size < _FASTPOSE_MIN_BYTES:
+            raise RuntimeError(
+                f"Downloaded file too small ({size} bytes, "
+                f"expected >= {_FASTPOSE_MIN_BYTES}). URL may be invalid."
+            )
+
         os.replace(tmp_path, dest)
     except Exception:
         if os.path.exists(tmp_path):
@@ -202,9 +220,13 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
             model.to(self._device).eval()
             logger.info("Loaded via official AlphaPose library.")
             return model
-        except (ImportError, Exception) as exc:
+        except ImportError as exc:
             logger.info(
                 "AlphaPose library not available (%s), using fallback loader.", exc,
+            )
+        except Exception as exc:
+            logger.warning(
+                "AlphaPose official loader failed (%s), trying fallback.", exc,
             )
 
         # Path 2: minimal PyTorch reimplementation
@@ -236,7 +258,23 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
         import cv2
         import torch
 
+        if frame_rgb is None or frame_rgb.ndim < 2:
+            return None
+
+        # Ensure 3-channel uint8
+        if frame_rgb.ndim == 2:
+            frame_rgb = cv2.cvtColor(frame_rgb, cv2.COLOR_GRAY2RGB)
+        elif frame_rgb.shape[2] == 4:
+            frame_rgb = frame_rgb[:, :, :3]
+
         h, w = frame_rgb.shape[:2]
+        if h == 0 or w == 0:
+            return None
+
+        if frame_rgb.dtype != np.uint8:
+            frame_rgb = np.clip(frame_rgb * 255 if frame_rgb.max() <= 1.0
+                                else frame_rgb, 0, 255).astype(np.uint8)
+
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
 
         # --- Person detection ---
@@ -244,7 +282,8 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
         bboxes = []
         if len(det_results) > 0 and det_results[0].boxes is not None:
             for box in det_results[0].boxes:
-                if box.conf > 0.5:
+                conf = float(box.conf.item()) if hasattr(box.conf, 'item') else float(box.conf)
+                if conf > 0.5:
                     bboxes.append(box.xyxy[0].cpu().numpy())
 
         if not bboxes:
@@ -258,17 +297,21 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(w, x2), min(h, y2)
 
+        if x2 <= x1 or y2 <= y1:
+            return None
+
         crop = frame_bgr[y1:y2, x1:x2]
         if crop.size == 0:
             return None
 
         # --- Preprocess crop ---
         inp = cv2.resize(crop, (_INPUT_W, _INPUT_H))
-        inp = inp[:, :, ::-1].astype(np.float32) / 255.0  # BGR→RGB, scale
+        inp = inp[:, :, ::-1].astype(np.float32) / 255.0  # BGR->RGB, scale
         mean = np.array(_IMAGENET_MEAN, dtype=np.float32)
         std = np.array(_IMAGENET_STD, dtype=np.float32)
         inp = (inp - mean) / std
-        inp = torch.from_numpy(inp.transpose(2, 0, 1)).unsqueeze(0).to(self._device)
+        inp = np.ascontiguousarray(inp.transpose(2, 0, 1))
+        inp = torch.from_numpy(inp).unsqueeze(0).to(self._device)
 
         # --- Inference ---
         with torch.no_grad():
@@ -276,6 +319,9 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
 
         heatmaps = heatmaps[0].cpu().numpy()  # (17, hm_h, hm_w)
         hm_h, hm_w = heatmaps.shape[1], heatmaps.shape[2]
+
+        if hm_h == 0 or hm_w == 0:
+            return None
 
         # --- Decode heatmaps ---
         landmarks = np.zeros((17, 3))
@@ -287,12 +333,16 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
             flat_idx = int(np.argmax(hm))
             y_hm, x_hm = np.unravel_index(flat_idx, (hm_h, hm_w))
 
-            # Heatmap → crop → original frame → normalized [0, 1]
+            # Heatmap -> crop -> original frame -> normalized [0, 1]
             x_crop = x_hm / hm_w * (x2 - x1)
             y_crop = y_hm / hm_h * (y2 - y1)
-            landmarks[j] = [(x_crop + x1) / w, (y_crop + y1) / h, max_val]
+            landmarks[j] = [
+                np.clip((x_crop + x1) / w, 0.0, 1.0),
+                np.clip((y_crop + y1) / h, 0.0, 1.0),
+                max_val,
+            ]
 
-        if np.sum(landmarks[:, 2] > 0) < 3:
+        if np.sum(landmarks[:, 2] > 0) < _MIN_KEYPOINTS:
             return None
 
         return landmarks

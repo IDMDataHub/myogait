@@ -7,6 +7,7 @@ Reference: Cao et al., "Realtime Multi-Person 2D Pose Estimation
 using Part Affinity Fields", CVPR 2017.
 """
 
+import hashlib
 import logging
 import os
 import numpy as np
@@ -22,13 +23,20 @@ _PROTOTXT_URL = (
     "https://raw.githubusercontent.com/CMU-Perceptual-Computing-Lab/openpose/"
     "master/models/pose/coco/pose_deploy_linevec.prototxt"
 )
-_CAFFEMODEL_URL = (
-    "http://posefs1.perception.cs.cmu.edu/OpenPose/models/pose/coco/"
-    "pose_iter_440000.caffemodel"
-)
+
+_CAFFEMODEL_URLS = [
+    "https://huggingface.co/camenduru/openpose/resolve/main/"
+    "models/pose/coco/pose_iter_440000.caffemodel",
+    "https://huggingface.co/gaijingeek/openpose-models/resolve/main/"
+    "models/pose/coco/pose_iter_440000.caffemodel",
+]
 
 _PROTOTXT_FILE = "pose_deploy_linevec.prototxt"
 _CAFFEMODEL_FILE = "pose_iter_440000.caffemodel"
+_CAFFEMODEL_SHA256 = "b4cf475576abd7b15d5316f1ee65eb492b5c9f5865e70a2e7882ed31fb682549"
+_CAFFEMODEL_MIN_BYTES = 100_000_000  # ~200 MB expected
+
+_DOWNLOAD_TIMEOUT = 300  # seconds
 
 # OpenPose COCO-18 keypoint order:
 #  0:Nose  1:Neck  2:RShoulder  3:RElbow  4:RWrist  5:LShoulder  6:LElbow
@@ -61,8 +69,21 @@ _OPENPOSE_TO_COCO17 = {
 }
 
 
-def _safe_download(url, dest):
-    """Download *url* to *dest* atomically (write to temp then rename)."""
+def _sha256(path):
+    """Compute SHA-256 hex digest of a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _safe_download(url, dest, expected_sha256=None, min_bytes=0):
+    """Download *url* to *dest* atomically with integrity checks.
+
+    Uses temp file + ``os.replace`` to prevent corrupt partial files.
+    Optionally verifies SHA-256 hash and minimum file size.
+    """
     import tempfile
     import urllib.request
 
@@ -70,12 +91,42 @@ def _safe_download(url, dest):
     try:
         os.close(tmp_fd)
         urllib.request.urlretrieve(url, tmp_path)
+
+        size = os.path.getsize(tmp_path)
+        if min_bytes and size < min_bytes:
+            raise RuntimeError(
+                f"Downloaded file too small ({size} bytes, "
+                f"expected >= {min_bytes}). URL may be invalid: {url}"
+            )
+
+        if expected_sha256:
+            actual = _sha256(tmp_path)
+            if actual != expected_sha256:
+                raise RuntimeError(
+                    f"SHA-256 mismatch for {os.path.basename(dest)}: "
+                    f"expected {expected_sha256[:16]}..., got {actual[:16]}... "
+                    f"File may be corrupt or tampered with."
+                )
+
         os.replace(tmp_path, dest)  # atomic on same filesystem
     except Exception:
-        # Clean up partial download
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
+
+
+def _is_valid_caffemodel(path):
+    """Check if an existing caffemodel file is valid (not truncated/corrupt)."""
+    if not os.path.exists(path):
+        return False
+    size = os.path.getsize(path)
+    if size < _CAFFEMODEL_MIN_BYTES:
+        logger.warning(
+            "Caffemodel %s is too small (%d bytes), re-downloading.", path, size,
+        )
+        os.remove(path)
+        return False
+    return True
 
 
 def _ensure_models():
@@ -93,16 +144,33 @@ def _ensure_models():
         _safe_download(_PROTOTXT_URL, prototxt_path)
         logger.info("Prototxt downloaded.")
 
-    if not os.path.exists(caffemodel_path):
-        logger.info(
-            "Downloading OpenPose caffemodel (~200 MB) to %s ...",
-            caffemodel_path,
-        )
-        _safe_download(_CAFFEMODEL_URL, caffemodel_path)
-        logger.info(
-            "Caffemodel downloaded (%d MB).",
-            os.path.getsize(caffemodel_path) // (1024 * 1024),
-        )
+    if not _is_valid_caffemodel(caffemodel_path):
+        last_err = None
+        for url in _CAFFEMODEL_URLS:
+            try:
+                logger.info(
+                    "Downloading OpenPose caffemodel (~200 MB) from %s ...",
+                    url.split("/")[2],
+                )
+                _safe_download(
+                    url, caffemodel_path,
+                    expected_sha256=_CAFFEMODEL_SHA256,
+                    min_bytes=_CAFFEMODEL_MIN_BYTES,
+                )
+                logger.info(
+                    "Caffemodel downloaded (%d MB).",
+                    os.path.getsize(caffemodel_path) // (1024 * 1024),
+                )
+                last_err = None
+                break
+            except Exception as exc:
+                last_err = exc
+                logger.warning("Mirror failed (%s), trying next...", exc)
+        if last_err is not None:
+            raise RuntimeError(
+                "Could not download OpenPose caffemodel from any mirror. "
+                "Download manually to: " + caffemodel_path
+            ) from last_err
 
     return prototxt_path, caffemodel_path
 
@@ -126,6 +194,9 @@ def _find_keypoints_from_heatmaps(heatmaps, threshold=0.1):
     keypoints = []
     for i in range(heatmaps.shape[0]):
         hm = heatmaps[i]
+        if hm.size == 0:
+            keypoints.append((None, None, 0.0))
+            continue
         max_val = float(np.max(hm))
         if max_val < threshold:
             keypoints.append((None, None, 0.0))
@@ -160,12 +231,25 @@ class OpenPosePoseExtractor(BasePoseExtractor):
 
         prototxt, caffemodel = _ensure_models()
         logger.info("Loading OpenPose COCO model via OpenCV DNN...")
-        self._net = cv2.dnn.readNetFromCaffe(prototxt, caffemodel)
+        try:
+            self._net = cv2.dnn.readNetFromCaffe(prototxt, caffemodel)
+        except cv2.error as exc:
+            raise RuntimeError(
+                f"Failed to load OpenPose model. Files may be corrupt — "
+                f"delete {_MODEL_DIR} and retry. Original error: {exc}"
+            ) from exc
 
         # Try CUDA, fall back to CPU
         try:
             self._net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
             self._net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+            # Validate CUDA actually works with a tiny forward pass
+            test_blob = cv2.dnn.blobFromImage(
+                np.zeros((16, 16, 3), dtype=np.uint8), 1.0 / 255,
+                (16, 16), (0, 0, 0), swapRB=False, crop=False,
+            )
+            self._net.setInput(test_blob)
+            self._net.forward()
             logger.info("OpenPose using CUDA backend.")
         except Exception:
             self._net.setPreferableBackend(cv2.dnn.DNN_BACKEND_DEFAULT)
@@ -183,7 +267,23 @@ class OpenPosePoseExtractor(BasePoseExtractor):
 
         import cv2
 
+        if frame_rgb is None or frame_rgb.ndim < 2:
+            return None
+
+        # Ensure 3-channel uint8
+        if frame_rgb.ndim == 2:
+            frame_rgb = cv2.cvtColor(frame_rgb, cv2.COLOR_GRAY2RGB)
+        elif frame_rgb.shape[2] == 4:
+            frame_rgb = frame_rgb[:, :, :3]
+
         h, w = frame_rgb.shape[:2]
+        if h == 0 or w == 0:
+            return None
+
+        if frame_rgb.dtype != np.uint8:
+            frame_rgb = np.clip(frame_rgb * 255 if frame_rgb.max() <= 1.0
+                                else frame_rgb, 0, 255).astype(np.uint8)
+
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
 
         blob = cv2.dnn.blobFromImage(
@@ -198,6 +298,9 @@ class OpenPosePoseExtractor(BasePoseExtractor):
         heatmaps = output[0, :19, :, :]
         hm_h, hm_w = heatmaps.shape[1], heatmaps.shape[2]
 
+        if hm_h == 0 or hm_w == 0:
+            return None
+
         # Find peaks for each of the 18 body parts (skip background channel)
         op_keypoints = _find_keypoints_from_heatmaps(
             heatmaps[:18], self.confidence_threshold,
@@ -211,7 +314,11 @@ class OpenPosePoseExtractor(BasePoseExtractor):
             x, y, conf = op_keypoints[op_idx]
             if x is None:
                 continue
-            landmarks[coco_idx] = [x / hm_w, y / hm_h, conf]
+            landmarks[coco_idx] = [
+                np.clip(x / hm_w, 0.0, 1.0),
+                np.clip(y / hm_h, 0.0, 1.0),
+                conf,
+            ]
 
         if np.sum(landmarks[:, 2] > 0) < 3:
             return None

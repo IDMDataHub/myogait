@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG = "COCO-Keypoints/keypoint_rcnn_R_50_FPN_3x.yaml"
 _DEFAULT_THRESHOLD = 0.7
+_MIN_KEYPOINTS = 3
 
 
 class Detectron2PoseExtractor(BasePoseExtractor):
@@ -80,7 +81,23 @@ class Detectron2PoseExtractor(BasePoseExtractor):
 
         import cv2
 
+        if frame_rgb is None or frame_rgb.ndim < 2:
+            return None
+
+        # Ensure 3-channel uint8
+        if frame_rgb.ndim == 2:
+            frame_rgb = cv2.cvtColor(frame_rgb, cv2.COLOR_GRAY2RGB)
+        elif frame_rgb.shape[2] == 4:
+            frame_rgb = frame_rgb[:, :, :3]
+
         h, w = frame_rgb.shape[:2]
+        if h == 0 or w == 0:
+            return None
+
+        if frame_rgb.dtype != np.uint8:
+            frame_rgb = np.clip(frame_rgb * 255 if frame_rgb.max() <= 1.0
+                                else frame_rgb, 0, 255).astype(np.uint8)
+
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
 
         outputs = self._predictor(frame_bgr)
@@ -108,14 +125,18 @@ class Detectron2PoseExtractor(BasePoseExtractor):
 
         # Select the largest person (area * confidence)
         areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-        best_idx = int(np.argmax(areas * scores))
+        weighted = areas * np.nan_to_num(scores, nan=0.0)
+        best_idx = int(np.argmax(weighted))
 
         kps = keypoints[best_idx]  # (17, 3) [x_pixel, y_pixel, confidence]
 
         landmarks = np.column_stack([
-            kps[:, 0] / w,
-            kps[:, 1] / h,
+            np.clip(kps[:, 0] / w, 0.0, 1.0),
+            np.clip(kps[:, 1] / h, 0.0, 1.0),
             kps[:, 2],
         ])
+
+        if np.sum(landmarks[:, 2] > 0) < _MIN_KEYPOINTS:
+            return None
 
         return landmarks
