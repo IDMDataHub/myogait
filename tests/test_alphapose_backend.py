@@ -50,6 +50,7 @@ def test_alphapose_default_params():
     ext = AlphaPosePoseExtractor()
     assert ext.device_name == "auto"
     assert ext.checkpoint is None
+    assert ext.confidence_threshold == pytest.approx(0.1)
     assert ext._model is None
     assert ext._detector is None
     assert ext._device is None
@@ -58,9 +59,12 @@ def test_alphapose_default_params():
 def test_alphapose_custom_params():
     from myogait.models.alphapose import AlphaPosePoseExtractor
 
-    ext = AlphaPosePoseExtractor(device="cpu", checkpoint="/tmp/custom.pth")
+    ext = AlphaPosePoseExtractor(
+        device="cpu", checkpoint="/tmp/custom.pth", confidence_threshold=0.2,
+    )
     assert ext.device_name == "cpu"
     assert ext.checkpoint == "/tmp/custom.pth"
+    assert ext.confidence_threshold == pytest.approx(0.2)
 
 
 # -- Setup error handling ---------------------------------------------------

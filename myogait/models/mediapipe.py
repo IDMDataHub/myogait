@@ -29,8 +29,21 @@ def _ensure_model(model_path: str = None) -> str:
 
     os.makedirs(_DEFAULT_MODEL_DIR, exist_ok=True)
     logger.info(f"Downloading MediaPipe pose model to {default_path}...")
+    import shutil
+    import tempfile
     import urllib.request
-    urllib.request.urlretrieve(_MODEL_URL, default_path)
+
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=_DEFAULT_MODEL_DIR)
+    try:
+        os.close(tmp_fd)
+        resp = urllib.request.urlopen(_MODEL_URL, timeout=300)
+        with open(tmp_path, "wb") as out:
+            shutil.copyfileobj(resp, out)
+        os.replace(tmp_path, default_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
     logger.info(f"Downloaded ({os.path.getsize(default_path)} bytes)")
     return default_path
 

@@ -37,27 +37,26 @@ def test_ensure_model_downloads_when_missing(monkeypatch, tmp_path):
     default_file = default_dir / "pose_landmarker_heavy.task"
     monkeypatch.setattr(mp_mod, "_DEFAULT_MODEL_DIR", str(default_dir))
 
-    called = {"makedirs": False, "url": None, "dest": None}
+    called = {"makedirs": False, "url": None}
 
     def _fake_makedirs(path, exist_ok=False):
         called["makedirs"] = True
         Path(path).mkdir(parents=True, exist_ok=True)
 
-    def _fake_urlretrieve(url, dest):
+    import io
+
+    def _fake_urlopen(url, timeout=None):
         called["url"] = url
-        called["dest"] = dest
-        Path(dest).write_bytes(b"model-bytes")
-        return dest, None
+        return io.BytesIO(b"model-bytes")
 
     monkeypatch.setattr(os, "makedirs", _fake_makedirs)
-    monkeypatch.setattr("urllib.request.urlretrieve", _fake_urlretrieve)
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
 
     resolved = mp_mod._ensure_model()
 
     assert resolved == str(default_file)
     assert called["makedirs"] is True
     assert called["url"] == mp_mod._MODEL_URL
-    assert called["dest"] == str(default_file)
 
 
 def test_download_model_unknown_size_rejected(monkeypatch):

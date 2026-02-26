@@ -55,13 +55,16 @@ def _ensure_checkpoint(custom_path=None):
 
     os.makedirs(_MODEL_DIR, exist_ok=True)
     logger.info("Downloading AlphaPose FastPose (~155 MB) to %s ...", dest)
+    import shutil
     import tempfile
     import urllib.request
 
     tmp_fd, tmp_path = tempfile.mkstemp(dir=_MODEL_DIR)
     try:
         os.close(tmp_fd)
-        urllib.request.urlretrieve(_FASTPOSE_URL, tmp_path)
+        resp = urllib.request.urlopen(_FASTPOSE_URL, timeout=300)
+        with open(tmp_path, "wb") as out:
+            shutil.copyfileobj(resp, out)
 
         size = os.path.getsize(tmp_path)
         if size < _FASTPOSE_MIN_BYTES:
@@ -119,6 +122,19 @@ def _build_simple_fastpose(num_joints=17):
     return _SimpleFastPose()
 
 
+def _safe_torch_load(torch, path, device):
+    """Load checkpoint preferring ``weights_only=True`` for safety."""
+    try:
+        return torch.load(path, map_location=device, weights_only=True)
+    except TypeError:
+        # PyTorch < 1.13 has no weights_only parameter
+        return torch.load(path, map_location=device)
+    except Exception:
+        # Fallback for checkpoints with non-tensor data
+        logger.warning("weights_only=True failed, falling back to unsafe load.")
+        return torch.load(path, map_location=device, weights_only=False)
+
+
 class AlphaPosePoseExtractor(BasePoseExtractor):
     """AlphaPose FastPose (ResNet-50) -- 17 COCO keypoints.
 
@@ -142,9 +158,11 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
     n_landmarks = 17
     is_coco_format = True
 
-    def __init__(self, device: str = "auto", checkpoint: str = None):
+    def __init__(self, device: str = "auto", checkpoint: str = None,
+                 confidence_threshold: float = 0.1):
         self.device_name = device
         self.checkpoint = checkpoint
+        self.confidence_threshold = confidence_threshold
         self._model = None
         self._detector = None
         self._device = None
@@ -210,7 +228,7 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
                 },
             })
             model = model_builder.build_sppe(cfg.MODEL, preset_cfg=cfg.DATA_PRESET)
-            state = torch.load(checkpoint_path, map_location=self._device, weights_only=False)
+            state = _safe_torch_load(torch, checkpoint_path, self._device)
             result = model.load_state_dict(state, strict=False)
             if result.missing_keys:
                 logger.warning(
@@ -328,7 +346,7 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
         for j in range(17):
             hm = heatmaps[j]
             max_val = float(np.max(hm))
-            if max_val < 0.1:
+            if max_val < self.confidence_threshold:
                 continue
             flat_idx = int(np.argmax(hm))
             y_hm, x_hm = np.unravel_index(flat_idx, (hm_h, hm_w))

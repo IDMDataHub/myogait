@@ -78,19 +78,23 @@ def _sha256(path):
     return h.hexdigest()
 
 
-def _safe_download(url, dest, expected_sha256=None, min_bytes=0):
+def _safe_download(url, dest, expected_sha256=None, min_bytes=0,
+                   timeout=_DOWNLOAD_TIMEOUT):
     """Download *url* to *dest* atomically with integrity checks.
 
     Uses temp file + ``os.replace`` to prevent corrupt partial files.
     Optionally verifies SHA-256 hash and minimum file size.
     """
+    import shutil
     import tempfile
     import urllib.request
 
     tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(dest))
     try:
         os.close(tmp_fd)
-        urllib.request.urlretrieve(url, tmp_path)
+        resp = urllib.request.urlopen(url, timeout=timeout)
+        with open(tmp_path, "wb") as out:
+            shutil.copyfileobj(resp, out)
 
         size = os.path.getsize(tmp_path)
         if min_bytes and size < min_bytes:
