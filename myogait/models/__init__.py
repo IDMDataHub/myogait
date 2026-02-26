@@ -23,6 +23,7 @@ def _register_lazy():
     EXTRACTORS["rtmw"] = "myogait.models.rtmw.RTMWPoseExtractor"
     EXTRACTORS["openpose"] = "myogait.models.openpose.OpenPosePoseExtractor"
     EXTRACTORS["detectron2"] = "myogait.models.keypoint_rcnn.Detectron2PoseExtractor"
+    EXTRACTORS["alphapose"] = "myogait.models.alphapose.AlphaPosePoseExtractor"
     return EXTRACTORS
 
 
