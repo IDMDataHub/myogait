@@ -247,7 +247,7 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
 
         # Path 2: minimal PyTorch reimplementation
         model = _build_simple_fastpose(num_joints=17)
-        state = torch.load(checkpoint_path, map_location=self._device, weights_only=False)
+        state = _safe_torch_load(torch, checkpoint_path, self._device)
         if any(k.startswith("module.") for k in state.keys()):
             state = {k.replace("module.", ""): v for k, v in state.items()}
         result = model.load_state_dict(state, strict=False)

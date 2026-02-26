@@ -346,6 +346,48 @@ def test_process_frame_grayscale_accepted():
     assert result is None  # no crash
 
 
+def test_process_frame_rgba_accepted():
+    """RGBA input should be auto-converted to RGB."""
+    torch = pytest.importorskip("torch")
+    from types import SimpleNamespace
+    from myogait.models.alphapose import AlphaPosePoseExtractor
+
+    ext = AlphaPosePoseExtractor()
+    ext._device = torch.device("cpu")
+
+    class _FakeDetector:
+        def __call__(self, img, verbose=False, classes=None):
+            return [SimpleNamespace(boxes=None)]
+
+    ext._detector = _FakeDetector()
+    ext._model = lambda x: torch.zeros(1, 17, 64, 48)
+
+    rgba = np.zeros((480, 640, 4), dtype=np.uint8)
+    result = ext.process_frame(rgba)
+    assert result is None  # no crash
+
+
+def test_process_frame_float_input_accepted():
+    """Float [0,1] input should be handled."""
+    torch = pytest.importorskip("torch")
+    from types import SimpleNamespace
+    from myogait.models.alphapose import AlphaPosePoseExtractor
+
+    ext = AlphaPosePoseExtractor()
+    ext._device = torch.device("cpu")
+
+    class _FakeDetector:
+        def __call__(self, img, verbose=False, classes=None):
+            return [SimpleNamespace(boxes=None)]
+
+    ext._detector = _FakeDetector()
+    ext._model = lambda x: torch.zeros(1, 17, 64, 48)
+
+    float_frame = np.zeros((480, 640, 3), dtype=np.float32)
+    result = ext.process_frame(float_frame)
+    assert result is None  # no crash
+
+
 def test_process_frame_min_keypoints_filter():
     """Heatmaps with < 3 peaks should return None."""
     torch = pytest.importorskip("torch")

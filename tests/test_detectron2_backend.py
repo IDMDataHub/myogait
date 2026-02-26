@@ -369,6 +369,44 @@ def test_process_frame_grayscale_accepted():
     assert result is None  # no crash, no detections
 
 
+def test_process_frame_rgba_accepted():
+    """RGBA input should be auto-converted to RGB."""
+    from myogait.models.keypoint_rcnn import Detectron2PoseExtractor
+
+    ext = Detectron2PoseExtractor()
+
+    instances = _MockInstances(
+        pred_classes=np.array([]).reshape(0),
+        pred_keypoints=np.zeros((0, 17, 3)),
+        scores=np.array([]).reshape(0),
+        boxes=np.zeros((0, 4)),
+    )
+
+    ext._predictor = lambda frame: {"instances": instances}
+    rgba = np.zeros((480, 640, 4), dtype=np.uint8)
+    result = ext.process_frame(rgba)
+    assert result is None  # no crash
+
+
+def test_process_frame_float_input_accepted():
+    """Float [0,1] input should be handled."""
+    from myogait.models.keypoint_rcnn import Detectron2PoseExtractor
+
+    ext = Detectron2PoseExtractor()
+
+    instances = _MockInstances(
+        pred_classes=np.array([]).reshape(0),
+        pred_keypoints=np.zeros((0, 17, 3)),
+        scores=np.array([]).reshape(0),
+        boxes=np.zeros((0, 4)),
+    )
+
+    ext._predictor = lambda frame: {"instances": instances}
+    float_frame = np.zeros((480, 640, 3), dtype=np.float32)
+    result = ext.process_frame(float_frame)
+    assert result is None  # no crash
+
+
 def test_process_frame_nan_scores_handled():
     """NaN in scores should not crash argmax."""
     from myogait.models.keypoint_rcnn import Detectron2PoseExtractor
