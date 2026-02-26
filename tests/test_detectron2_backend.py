@@ -1,7 +1,9 @@
 """Tests for the Detectron2 / Keypoint R-CNN backend."""
 
 import importlib
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from myogait.models import get_extractor, list_models
@@ -95,3 +97,153 @@ def test_teardown_clears_predictor():
     ext._predictor = "placeholder"
     ext.teardown()
     assert ext._predictor is None
+
+
+# ── process_frame with mock predictor ────────────────────────────────────
+
+class _MockBoxes:
+    """Mimics Detectron2 Boxes with subscript + .tensor access."""
+
+    def __init__(self, data):
+        self.tensor = _T(data)
+        self._data = np.asarray(data)
+
+    def __getitem__(self, idx):
+        return _MockBoxes(self._data[idx])
+
+
+class _MockInstances:
+    """Mimics Detectron2 Instances output."""
+
+    def __init__(self, pred_classes, pred_keypoints, scores, boxes):
+        self.pred_classes = _T(pred_classes)
+        self.pred_keypoints = _T(pred_keypoints)
+        self.scores = _T(scores)
+        self.pred_boxes = _MockBoxes(boxes)
+        self._fields = {"pred_keypoints": True}
+
+    def has(self, field):
+        return field in self._fields
+
+    def __len__(self):
+        return len(self.pred_classes._data)
+
+    def __getitem__(self, idx):
+        return _MockInstances(
+            self.pred_classes._data[idx],
+            self.pred_keypoints._data[idx],
+            self.scores._data[idx],
+            self.pred_boxes._data[idx],
+        )
+
+
+class _T:
+    """Mimics a torch tensor with .cpu().numpy() chain."""
+
+    def __init__(self, data):
+        self._data = np.asarray(data)
+
+    def cpu(self):
+        return self
+
+    def numpy(self):
+        return self._data
+
+    def __len__(self):
+        return len(self._data)
+
+    def __getitem__(self, idx):
+        return _T(self._data[idx])
+
+
+def test_process_frame_single_person():
+    from myogait.models.keypoint_rcnn import Detectron2PoseExtractor
+
+    ext = Detectron2PoseExtractor()
+
+    kps = np.zeros((1, 17, 3), dtype=np.float32)
+    kps[0, :, 0] = np.linspace(100, 500, 17)   # x pixels
+    kps[0, :, 1] = np.linspace(50, 400, 17)    # y pixels
+    kps[0, :, 2] = 0.9                          # confidence
+
+    instances = _MockInstances(
+        pred_classes=np.array([0]),
+        pred_keypoints=kps,
+        scores=np.array([0.95]),
+        boxes=np.array([[50, 30, 550, 430]]),
+    )
+
+    ext._predictor = lambda frame: {"instances": instances}
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    result = ext.process_frame(frame)
+
+    assert result is not None
+    assert result.shape == (17, 3)
+    # All x should be in [0, 1]
+    assert np.all(result[:, 0] >= 0) and np.all(result[:, 0] <= 1)
+    assert np.all(result[:, 1] >= 0) and np.all(result[:, 1] <= 1)
+    assert np.all(result[:, 2] == pytest.approx(0.9))
+
+
+def test_process_frame_no_person_returns_none():
+    from myogait.models.keypoint_rcnn import Detectron2PoseExtractor
+
+    ext = Detectron2PoseExtractor()
+    # Non-person class (e.g., car = 2)
+    instances = _MockInstances(
+        pred_classes=np.array([2]),
+        pred_keypoints=np.zeros((1, 17, 3)),
+        scores=np.array([0.9]),
+        boxes=np.array([[0, 0, 100, 100]]),
+    )
+
+    ext._predictor = lambda frame: {"instances": instances}
+    result = ext.process_frame(np.zeros((480, 640, 3), dtype=np.uint8))
+    assert result is None
+
+
+def test_process_frame_empty_instances_returns_none():
+    from myogait.models.keypoint_rcnn import Detectron2PoseExtractor
+
+    ext = Detectron2PoseExtractor()
+
+    instances = _MockInstances(
+        pred_classes=np.array([]).reshape(0),
+        pred_keypoints=np.zeros((0, 17, 3)),
+        scores=np.array([]).reshape(0),
+        boxes=np.zeros((0, 4)),
+    )
+
+    ext._predictor = lambda frame: {"instances": instances}
+    result = ext.process_frame(np.zeros((480, 640, 3), dtype=np.uint8))
+    assert result is None
+
+
+def test_process_frame_selects_largest_person():
+    from myogait.models.keypoint_rcnn import Detectron2PoseExtractor
+
+    ext = Detectron2PoseExtractor()
+
+    kps = np.zeros((2, 17, 3), dtype=np.float32)
+    # Person 0: small box, nose at (100, 100)
+    kps[0, 0, :] = [100, 100, 0.9]
+    # Person 1: big box, nose at (320, 240)
+    kps[1, 0, :] = [320, 240, 0.9]
+
+    instances = _MockInstances(
+        pred_classes=np.array([0, 0]),
+        pred_keypoints=kps,
+        scores=np.array([0.8, 0.9]),
+        boxes=np.array([
+            [90, 90, 110, 110],    # 20x20 = 400 * 0.8 = 320
+            [100, 50, 540, 430],   # 440x380 = 167200 * 0.9 = 150480
+        ]),
+    )
+
+    ext._predictor = lambda frame: {"instances": instances}
+    result = ext.process_frame(np.zeros((480, 640, 3), dtype=np.uint8))
+
+    assert result is not None
+    # Should pick person 1 (largest area*score), nose at (320/640, 240/480)
+    assert result[0, 0] == pytest.approx(320 / 640)
+    assert result[0, 1] == pytest.approx(240 / 480)

@@ -1,6 +1,7 @@
 """Tests for the OpenPose backend (bottom-up, OpenCV DNN)."""
 
 import importlib
+import os
 import types
 
 import numpy as np
@@ -114,3 +115,100 @@ def test_openpose_custom_params():
     )
     assert ext.input_width == 256
     assert ext.confidence_threshold == pytest.approx(0.2)
+
+
+# ── Atomic download ─────────────────────────────────────────────────────
+
+def test_safe_download_cleans_up_on_failure(tmp_path):
+    from myogait.models.openpose import _safe_download
+
+    dest = str(tmp_path / "model.bin")
+    with pytest.raises(Exception):
+        _safe_download("http://0.0.0.0:1/missing", dest)
+
+    assert not os.path.exists(dest), "Partial file should be cleaned up"
+    # No temp files left either
+    assert len(list(tmp_path.iterdir())) == 0
+
+
+# ── process_frame with synthetic heatmaps ────────────────────────────────
+
+def test_process_frame_returns_none_when_no_keypoints():
+    """All heatmap channels below threshold → None."""
+    from myogait.models.openpose import OpenPosePoseExtractor
+
+    ext = OpenPosePoseExtractor()
+
+    # Mock the DNN network
+    class _FakeNet:
+        def setInput(self, blob):
+            pass
+        def forward(self):
+            return np.zeros((1, 57, 46, 46), dtype=np.float32)
+
+    ext._net = _FakeNet()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    result = ext.process_frame(frame)
+    assert result is None
+
+
+def test_process_frame_returns_array_with_enough_peaks():
+    """Enough heatmap peaks → returns (17, 3) array."""
+    from myogait.models.openpose import OpenPosePoseExtractor, _OPENPOSE_TO_COCO17
+
+    ext = OpenPosePoseExtractor(confidence_threshold=0.05)
+
+    heatmaps = np.zeros((1, 57, 46, 46), dtype=np.float32)
+    # Set 5 strong peaks (more than the 3-keypoint minimum)
+    for op_idx in list(_OPENPOSE_TO_COCO17.keys())[:5]:
+        heatmaps[0, op_idx, 20 + op_idx, 20] = 0.8
+
+    class _FakeNet:
+        def setInput(self, blob):
+            pass
+        def forward(self):
+            return heatmaps
+
+    ext._net = _FakeNet()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    result = ext.process_frame(frame)
+
+    assert result is not None
+    assert result.shape == (17, 3)
+    assert np.sum(result[:, 2] > 0) >= 5
+    # All coordinates should be in [0, 1]
+    visible = result[:, 2] > 0
+    assert np.all(result[visible, 0] >= 0)
+    assert np.all(result[visible, 0] <= 1)
+    assert np.all(result[visible, 1] >= 0)
+    assert np.all(result[visible, 1] <= 1)
+
+
+def test_process_frame_exactly_two_peaks_returns_none():
+    """Only 2 peaks (below the 3-keypoint minimum) → None."""
+    from myogait.models.openpose import OpenPosePoseExtractor, _OPENPOSE_TO_COCO17
+
+    ext = OpenPosePoseExtractor(confidence_threshold=0.05)
+
+    heatmaps = np.zeros((1, 57, 46, 46), dtype=np.float32)
+    for op_idx in list(_OPENPOSE_TO_COCO17.keys())[:2]:
+        heatmaps[0, op_idx, 23, 23] = 0.8
+
+    class _FakeNet:
+        def setInput(self, blob):
+            pass
+        def forward(self):
+            return heatmaps
+
+    ext._net = _FakeNet()
+    result = ext.process_frame(np.zeros((480, 640, 3), dtype=np.uint8))
+    assert result is None
+
+
+def test_teardown_resets_net():
+    from myogait.models.openpose import OpenPosePoseExtractor
+
+    ext = OpenPosePoseExtractor()
+    ext._net = "placeholder"
+    ext.teardown()
+    assert ext._net is None

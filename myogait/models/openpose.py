@@ -61,6 +61,23 @@ _OPENPOSE_TO_COCO17 = {
 }
 
 
+def _safe_download(url, dest):
+    """Download *url* to *dest* atomically (write to temp then rename)."""
+    import tempfile
+    import urllib.request
+
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(dest))
+    try:
+        os.close(tmp_fd)
+        urllib.request.urlretrieve(url, tmp_path)
+        os.replace(tmp_path, dest)  # atomic on same filesystem
+    except Exception:
+        # Clean up partial download
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+
 def _ensure_models():
     """Download OpenPose Caffe model files if not already present.
 
@@ -73,8 +90,7 @@ def _ensure_models():
 
     if not os.path.exists(prototxt_path):
         logger.info("Downloading OpenPose prototxt to %s ...", prototxt_path)
-        import urllib.request
-        urllib.request.urlretrieve(_PROTOTXT_URL, prototxt_path)
+        _safe_download(_PROTOTXT_URL, prototxt_path)
         logger.info("Prototxt downloaded.")
 
     if not os.path.exists(caffemodel_path):
@@ -82,8 +98,7 @@ def _ensure_models():
             "Downloading OpenPose caffemodel (~200 MB) to %s ...",
             caffemodel_path,
         )
-        import urllib.request
-        urllib.request.urlretrieve(_CAFFEMODEL_URL, caffemodel_path)
+        _safe_download(_CAFFEMODEL_URL, caffemodel_path)
         logger.info(
             "Caffemodel downloaded (%d MB).",
             os.path.getsize(caffemodel_path) // (1024 * 1024),

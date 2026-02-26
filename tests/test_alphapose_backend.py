@@ -1,7 +1,9 @@
 """Tests for the AlphaPose backend (top-down, dual-path loading)."""
 
 import importlib
+import os
 
+import numpy as np
 import pytest
 
 from myogait.models import get_extractor, list_models
@@ -116,7 +118,7 @@ def test_simple_fastpose_builds():
 
 
 def test_simple_fastpose_output_spatial_shape():
-    """Heatmaps should be roughly input_size / 4."""
+    """Heatmaps should be input_size / 4."""
     torch = pytest.importorskip("torch")
     from myogait.models.alphapose import _build_simple_fastpose
 
@@ -125,6 +127,87 @@ def test_simple_fastpose_output_spatial_shape():
     with torch.no_grad():
         out = model(dummy)
     # ResNet stride=32, 3 deconv stride=2 → net stride=4
-    # 256/4=64, 192/4=48 (but with padding differences may vary slightly)
-    assert out.shape[2] > 0
-    assert out.shape[3] > 0
+    # 256/4=64, 192/4=48
+    assert out.shape == (1, 17, 64, 48)
+
+
+# ── Atomic download ─────────────────────────────────────────────────────
+
+def test_ensure_checkpoint_cleans_up_on_failure(tmp_path, monkeypatch):
+    from myogait.models import alphapose as mod
+
+    monkeypatch.setattr(mod, "_MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(mod, "_FASTPOSE_URL", "http://0.0.0.0:1/bad")
+
+    with pytest.raises(Exception):
+        mod._ensure_checkpoint(custom_path=None)
+
+    # No partial file should remain
+    files = [f for f in tmp_path.iterdir() if f.name != _FASTPOSE_FILE]
+    leftover = [f for f in files if f.stat().st_size > 0]
+    assert len(leftover) == 0
+
+
+_FASTPOSE_FILE = "fast_res50_256x192.pth"
+
+
+# ── process_frame with mock model + detector ─────────────────────────────
+
+def test_process_frame_no_detections_returns_none():
+    """YOLO detects no person → None."""
+    torch = pytest.importorskip("torch")
+    from myogait.models.alphapose import AlphaPosePoseExtractor
+
+    ext = AlphaPosePoseExtractor()
+    ext._device = torch.device("cpu")
+
+    # Mock detector returns empty boxes
+    class _FakeDetector:
+        def __call__(self, img, verbose=False, classes=None):
+            from types import SimpleNamespace
+            return [SimpleNamespace(boxes=None)]
+
+    ext._detector = _FakeDetector()
+    ext._model = lambda x: torch.zeros(1, 17, 64, 48)
+
+    result = ext.process_frame(np.zeros((480, 640, 3), dtype=np.uint8))
+    assert result is None
+
+
+def test_process_frame_with_mock_returns_landmarks():
+    """Full mock: YOLO detects person, model returns heatmaps → (17,3)."""
+    torch = pytest.importorskip("torch")
+    from types import SimpleNamespace
+    from myogait.models.alphapose import AlphaPosePoseExtractor
+
+    ext = AlphaPosePoseExtractor()
+    ext._device = torch.device("cpu")
+
+    # Mock YOLO detector returning one box
+    class _FakeBox:
+        conf = torch.tensor([0.9])
+        xyxy = torch.tensor([[50.0, 30.0, 550.0, 430.0]])
+
+    class _FakeDetector:
+        def __call__(self, img, verbose=False, classes=None):
+            return [SimpleNamespace(boxes=[_FakeBox()])]
+
+    ext._detector = _FakeDetector()
+
+    # Mock pose model returning heatmaps with clear peaks
+    def _fake_model(inp):
+        hm = torch.zeros(1, 17, 64, 48)
+        for j in range(17):
+            hm[0, j, 30 + j % 10, 20 + j % 10] = 5.0  # strong peaks
+        return hm
+
+    ext._model = _fake_model
+
+    result = ext.process_frame(np.zeros((480, 640, 3), dtype=np.uint8))
+    assert result is not None
+    assert result.shape == (17, 3)
+    # All visible landmarks should be in [0, 1]
+    visible = result[:, 2] > 0
+    assert np.sum(visible) >= 3
+    assert np.all(result[visible, 0] >= 0) and np.all(result[visible, 0] <= 1)
+    assert np.all(result[visible, 1] >= 0) and np.all(result[visible, 1] <= 1)

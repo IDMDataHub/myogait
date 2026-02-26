@@ -45,8 +45,18 @@ def _ensure_checkpoint(custom_path=None):
 
     os.makedirs(_MODEL_DIR, exist_ok=True)
     logger.info("Downloading AlphaPose FastPose (~150 MB) to %s ...", dest)
+    import tempfile
     import urllib.request
-    urllib.request.urlretrieve(_FASTPOSE_URL, dest)
+
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=_MODEL_DIR)
+    try:
+        os.close(tmp_fd)
+        urllib.request.urlretrieve(_FASTPOSE_URL, tmp_path)
+        os.replace(tmp_path, dest)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
     logger.info(
         "Downloaded (%d MB).", os.path.getsize(dest) // (1024 * 1024),
     )
@@ -183,7 +193,12 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
             })
             model = model_builder.build_sppe(cfg.MODEL, preset_cfg=cfg.DATA_PRESET)
             state = torch.load(checkpoint_path, map_location=self._device, weights_only=False)
-            model.load_state_dict(state, strict=False)
+            result = model.load_state_dict(state, strict=False)
+            if result.missing_keys:
+                logger.warning(
+                    "AlphaPose (official): %d missing keys in checkpoint.",
+                    len(result.missing_keys),
+                )
             model.to(self._device).eval()
             logger.info("Loaded via official AlphaPose library.")
             return model
@@ -197,7 +212,14 @@ class AlphaPosePoseExtractor(BasePoseExtractor):
         state = torch.load(checkpoint_path, map_location=self._device, weights_only=False)
         if any(k.startswith("module.") for k in state.keys()):
             state = {k.replace("module.", ""): v for k, v in state.items()}
-        model.load_state_dict(state, strict=False)
+        result = model.load_state_dict(state, strict=False)
+        if result.missing_keys:
+            logger.warning(
+                "AlphaPose (fallback): %d missing keys — model may "
+                "produce degraded results. Missing: %s",
+                len(result.missing_keys),
+                ", ".join(result.missing_keys[:5]),
+            )
         model.to(self._device).eval()
         logger.info("Loaded via fallback FastPose reimplementation.")
         return model
