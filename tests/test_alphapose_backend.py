@@ -1,7 +1,6 @@
 """Tests for the AlphaPose backend (top-down, dual-path loading)."""
 
 import importlib
-import os
 
 import numpy as np
 import pytest

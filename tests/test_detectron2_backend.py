@@ -1,7 +1,6 @@
 """Tests for the Detectron2 / Keypoint R-CNN backend."""
 
 import importlib
-from types import SimpleNamespace
 
 import numpy as np
 import pytest

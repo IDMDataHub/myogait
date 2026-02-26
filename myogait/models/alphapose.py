@@ -8,7 +8,6 @@ Reference: Fang et al., "AlphaPose: Whole-Body Regional Multi-Person Pose
 Estimation and Tracking in Real-Time", TPAMI 2022.
 """
 
-import hashlib
 import logging
 import os
 import numpy as np
@@ -91,7 +90,6 @@ def _build_simple_fastpose(num_joints=17):
     installed.  The architecture matches FastPose-ResNet-50 so that
     pretrained weights can be loaded with ``strict=False``.
     """
-    import torch
     import torch.nn as nn
     from torchvision.models import resnet50
 
