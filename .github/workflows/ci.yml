@@ -15,7 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ['3.10', '3.11', '3.12']
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
         os: [ubuntu-latest, windows-latest]
       fail-fast: false
 
@@ -46,7 +46,7 @@ jobs:
         run: python -m pytest tests/ -v --tb=short -q
 
       - name: Coverage gate (myogait >= 75%)
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
         run: python -m pytest tests/ --cov=myogait --cov-report=term-missing --cov-fail-under=75 -q
 
   build:
@@ -57,10 +57,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.12
+      - name: Setup Python 3.14
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
       - name: Install build tools
         run: pip install build twine
