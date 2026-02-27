@@ -13,6 +13,8 @@ on:
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    # Allow Python 3.14 to fail (ezc3d has no wheel yet)
+    continue-on-error: ${{ matrix.python-version == '3.14' }}
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
@@ -27,6 +29,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
 
       - name: Install system dependencies
         if: runner.os == 'Linux'
@@ -46,7 +49,7 @@ jobs:
         run: python -m pytest tests/ -v --tb=short -q
 
       - name: Coverage gate (myogait >= 75%)
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: python -m pytest tests/ --cov=myogait --cov-report=term-missing --cov-fail-under=75 -q
 
   build:
@@ -57,10 +60,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.14
+      - name: Setup Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: '3.13'
 
       - name: Install build tools
         run: pip install build twine
