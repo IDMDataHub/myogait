@@ -111,6 +111,22 @@ def make_walking_data(n_frames=300, fps=30.0):
     return data
 
 
+def make_coco17_walking_data(n_frames=300, fps=30.0):
+    """Create walking data simulating a COCO-17 model output.
+
+    Same as make_walking_data but HEEL and FOOT_INDEX are NaN with
+    visibility=0.0, as produced by _coco_to_mediapipe() conversion.
+    """
+    data = make_walking_data(n_frames, fps)
+    for frame in data["frames"]:
+        for name in ("LEFT_HEEL", "RIGHT_HEEL", "LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX"):
+            frame["landmarks"][name] = {
+                "x": float("nan"), "y": float("nan"), "visibility": 0.0,
+            }
+    data["extraction"]["model"] = "yolo"  # representative COCO-17 model
+    return data
+
+
 def make_walking_data_with_low_confidence(n_frames=300, fps=30.0, low_vis_rate=0.3):
     """Walking data where some landmarks have low visibility scores."""
     data = make_walking_data(n_frames, fps)

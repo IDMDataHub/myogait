@@ -181,6 +181,92 @@ def _enrich_foot_landmarks(frame: dict) -> None:
     frame["foot_landmarks_source"] = "detected"
 
 
+def _estimate_missing_foot_landmarks(frame: dict) -> None:
+    """Estimate HEEL and FOOT_INDEX from ankle/knee geometry when missing.
+
+    Called after ``_enrich_foot_landmarks`` so that COCO-17 models (which
+    lack native foot landmarks) still provide usable heel/toe positions
+    for downstream consumers (events, toe clearance, ankle angles).
+
+    Estimated landmarks receive ``visibility = 0.5`` to distinguish them
+    from detected ones (typically > 0.8).  Sets
+    ``frame["foot_landmarks_source"] = "estimated"`` when estimation occurs.
+
+    Modifies *frame* in place.
+    """
+    # Skip if foot landmarks were already detected from auxiliary data
+    if frame.get("foot_landmarks_source") == "detected":
+        return
+
+    lm = frame.get("landmarks")
+    if not lm:
+        return
+
+    estimated = False
+    for side in ("LEFT", "RIGHT"):
+        ankle = lm.get(f"{side}_ANKLE")
+        knee = lm.get(f"{side}_KNEE")
+        if not ankle or not knee:
+            continue
+
+        ax, ay = ankle.get("x"), ankle.get("y")
+        kx, ky = knee.get("x"), knee.get("y")
+        if ax is None or ay is None or kx is None or ky is None:
+            continue
+        if isinstance(ax, float) and np.isnan(ax):
+            continue
+        if isinstance(ky, float) and np.isnan(ky):
+            continue
+
+        dx = ax - kx
+        dy = ay - ky
+        length = np.sqrt(dx ** 2 + dy ** 2)
+        if length == 0:
+            continue
+        foot_len = length * 0.25
+
+        # Estimate HEEL if missing or NaN
+        heel_name = f"{side}_HEEL"
+        heel = lm.get(heel_name)
+        if _is_landmark_nan(heel):
+            lm[heel_name] = {
+                "x": float(np.clip(ax + dx / length * foot_len * 0.3, 0, 1)),
+                "y": float(np.clip(
+                    ay + dy / length * foot_len * 0.3 + foot_len * 0.1, 0, 1,
+                )),
+                "visibility": 0.5,
+            }
+            estimated = True
+
+        # Estimate FOOT_INDEX if missing or NaN
+        fi_name = f"{side}_FOOT_INDEX"
+        fi = lm.get(fi_name)
+        if _is_landmark_nan(fi):
+            lm[fi_name] = {
+                "x": float(np.clip(ax - dx / length * foot_len * 0.5, 0, 1)),
+                "y": float(np.clip(ay + foot_len * 0.15, 0, 1)),
+                "visibility": 0.5,
+            }
+            estimated = True
+
+    if estimated:
+        frame["foot_landmarks_source"] = "estimated"
+
+
+def _is_landmark_nan(lm_entry) -> bool:
+    """Return True if a landmark dict entry is missing or has NaN coords."""
+    if lm_entry is None:
+        return True
+    x = lm_entry.get("x")
+    if x is None:
+        return True
+    if isinstance(x, float) and np.isnan(x):
+        return True
+    if lm_entry.get("visibility", 0) < 0.01:
+        return True
+    return False
+
+
 def _detect_direction(frames_landmarks: list) -> str:
     """Detect walking direction (left or right) from landmarks.
 
@@ -659,6 +745,12 @@ def extract(
     # into the landmarks dict, replacing later geometric estimates.
     for frame_data in frames:
         _enrich_foot_landmarks(frame_data)
+
+    # Estimate missing foot landmarks (HEEL, FOOT_INDEX) for COCO-17
+    # models that don't have native foot detection.  Uses ankle/knee
+    # geometry to produce usable estimates (visibility=0.5).
+    for frame_data in frames:
+        _estimate_missing_foot_landmarks(frame_data)
 
     data["frames"] = frames
     extraction_meta = {

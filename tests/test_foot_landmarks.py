@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from conftest import make_walking_data
 
-from myogait.extract import _enrich_foot_landmarks
+from myogait.extract import _enrich_foot_landmarks, _estimate_missing_foot_landmarks, _is_landmark_nan
 from myogait.angles import (
     _estimate_foot_landmarks,
     _get_foot_index_from_toes,
@@ -460,3 +460,166 @@ class TestFullPipelineBackwardCompat:
 
         non_none = sum(1 for af in data["angles"]["frames"] if af["ankle_L"] is not None)
         assert non_none > 50
+
+
+# ── _is_landmark_nan ─────────────────────────────────────────────────
+
+
+class TestIsLandmarkNan:
+
+    def test_none_entry(self):
+        assert _is_landmark_nan(None) is True
+
+    def test_missing_x(self):
+        assert _is_landmark_nan({"y": 0.5, "visibility": 0.9}) is True
+
+    def test_nan_x(self):
+        assert _is_landmark_nan({"x": float("nan"), "y": 0.5, "visibility": 0.9}) is True
+
+    def test_zero_visibility(self):
+        assert _is_landmark_nan({"x": 0.5, "y": 0.5, "visibility": 0.0}) is True
+
+    def test_valid_landmark(self):
+        assert _is_landmark_nan({"x": 0.5, "y": 0.5, "visibility": 0.9}) is False
+
+    def test_low_but_valid_visibility(self):
+        assert _is_landmark_nan({"x": 0.5, "y": 0.5, "visibility": 0.5}) is False
+
+
+# ── _estimate_missing_foot_landmarks ──────────────────────────────────
+
+
+class TestEstimateMissingFootLandmarks:
+
+    def test_estimates_heel_and_foot_index_for_coco(self):
+        """COCO-17 frame (no aux) should get estimated HEEL and FOOT_INDEX."""
+        frame = _make_base_frame()
+        # Simulate COCO-17: HEEL/FOOT_INDEX present but NaN
+        frame["landmarks"]["LEFT_HEEL"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["RIGHT_HEEL"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["LEFT_FOOT_INDEX"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["RIGHT_FOOT_INDEX"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+
+        _estimate_missing_foot_landmarks(frame)
+
+        lm = frame["landmarks"]
+        assert not _is_landmark_nan(lm.get("LEFT_HEEL"))
+        assert not _is_landmark_nan(lm.get("RIGHT_HEEL"))
+        assert not _is_landmark_nan(lm.get("LEFT_FOOT_INDEX"))
+        assert not _is_landmark_nan(lm.get("RIGHT_FOOT_INDEX"))
+
+    def test_estimated_visibility_is_half(self):
+        """Estimated landmarks should have visibility=0.5."""
+        frame = _make_base_frame()
+        frame["landmarks"]["LEFT_HEEL"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["RIGHT_HEEL"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["LEFT_FOOT_INDEX"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["RIGHT_FOOT_INDEX"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+
+        _estimate_missing_foot_landmarks(frame)
+
+        lm = frame["landmarks"]
+        assert lm["LEFT_HEEL"]["visibility"] == pytest.approx(0.5)
+        assert lm["RIGHT_FOOT_INDEX"]["visibility"] == pytest.approx(0.5)
+
+    def test_sets_estimated_source_flag(self):
+        """foot_landmarks_source should be 'estimated'."""
+        frame = _make_base_frame()
+        frame["landmarks"]["LEFT_HEEL"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["RIGHT_HEEL"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["LEFT_FOOT_INDEX"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["RIGHT_FOOT_INDEX"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+
+        _estimate_missing_foot_landmarks(frame)
+        assert frame.get("foot_landmarks_source") == "estimated"
+
+    def test_skips_when_detected_flag_set(self):
+        """Should not overwrite detected foot landmarks."""
+        frame = _make_base_frame()
+        frame["landmarks"]["LEFT_HEEL"] = {"x": 0.47, "y": 0.90, "visibility": 0.9}
+        frame["landmarks"]["RIGHT_HEEL"] = {"x": 0.53, "y": 0.90, "visibility": 0.9}
+        frame["landmarks"]["LEFT_FOOT_INDEX"] = {"x": 0.44, "y": 0.92, "visibility": 0.9}
+        frame["landmarks"]["RIGHT_FOOT_INDEX"] = {"x": 0.56, "y": 0.92, "visibility": 0.9}
+        frame["foot_landmarks_source"] = "detected"
+
+        _estimate_missing_foot_landmarks(frame)
+
+        # Should keep original values
+        assert frame["landmarks"]["LEFT_HEEL"]["x"] == pytest.approx(0.47)
+        assert frame["landmarks"]["LEFT_HEEL"]["visibility"] == pytest.approx(0.9)
+
+    def test_no_estimation_when_heel_already_valid(self):
+        """If HEEL already has valid coords, skip estimation for it."""
+        frame = _make_base_frame()
+        frame["landmarks"]["LEFT_HEEL"] = {"x": 0.47, "y": 0.90, "visibility": 0.8}
+        frame["landmarks"]["RIGHT_HEEL"] = {"x": 0.53, "y": 0.90, "visibility": 0.8}
+        # Only FOOT_INDEX is NaN
+        frame["landmarks"]["LEFT_FOOT_INDEX"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["RIGHT_FOOT_INDEX"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+
+        _estimate_missing_foot_landmarks(frame)
+
+        lm = frame["landmarks"]
+        # HEEL should keep its original value
+        assert lm["LEFT_HEEL"]["x"] == pytest.approx(0.47)
+        assert lm["LEFT_HEEL"]["visibility"] == pytest.approx(0.8)
+        # FOOT_INDEX should be estimated
+        assert not _is_landmark_nan(lm.get("LEFT_FOOT_INDEX"))
+        assert lm["LEFT_FOOT_INDEX"]["visibility"] == pytest.approx(0.5)
+
+    def test_estimated_coords_in_bounds(self):
+        """Estimated coordinates should be clipped to [0, 1]."""
+        frame = _make_base_frame()
+        # Ankle near image edge
+        frame["landmarks"]["LEFT_ANKLE"] = {"x": 0.02, "y": 0.98, "visibility": 1.0}
+        frame["landmarks"]["LEFT_KNEE"] = {"x": 0.02, "y": 0.80, "visibility": 1.0}
+        frame["landmarks"]["LEFT_HEEL"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["LEFT_FOOT_INDEX"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+
+        _estimate_missing_foot_landmarks(frame)
+
+        lm = frame["landmarks"]
+        assert 0.0 <= lm["LEFT_HEEL"]["x"] <= 1.0
+        assert 0.0 <= lm["LEFT_HEEL"]["y"] <= 1.0
+        assert 0.0 <= lm["LEFT_FOOT_INDEX"]["x"] <= 1.0
+        assert 0.0 <= lm["LEFT_FOOT_INDEX"]["y"] <= 1.0
+
+    def test_no_estimation_without_ankle(self):
+        """Without ankle, estimation should not happen."""
+        frame = _make_base_frame()
+        del frame["landmarks"]["LEFT_ANKLE"]
+        frame["landmarks"]["LEFT_HEEL"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+        frame["landmarks"]["LEFT_FOOT_INDEX"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+
+        _estimate_missing_foot_landmarks(frame)
+
+        # LEFT side should still be NaN (no ankle to estimate from)
+        assert _is_landmark_nan(frame["landmarks"]["LEFT_HEEL"])
+
+    def test_no_estimation_without_knee(self):
+        """Without knee, estimation should not happen."""
+        frame = _make_base_frame()
+        del frame["landmarks"]["LEFT_KNEE"]
+        frame["landmarks"]["LEFT_HEEL"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+
+        _estimate_missing_foot_landmarks(frame)
+
+        assert _is_landmark_nan(frame["landmarks"]["LEFT_HEEL"])
+
+    def test_empty_landmarks_noop(self):
+        """Frame with empty/missing landmarks should not crash."""
+        frame = {"frame_idx": 0, "landmarks": {}}
+        _estimate_missing_foot_landmarks(frame)
+        assert "foot_landmarks_source" not in frame
+
+    def test_heel_below_ankle(self):
+        """Estimated HEEL y should be >= ankle y (foot is below ankle)."""
+        frame = _make_base_frame()
+        frame["landmarks"]["LEFT_HEEL"] = {"x": float("nan"), "y": float("nan"), "visibility": 0.0}
+
+        _estimate_missing_foot_landmarks(frame)
+
+        lm = frame["landmarks"]
+        ankle_y = frame["landmarks"]["LEFT_ANKLE"]["y"]
+        # Heel should be below ankle (y increases downward)
+        assert lm["LEFT_HEEL"]["y"] >= ankle_y - 0.01
