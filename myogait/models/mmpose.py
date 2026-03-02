@@ -62,6 +62,11 @@ class MMPosePoseExtractor(BasePoseExtractor):
             logger.info("mmcv not found — installing via openmim (first run only)...")
             import subprocess
             import sys
+            # setuptools provides pkg_resources required by mmcv build
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "setuptools"],
+                stdout=subprocess.DEVNULL,
+            )
             subprocess.check_call(
                 [sys.executable, "-m", "mim", "install", "mmcv"],
                 stdout=subprocess.DEVNULL,
