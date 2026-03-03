@@ -754,6 +754,13 @@ def compute_angles(
             if v is not None and not np.isnan(v):
                 af[key] = float(((v + 180) % 360) - 180)
 
+    # Unwrap pelvis tilt to remove ±180° discontinuities
+    pelvis_vals = [af.get("pelvis_tilt") for af in angle_frames]
+    pelvis_vals = [v if v is not None else np.nan for v in pelvis_vals]
+    pelvis_unwrapped = _unwrap_angles(pelvis_vals)
+    for af, v in zip(angle_frames, pelvis_unwrapped):
+        af["pelvis_tilt"] = v
+
     # Neutral calibration
     if calibrate and len(angle_frames) >= calibration_frames:
         for key in calibration_joints:

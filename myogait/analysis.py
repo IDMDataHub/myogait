@@ -144,7 +144,7 @@ def analyze_gait(
 
     stats = {
         "spatiotemporal": _spatiotemporal(cycle_list, events, fps),
-        "symmetry": _symmetry(cycle_list, angles),
+        "symmetry": _symmetry(cycle_list, angles, cycles.get("summary")),
         "variability": _variability(cycle_list),
         "regularity": regularity_index(data),
         "harmonic_ratio": harmonic_ratio(data),
@@ -220,10 +220,17 @@ def _spatiotemporal(cycle_list: list, events: dict, fps: float) -> dict:
     stance_left = float(np.mean(left_stance)) if left_stance else None
     stance_right = float(np.mean(right_stance)) if right_stance else None
 
-    # Double support
+    # Warn when stance falls outside physiological range (45-70%)
+    for label, val in [("left", stance_left), ("right", stance_right)]:
+        if val is not None and not (45 <= val <= 70):
+            logger.warning(
+                "Stance %s = %.1f%% is outside physiological range (45-70%%). "
+                "Event detection may be inaccurate.", label, val)
+
+    # Double support (clamped to 0 — negative values are physically impossible)
     double_support = None
     if stance_left is not None and stance_right is not None:
-        double_support = round(stance_left + stance_right - 100, 1)
+        double_support = round(max(0, stance_left + stance_right - 100), 1)
 
     return {
         "cadence_steps_per_min": round(cadence, 1),
@@ -244,17 +251,21 @@ def _spatiotemporal(cycle_list: list, events: dict, fps: float) -> dict:
     }
 
 
-def _symmetry(cycle_list: list, angles: dict) -> dict:
+def _symmetry(cycle_list: list, angles: dict, cycles_summary: Optional[dict] = None) -> dict:
     """Compute symmetry indices."""
     angle_frames = angles.get("frames", [])
 
-    # ROM from full angle series
+    # Prefer per-cycle ROM from summary over full-signal ROM
     joints = ["hip", "knee", "ankle"]
     rom_left = {}
     rom_right = {}
+    left_sum = (cycles_summary or {}).get("left", {})
+    right_sum = (cycles_summary or {}).get("right", {})
     for j in joints:
-        rom_left[j] = _rom([af.get(f"{j}_L") for af in angle_frames])
-        rom_right[j] = _rom([af.get(f"{j}_R") for af in angle_frames])
+        m_left = left_sum.get(f"{j}_mean")
+        m_right = right_sum.get(f"{j}_mean")
+        rom_left[j] = float(np.ptp(m_left)) if m_left else _rom([af.get(f"{j}_L") for af in angle_frames])
+        rom_right[j] = float(np.ptp(m_right)) if m_right else _rom([af.get(f"{j}_R") for af in angle_frames])
 
     si = {}
     for j in joints:

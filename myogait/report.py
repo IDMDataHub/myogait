@@ -228,6 +228,16 @@ def _page_overview(pdf, data: dict, cycles: dict, s: dict):
         ("ankle", s["ankle"], s["dorsi_plantar"]),
     ]
 
+    # Per-cycle ROM from summary (clinically correct) — fallback to full-signal
+    summary = cycles.get("summary", {})
+    cycle_rom = {}
+    for side_key, suffix in [("left", "_L"), ("right", "_R")]:
+        side_sum = summary.get(side_key, {})
+        for joint in ["hip", "knee", "ankle"]:
+            m = side_sum.get(f"{joint}_mean")
+            if m:
+                cycle_rom[f"{joint}{suffix}"] = float(np.ptp(m))
+
     for row, (joint, label, ylabel) in enumerate(joint_pairs):
         for col, (side_label, suffix, color) in enumerate(
             [(s["left"], "_L", "#2171b5"), (s["right"], "_R", "#cb181d")]
@@ -244,10 +254,12 @@ def _page_overview(pdf, data: dict, cycles: dict, s: dict):
             for to in events.get(f"{'left' if col == 0 else 'right'}_to", []):
                 ax.axvline(to["time"], color="orange", alpha=0.3, linewidth=0.5, linestyle="--")
 
-            # ROM annotation
-            valid = [v for v in vals if not np.isnan(v)]
-            if valid:
-                rom = max(valid) - min(valid)
+            # ROM annotation — prefer per-cycle ROM over full-signal ROM
+            rom = cycle_rom.get(key)
+            if rom is None:
+                valid = [v for v in vals if not np.isnan(v)]
+                rom = (max(valid) - min(valid)) if valid else None
+            if rom is not None:
                 ax.set_title(f"{label} {side_label}  (ROM: {rom:.1f}\u00b0)", fontsize=10, fontweight="bold")
             else:
                 ax.set_title(f"{label} {side_label}", fontsize=10)
@@ -260,7 +272,7 @@ def _page_overview(pdf, data: dict, cycles: dict, s: dict):
     axes[2, 1].set_xlabel(s["time_s"])
     # This page includes a matplotlib table that can conflict with tight_layout.
     # Use explicit spacing to avoid layout warnings in automated runs.
-    fig.subplots_adjust(top=0.90, bottom=0.08, left=0.06, right=0.97, hspace=0.35, wspace=0.25)
+    fig.subplots_adjust(top=0.90, bottom=0.08, left=0.12, right=0.97, hspace=0.35, wspace=0.30)
     pdf.savefig(fig, dpi=_DPI)
     plt.close(fig)
 
@@ -316,7 +328,7 @@ def _page_bilateral(pdf, cycles: dict, data: dict, s: dict):
 
     # This page includes a table that is not always tight_layout-compatible.
     fig.subplots_adjust(
-        top=0.90, bottom=0.08, left=0.06, right=0.97, hspace=0.35, wspace=0.25
+        top=0.90, bottom=0.08, left=0.14, right=0.97, hspace=0.35, wspace=0.30
     )
     pdf.savefig(fig, dpi=_DPI)
     plt.close(fig)
@@ -417,7 +429,7 @@ def _page_statistics(pdf, stats: dict, s: dict):
 
     # This page includes a table that is not always tight_layout-compatible.
     fig.subplots_adjust(
-        top=0.90, bottom=0.08, left=0.06, right=0.97, hspace=0.35, wspace=0.25
+        top=0.90, bottom=0.08, left=0.14, right=0.97, hspace=0.35, wspace=0.30
     )
     pdf.savefig(fig, dpi=_DPI)
     plt.close(fig)
