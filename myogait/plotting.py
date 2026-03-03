@@ -131,7 +131,7 @@ def plot_angles(
             for to in ev.get("left_to", []) + ev.get("right_to", []):
                 ax.axvline(to["time"], color=_COLORS["to"], alpha=0.3, linewidth=0.5, linestyle="--")
 
-        ax.set_ylabel("Angle (deg)")
+        ax.set_ylabel("Angle (\u00b0)")
         ax.set_title(_JOINT_LABELS.get(base, base))
         ax.legend(loc="upper right", fontsize=8)
         ax.grid(True, alpha=0.3)
@@ -214,7 +214,7 @@ def plot_cycles(
             ax.plot(x, mean, color=color, linewidth=2, label=f"Mean (n={summary['n_cycles']})")
             ax.fill_between(x, mean - std, mean + std, color=color, alpha=0.15, label="SD")
 
-        ax.set_ylabel("Angle (deg)")
+        ax.set_ylabel("Angle (\u00b0)")
         ax.set_title(f"{_JOINT_LABELS.get(joint, joint)} — {side}")
         ax.legend(loc="upper right", fontsize=8)
         ax.grid(True, alpha=0.3)
@@ -338,7 +338,7 @@ def plot_summary(
             for hs in data["events"].get("left_hs", []) + data["events"].get("right_hs", []):
                 ax.axvline(hs["time"], color=_COLORS["hs"], alpha=0.2, linewidth=0.5)
         ax.set_title(f"{_JOINT_LABELS.get(joint, joint)} Angle")
-        ax.set_ylabel("deg")
+        ax.set_ylabel("\u00b0")
         ax.legend(fontsize=7)
         ax.grid(True, alpha=0.3)
 
@@ -352,7 +352,7 @@ def plot_summary(
         for hs in data["events"].get("left_hs", []) + data["events"].get("right_hs", []):
             ax.axvline(hs["time"], color=_COLORS["hs"], alpha=0.2, linewidth=0.5)
     ax.set_title("Ankle Angle")
-    ax.set_ylabel("deg")
+    ax.set_ylabel("\u00b0")
     ax.set_xlabel("Time (s)")
     ax.legend(fontsize=7)
     ax.grid(True, alpha=0.3)
@@ -395,7 +395,7 @@ def plot_summary(
             ax.fill_between(x_pct, mean - std, mean + std, alpha=0.1)
         ax.set_title(f"Normalized Cycles — {side.capitalize()} (n={summary.get('n_cycles', 0)})")
         ax.set_xlabel("% Gait Cycle")
-        ax.set_ylabel("deg")
+        ax.set_ylabel("\u00b0")
         ax.legend(fontsize=7)
         ax.grid(True, alpha=0.3)
 
@@ -506,8 +506,8 @@ def plot_phase_plane(
     ax.plot(arr[valid], velocity[valid], color="gray", linewidth=0.3, alpha=0.3)
 
     plt.colorbar(scatter, ax=ax, label="Frame")
-    ax.set_xlabel(f"{_JOINT_LABELS.get(joint, joint)} Angle (deg)")
-    ax.set_ylabel("Angular Velocity (deg/s)")
+    ax.set_xlabel(f"{_JOINT_LABELS.get(joint, joint)} Angle (\u00b0)")
+    ax.set_ylabel("Angular Velocity (\u00b0/s)")
     ax.set_title(f"Phase Plane — {_JOINT_LABELS.get(joint, joint)}")
     ax.axhline(0, color="black", linewidth=0.5)
     ax.axvline(0, color="black", linewidth=0.5)
@@ -583,7 +583,7 @@ def _plot_normative_panel(
                 label=f"Patient ({label_side})")
 
     display_label = label or _JOINT_LABELS.get(joint, _FRONTAL_LABELS.get(joint, joint.capitalize()))
-    ax.set_ylabel("Angle (deg)")
+    ax.set_ylabel("Angle (\u00b0)")
     ax.set_title(f"{display_label} — vs Normative ({stratum})")
     ax.legend(loc="upper right", fontsize=7)
     ax.grid(True, alpha=0.3)
@@ -802,12 +802,12 @@ def plot_gvs_profile(
     # GPS-2D vertical line
     if gps_2d is not None:
         ax.axvline(gps_2d, color="black", linestyle="-", linewidth=1.5,
-                   label=f"GPS-2D = {gps_2d:.1f} deg")
+                   label=f"GPS-2D = {gps_2d:.1f}\u00b0")
         ax.axvline(-gps_2d, color="black", linestyle="-", linewidth=1.5)
 
     ax.set_yticks(y_positions)
     ax.set_yticklabels([_JOINT_LABELS.get(j, j.capitalize()) for j in joints])
-    ax.set_xlabel("GVS (deg)")
+    ax.set_xlabel("GVS (\u00b0)")
     ax.set_title("Movement Analysis Profile (MAP)")
     ax.axvline(0, color="gray", linewidth=0.5)
 
@@ -1123,9 +1123,9 @@ def plot_longitudinal(
     ax.set_xticklabels(plot_dates, rotation=45, ha="right", fontsize=9)
 
     _metric_labels = {
-        "gps_2d_overall": "GPS-2D Overall (deg)",
-        "gps_2d_left": "GPS-2D Left (deg)",
-        "gps_2d_right": "GPS-2D Right (deg)",
+        "gps_2d_overall": "GPS-2D Overall (\u00b0)",
+        "gps_2d_left": "GPS-2D Left (\u00b0)",
+        "gps_2d_right": "GPS-2D Right (\u00b0)",
         "cadence": "Cadence (steps/min)",
         "symmetry": "Symmetry Index (%)",
     }
@@ -1265,7 +1265,7 @@ def plot_arm_swing(
             ha="center", va="center", transform=ax1.transAxes,
         )
 
-    unit_label = " (deg)" if has_shoulder else ""
+    unit_label = " (\u00b0)" if has_shoulder else ""
     ax1.set_xlabel("% Gait Cycle")
     ax1.set_ylabel(data_label + unit_label)
     ax1.set_title(f"Arm Swing — {data_label}")
@@ -1295,7 +1295,7 @@ def plot_arm_swing(
                 color=_COLORS["right"], alpha=0.7, label="Right",
             )
         ax2.set_xlabel("Cycle")
-        amp_unit = " (deg)" if has_shoulder else " (norm.)"
+        amp_unit = " (\u00b0)" if has_shoulder else " (norm.)"
         ax2.set_ylabel(f"Amplitude{amp_unit}")
         ax2.set_xticks(bar_x)
         ax2.set_xticklabels([f"C{i+1}" for i in range(n_bars)], fontsize=8)
@@ -1380,7 +1380,7 @@ def plot_session_comparison(
                 ax.fill_between(x, mean - std, mean + std, color=color, alpha=0.15)
 
             ax.set_title(f"{_JOINT_LABELS.get(joint, joint.capitalize())} — {side.capitalize()}")
-            ax.set_ylabel("Angle (deg)")
+            ax.set_ylabel("Angle (\u00b0)")
             ax.grid(True, alpha=0.3)
             if row == 0 and col == 0:
                 ax.legend(loc="upper right", fontsize=8)
@@ -1553,7 +1553,7 @@ def plot_rom_summary(
 
     ax.set_xticks(x_positions)
     ax.set_xticklabels([_JOINT_LABELS.get(j, j.capitalize()) for j in joints])
-    ax.set_ylabel("Range of Motion (deg)")
+    ax.set_ylabel("Range of Motion (\u00b0)")
     ax.set_title(f"ROM Summary (vs {stratum} norms)")
     ax.legend(loc="upper right", fontsize=8)
     ax.grid(True, axis="y", alpha=0.3)
@@ -1618,7 +1618,7 @@ def plot_butterfly(
         if invert:
             ax.invert_yaxis()
 
-        ax.set_ylabel("Angle (deg)")
+        ax.set_ylabel("Angle (\u00b0)")
         handles, labels = ax.get_legend_handles_labels()
         if handles:
             ax.legend(loc="upper right", fontsize=8)
@@ -1713,7 +1713,7 @@ def animate_normative_comparison(
     y_max = max(float(np.max(norm_upper)), float(np.max(patient_mean))) + 5
     ax.set_ylim(y_min, y_max)
     ax.set_xlabel("% Gait Cycle")
-    ax.set_ylabel("Angle (deg)")
+    ax.set_ylabel("Angle (\u00b0)")
     ax.set_title(f"{_JOINT_LABELS.get(joint, joint.capitalize())} — Patient vs Normative ({stratum})")
     ax.legend(loc="upper right", fontsize=8)
     ax.grid(True, alpha=0.3)

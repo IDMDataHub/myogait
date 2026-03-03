@@ -15,6 +15,7 @@ render_stickfigure_animation
 """
 
 import logging
+import os
 from typing import Dict, List, Optional, Tuple
 
 import cv2
@@ -342,8 +343,28 @@ def render_skeleton_video(
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    fourcc = cv2.VideoWriter_fourcc(*codec)
-    writer = cv2.VideoWriter(output_path, fourcc, out_fps, (width, height))
+    # Try the requested codec, then fall back to alternatives.
+    # On some platforms (headless Linux, minimal Windows), not every codec
+    # is available so we try several in order.
+    _codecs = [codec]
+    ext = os.path.splitext(output_path)[1].lower()
+    if ext == ".mp4":
+        _codecs += [c for c in ("mp4v", "avc1", "XVID") if c != codec]
+    elif ext == ".avi":
+        _codecs += [c for c in ("XVID", "MJPG", "mp4v") if c != codec]
+    writer = None
+    for c in _codecs:
+        fourcc = cv2.VideoWriter_fourcc(*c)
+        writer = cv2.VideoWriter(output_path, fourcc, out_fps, (width, height))
+        if writer.isOpened():
+            break
+        writer.release()
+        writer = None
+    if writer is None:
+        raise RuntimeError(
+            f"Could not open video writer for '{output_path}'. "
+            f"Tried codecs: {_codecs}. Install FFmpeg or use .avi format."
+        )
 
     frames_data = data.get("frames", [])
     angles_data = data.get("angles", {})
