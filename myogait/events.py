@@ -137,13 +137,20 @@ def _detect_zeni(
     # Detect peaks and troughs
     results = {}
     for side, rel_signal in [("left", left_ankle_rel), ("right", right_ankle_rel)]:
+        # Auto-scale prominence to 10% of signal amplitude (more robust
+        # than a fixed threshold on videos with varying resolution/scale)
+        valid_sig = rel_signal[~np.isnan(rel_signal)]
+        if len(valid_sig) > 2:
+            prom = max(0.005, float(np.ptp(valid_sig) * 0.10))
+        else:
+            prom = 0.005
         # HS = peaks (foot most anterior)
         hs_indices, hs_props = find_peaks(
-            rel_signal, distance=min_distance, prominence=0.005
+            rel_signal, distance=min_distance, prominence=prom
         )
         # TO = troughs (foot most posterior)
         to_indices, to_props = find_peaks(
-            -rel_signal, distance=min_distance, prominence=0.005
+            -rel_signal, distance=min_distance, prominence=prom
         )
 
         # Build event lists with confidence from prominence
@@ -304,9 +311,10 @@ def _detect_velocity(
                 hs_events.append(i)
 
         # TO: toe velocity goes from ~0 to negative (lifting up)
+        # Use same threshold convention as HS for symmetry
         to_events = []
         for i in range(1, len(toe_vy)):
-            if toe_vy[i - 1] >= 0 and toe_vy[i] < 0:
+            if toe_vy[i - 1] > 0 and toe_vy[i] <= 0:
                 to_events.append(i)
 
         # Filter close events and find prominent ones

@@ -213,14 +213,23 @@ def _spatiotemporal(cycle_list: list, events: dict, fps: float) -> dict:
     step_time_mean = float(np.mean(step_times)) if step_times else stride_time_mean / 2
     step_time_std = float(np.std(step_times)) if len(step_times) > 1 else 0.0
 
-    # Stance/swing percentages
-    left_stance = [c["stance_pct"] for c in left_cycles if c["stance_pct"] is not None]
-    right_stance = [c["stance_pct"] for c in right_cycles if c["stance_pct"] is not None]
+    # Stance/swing percentages — discard cycles with implausible values
+    # (outside 35-80%) which indicate event detection errors
+    left_stance = [c["stance_pct"] for c in left_cycles
+                   if c["stance_pct"] is not None and 35 <= c["stance_pct"] <= 80]
+    right_stance = [c["stance_pct"] for c in right_cycles
+                    if c["stance_pct"] is not None and 35 <= c["stance_pct"] <= 80]
+
+    n_discarded_l = sum(1 for c in left_cycles if c["stance_pct"] is not None and not (35 <= c["stance_pct"] <= 80))
+    n_discarded_r = sum(1 for c in right_cycles if c["stance_pct"] is not None and not (35 <= c["stance_pct"] <= 80))
+    if n_discarded_l or n_discarded_r:
+        logger.warning("Discarded %d left / %d right cycles with implausible "
+                       "stance%% (outside 35-80%%)", n_discarded_l, n_discarded_r)
 
     stance_left = float(np.mean(left_stance)) if left_stance else None
     stance_right = float(np.mean(right_stance)) if right_stance else None
 
-    # Warn when stance falls outside physiological range (45-70%)
+    # Warn when average stance falls outside physiological range (45-70%)
     for label, val in [("left", stance_left), ("right", stance_right)]:
         if val is not None and not (45 <= val <= 70):
             logger.warning(
