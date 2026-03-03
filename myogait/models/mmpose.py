@@ -64,19 +64,36 @@ class MMPosePoseExtractor(BasePoseExtractor):
             # Detect torch version and CUDA to pick the right prebuilt wheel.
             try:
                 import torch
-                tv = ".".join(torch.__version__.split(".")[:2])  # e.g. "2.6"
+                major, minor = torch.__version__.split(".")[:2]
                 cu = torch.version.cuda
                 cu_tag = f"cu{cu.replace('.', '')}" if cu else "cpu"
             except Exception:
-                tv, cu_tag = "2.6", "cpu"
-            index = f"https://download.openmmlab.com/mmcv/dist/{cu_tag}/torch{tv}/index.html"
-            logger.info("mmcv not found — installing from %s …", index)
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "mmcv==2.2.0",
-                 "-f", index],
-                stdout=subprocess.DEVNULL,
+                major, minor, cu_tag = "2", "4", "cpu"
+            # OpenMMLab may not publish wheels for every torch release;
+            # try the exact version first, then fall back to older ones.
+            candidates = [f"{major}.{int(minor) - i}"
+                          for i in range(int(minor))]
+            base = "https://download.openmmlab.com/mmcv/dist"
+            cmd_base = [sys.executable, "-m", "pip", "install", "mmcv==2.2.0",
+                        "--no-cache-dir", "--only-binary", "mmcv"]
+            for tv in candidates:
+                index = f"{base}/{cu_tag}/torch{tv}/index.html"
+                logger.info("mmcv not found — trying %s …", index)
+                try:
+                    subprocess.check_call(
+                        cmd_base + ["-f", index],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    logger.info("mmcv installed successfully (torch%s index).", tv)
+                    return
+                except subprocess.CalledProcessError:
+                    continue
+            raise ImportError(
+                "Could not install mmcv: no prebuilt wheel found for your "
+                f"platform (torch {major}.{minor}, {cu_tag}). "
+                "See https://mmcv.readthedocs.io/en/latest/get_started/installation.html"
             )
-            logger.info("mmcv installed successfully.")
 
     def teardown(self):
         self._pose_model = None
