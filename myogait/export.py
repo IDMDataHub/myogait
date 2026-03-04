@@ -78,6 +78,25 @@ def export_csv(
     out.mkdir(parents=True, exist_ok=True)
     created = []
 
+    # Landmarks
+    frames = data.get("frames")
+    if frames:
+        rows = []
+        for f in frames:
+            row = {"frame_idx": f.get("frame_idx")}
+            fps = data.get("meta", {}).get("fps", 30.0)
+            row["time_s"] = round(f.get("frame_idx", 0) / fps, 4)
+            for name, coords in f.get("landmarks", {}).items():
+                row[f"{name}_x"] = coords.get("x")
+                row[f"{name}_y"] = coords.get("y")
+                row[f"{name}_visibility"] = coords.get("visibility")
+            rows.append(row)
+        if rows:
+            df = pd.DataFrame(rows)
+            path = out / f"{prefix}landmarks.csv"
+            df.to_csv(path, index=False, float_format="%.6f")
+            created.append(str(path))
+
     # Angles
     angles = data.get("angles")
     if angles and angles.get("frames"):
@@ -645,6 +664,22 @@ def export_excel(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        # Landmarks sheet
+        frames = data.get("frames")
+        if frames:
+            rows = []
+            for f in frames:
+                row = {"frame_idx": f.get("frame_idx")}
+                fps_val = data.get("meta", {}).get("fps", 30.0)
+                row["time_s"] = round(f.get("frame_idx", 0) / fps_val, 4)
+                for name, coords in f.get("landmarks", {}).items():
+                    row[f"{name}_x"] = coords.get("x")
+                    row[f"{name}_y"] = coords.get("y")
+                    row[f"{name}_visibility"] = coords.get("visibility")
+                rows.append(row)
+            if rows:
+                pd.DataFrame(rows).to_excel(writer, sheet_name="Landmarks", index=False)
+
         # Angles sheet
         angles = data.get("angles")
         if angles and angles.get("frames"):
