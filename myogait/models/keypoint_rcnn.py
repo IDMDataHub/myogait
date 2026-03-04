@@ -43,15 +43,41 @@ class Detectron2PoseExtractor(BasePoseExtractor):
         self.device_name = device
         self._predictor = None
 
+    @staticmethod
+    def _ensure_detectron2():
+        """Auto-install detectron2 from GitHub if missing."""
+        try:
+            import detectron2  # noqa: F401
+        except ImportError:
+            import subprocess
+            import sys
+            logger.info("detectron2 not found — installing from GitHub...")
+            try:
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install",
+                     "git+https://github.com/facebookresearch/detectron2.git"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                logger.info("detectron2 installed successfully.")
+            except subprocess.CalledProcessError:
+                raise ImportError(
+                    "Could not auto-install detectron2. "
+                    "Install manually:\n"
+                    "  pip install 'git+https://github.com/facebookresearch/detectron2.git'"
+                )
+
     def setup(self):
+        self._ensure_detectron2()
         try:
             from detectron2.config import get_cfg
             from detectron2.engine import DefaultPredictor
             from detectron2 import model_zoo
         except ImportError:
             raise ImportError(
-                "Detectron2 is required. "
-                "Install with: pip install myogait[detectron2]"
+                "Detectron2 installation failed. "
+                "Install manually:\n"
+                "  pip install 'git+https://github.com/facebookresearch/detectron2.git'"
             )
 
         cfg = get_cfg()

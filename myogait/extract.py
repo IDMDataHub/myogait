@@ -382,6 +382,7 @@ def extract(
     seg_model_size: Optional[str] = None,
     experimental: Optional[dict] = None,
     progress_callback=None,
+    show_progress: bool = True,
     **kwargs,
 ) -> dict:
     """Extract pose landmarks from a video.
@@ -415,6 +416,8 @@ def extract(
         Defaults keep the input unchanged.
     progress_callback : callable, optional
         Callback ``fn(float)`` receiving progress from 0.0 to 1.0.
+    show_progress : bool, optional
+        Print a progress bar to the console (default True).
     **kwargs
         Extra arguments passed to the model extractor.
 
@@ -568,6 +571,13 @@ def extract(
                 det_pct = 100 * detected_count / frame_idx if frame_idx > 0 else 0
                 logger.info(f"  {frame_idx}/{estimated_total} ({pct:.0f}%) — {det_pct:.0f}% detected")
 
+            if show_progress and estimated_total > 0:
+                pct = frame_idx / estimated_total
+                bar_len = 30
+                filled = int(bar_len * pct)
+                bar = "█" * filled + "░" * (bar_len - filled)
+                print(f"\r  Extracting: {bar} {pct:5.1%}  ({frame_idx}/{estimated_total})", end="", flush=True)
+
             if progress_callback and frame_idx % 10 == 0:
                 progress_callback(frame_idx / max(estimated_total, 1))
     finally:
@@ -577,6 +587,9 @@ def extract(
             depth_estimator.teardown()
         if seg_estimator:
             seg_estimator.teardown()
+
+    if show_progress and estimated_total > 0:
+        print(f"\r  Extracting: {'█' * 30} 100.0%  ({len(raw_landmarks)}/{len(raw_landmarks)})")
 
     det_pct = 100 * detected_count / len(raw_landmarks) if raw_landmarks else 0
     logger.info(f"Extraction done: {detected_count}/{len(raw_landmarks)} frames detected ({det_pct:.0f}%)")

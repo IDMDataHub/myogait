@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "myogait"
-version = "0.5.10"
+version = "0.5.11"
 description = "Markerless video-based gait analysis toolkit"
 readme = "README.md"
 license = "MIT"
@@ -45,7 +45,7 @@ intel = ["intel-extension-for-pytorch"]
 rtmw = ["rtmlib", "onnxruntime"]
 mmpose = ["mmpose", "mmdet", "openmim"]
 openpose = []
-detectron2 = ["torch", "detectron2"]
+detectron2 = ["torch"]
 alphapose = ["torch", "torchvision", "ultralytics>=8.0"]
 c3d = ["c3d>=0.5"]
 excel = ["openpyxl>=3.1"]

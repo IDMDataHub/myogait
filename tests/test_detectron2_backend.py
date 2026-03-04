@@ -83,7 +83,7 @@ def test_setup_without_detectron2_raises():
 
     builtins.__import__ = block_detectron2
     try:
-        with pytest.raises(ImportError, match="Detectron2 is required"):
+        with pytest.raises(ImportError, match="(?i)detectron2"):
             ext.setup()
     finally:
         builtins.__import__ = real_import
