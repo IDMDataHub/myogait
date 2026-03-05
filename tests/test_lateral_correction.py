@@ -2,6 +2,7 @@
 
 import numpy as np
 import copy
+import pytest
 
 from myogait.normalize import correct_lateral_labels
 
@@ -195,6 +196,10 @@ class TestEdgeCases:
         result = correct_lateral_labels(data)
         meta = result["normalization"]["lateral_correction"]
         assert meta["n_total_frame_corrections"] == 0
+        assert meta["method"] == "transition"
+        assert meta["chain_fixes"] == 0
+        assert meta["coherence_violations"] == 0
+        assert meta["coherence_violation_frames"] == []
 
     def test_single_frame(self):
         data = _make_data(n_frames=1)
@@ -224,6 +229,21 @@ class TestEdgeCases:
         data = _make_data(n_frames=10)
         result = correct_lateral_labels(data, window=2)
         assert "lateral_correction" in result["normalization"]
+
+    def test_invalid_method_raises(self):
+        data = _make_data(n_frames=10)
+        with pytest.raises(ValueError, match="Unknown method"):
+            correct_lateral_labels(data, method="direciton")
+
+    def test_invalid_ratio_raises(self):
+        data = _make_data(n_frames=10)
+        with pytest.raises(ValueError, match="ratio must be > 0"):
+            correct_lateral_labels(data, ratio=0.0)
+
+    def test_invalid_half_window_raises(self):
+        data = _make_data(n_frames=10)
+        with pytest.raises(ValueError, match="half_window must be an integer >= 1"):
+            correct_lateral_labels(data, half_window=0)
 
 
 # ── Tests: idempotence ───────────────────────────────────────────────

@@ -2218,13 +2218,31 @@ def correct_lateral_labels(
             "use ratio/min_sep parameters instead."
         )
 
+    valid_methods = {"transition", "direction"}
+    if method not in valid_methods:
+        raise ValueError(
+            f"Unknown method '{method}'. Valid: {sorted(valid_methods)}"
+        )
+    if not np.isfinite(ratio) or ratio <= 0:
+        raise ValueError(f"ratio must be > 0, got {ratio}")
+    if not np.isfinite(min_sep) or min_sep < 0:
+        raise ValueError(f"min_sep must be >= 0, got {min_sep}")
+    if not np.isfinite(vis_drop) or vis_drop < 0:
+        raise ValueError(f"vis_drop must be >= 0, got {vis_drop}")
+    if (not isinstance(half_window, int)) or half_window < 1:
+        raise ValueError(f"half_window must be an integer >= 1, got {half_window}")
+
     if n_frames == 0:
         if data.get("normalization") is None:
             data["normalization"] = {}
         data["normalization"]["lateral_correction"] = {
+            "method": method,
             "walking_direction": "right",
             "pairs": {},
             "n_total_frame_corrections": 0,
+            "chain_fixes": 0,
+            "coherence_violations": 0,
+            "coherence_violation_frames": [],
         }
         return data
 
