@@ -1951,3 +1951,197 @@ def procrustes_align(
     }
 
     return data
+
+
+# ── Lateral label correction ────────────────────────────────────────
+
+
+# L/R landmark pairs to check independently.
+_LATERAL_PAIRS = [
+    ("ankle", "LEFT_ANKLE", "RIGHT_ANKLE"),
+    ("knee", "LEFT_KNEE", "RIGHT_KNEE"),
+    ("hip", "LEFT_HIP", "RIGHT_HIP"),
+    ("heel", "LEFT_HEEL", "RIGHT_HEEL"),
+    ("foot_index", "LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX"),
+    ("shoulder", "LEFT_SHOULDER", "RIGHT_SHOULDER"),
+]
+
+# Anatomical coherence checks: (child_L, child_R, parent_L, parent_R)
+_COHERENCE_CHECKS = [
+    ("LEFT_ANKLE", "RIGHT_ANKLE", "LEFT_HEEL", "RIGHT_HEEL"),
+    ("LEFT_KNEE", "RIGHT_KNEE", "LEFT_HIP", "RIGHT_HIP"),
+]
+
+
+def _get_lm_xy(frame: dict, name: str):
+    """Extract (x, y) as floats from a frame's landmarks, or None."""
+    lm = frame.get("landmarks", {}).get(name)
+    if lm is None:
+        return None
+    x, y = lm.get("x"), lm.get("y")
+    if x is None or y is None:
+        return None
+    xf, yf = float(x), float(y)
+    if np.isnan(xf) or np.isnan(yf):
+        return None
+    return (xf, yf)
+
+
+def _sq_dist(a, b):
+    """Squared Euclidean distance between two (x, y) tuples."""
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+
+def correct_lateral_labels(data: dict, window: int = 2) -> dict:
+    """Detect and correct per-landmark LEFT/RIGHT label swaps.
+
+    MediaPipe swaps individual landmark pairs (e.g. ankles, knees)
+    during leg crossings in sagittal view while the rest of the leg
+    stays correctly labelled.  This function treats **each L/R pair
+    independently** using a sliding-window displacement cost:
+
+    For each frame *i* and each pair, the cost of keeping the current
+    labels vs swapping them is compared against the surrounding
+    ``2 * window`` neighbours.  If swapping is cheaper, the pair is
+    corrected for that frame only.
+
+    A bootstrap polarity check ensures the initial labels (majority
+    of frames) are treated as the reference.  Post-correction
+    anatomical coherence validates that each landmark is closer to
+    its ipsilateral neighbour (e.g. ankle closer to same-side heel).
+
+    Call **after** extraction and **before** ``normalize()`` or
+    ``compute_angles()``.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict with ``frames`` populated.
+    window : int
+        Half-width of the sliding window (default 2 = +/- 2 frames).
+
+    Returns
+    -------
+    dict
+        Modified *data* with corrected landmark labels and metadata
+        in ``data["normalization"]["lateral_correction"]``.
+    """
+    from .axis_utils import detect_walking_direction_from_feet
+
+    frames = data.get("frames", [])
+    n_frames = len(frames)
+
+    if n_frames == 0:
+        if data.get("normalization") is None:
+            data["normalization"] = {}
+        data["normalization"]["lateral_correction"] = {
+            "walking_direction": "right",
+            "pairs": {},
+            "n_total_frame_corrections": 0,
+        }
+        return data
+
+    # Phase A: walking direction
+    walking_direction = detect_walking_direction_from_feet(data)
+
+    # Phase B: per-pair independent swap detection
+    pair_results = {}
+    for pair_name, l_name, r_name in _LATERAL_PAIRS:
+        swap_mask = [False] * n_frames
+
+        for i in range(n_frames):
+            l_i = _get_lm_xy(frames[i], l_name)
+            r_i = _get_lm_xy(frames[i], r_name)
+            if l_i is None or r_i is None:
+                continue
+
+            cost_keep = 0.0
+            cost_swap = 0.0
+            n_valid = 0
+
+            for j in range(max(0, i - window), min(n_frames, i + window + 1)):
+                if j == i:
+                    continue
+                l_j = _get_lm_xy(frames[j], l_name)
+                r_j = _get_lm_xy(frames[j], r_name)
+                if l_j is None or r_j is None:
+                    continue
+                n_valid += 1
+                cost_keep += _sq_dist(l_i, l_j) + _sq_dist(r_i, r_j)
+                cost_swap += _sq_dist(l_i, r_j) + _sq_dist(r_i, l_j)
+
+            if n_valid > 0 and cost_swap < cost_keep:
+                swap_mask[i] = True
+
+        # Bootstrap polarity: if majority are flagged, the initial
+        # labels were wrong for this pair — invert the mask.
+        n_swapped = sum(swap_mask)
+        if n_swapped > n_frames / 2:
+            swap_mask = [not s for s in swap_mask]
+            n_swapped = sum(swap_mask)
+
+        # Apply swaps for this pair
+        corrected_frames = []
+        if n_swapped > 0:
+            for i in range(n_frames):
+                if swap_mask[i]:
+                    lm = frames[i].get("landmarks", {})
+                    if l_name in lm and r_name in lm:
+                        lm[l_name], lm[r_name] = lm[r_name], lm[l_name]
+                        corrected_frames.append(
+                            frames[i].get("frame_idx", i))
+
+        pair_results[pair_name] = {
+            "n_corrections": len(corrected_frames),
+            "pct": round(100.0 * len(corrected_frames) / n_frames, 1),
+            "corrected_frames": corrected_frames,
+        }
+
+        if corrected_frames:
+            logger.info(
+                "Lateral correction [%s]: %d frames (%.1f%%)",
+                pair_name, len(corrected_frames),
+                pair_results[pair_name]["pct"],
+            )
+
+    # Phase C: anatomical coherence post-correction
+    n_reverted = 0
+    for child_l, child_r, parent_l, parent_r in _COHERENCE_CHECKS:
+        for i in range(n_frames):
+            cl = _get_lm_xy(frames[i], child_l)
+            cr = _get_lm_xy(frames[i], child_r)
+            pl = _get_lm_xy(frames[i], parent_l)
+            pr = _get_lm_xy(frames[i], parent_r)
+            if cl is None or cr is None or pl is None or pr is None:
+                continue
+            # Same-side: child_L↔parent_L + child_R↔parent_R
+            d_same = _sq_dist(cl, pl) + _sq_dist(cr, pr)
+            # Cross-side: child_L↔parent_R + child_R↔parent_L
+            d_cross = _sq_dist(cl, pr) + _sq_dist(cr, pl)
+            if d_cross < d_same:
+                # Child is closer to opposite parent — revert child pair
+                lm = frames[i].get("landmarks", {})
+                if child_l in lm and child_r in lm:
+                    lm[child_l], lm[child_r] = lm[child_r], lm[child_l]
+                    n_reverted += 1
+
+    if n_reverted:
+        logger.info(
+            "Lateral correction: reverted %d frames via anatomical "
+            "coherence check", n_reverted)
+
+    # Phase D: metadata
+    n_total = sum(
+        pr["n_corrections"] for pr in pair_results.values()
+    )
+    lateral_meta = {
+        "walking_direction": walking_direction,
+        "pairs": pair_results,
+        "n_total_frame_corrections": n_total,
+    }
+
+    if data.get("normalization") is None:
+        data["normalization"] = {}
+    data["normalization"]["lateral_correction"] = lateral_meta
+
+    return data
