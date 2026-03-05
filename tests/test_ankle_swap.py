@@ -447,9 +447,9 @@ class TestConsistencyWithPipeline:
     _method_sagittal_vertical_axis ankle computation."""
 
     def test_pipeline_formula_e(self):
-        """Pipeline uses Formula E (90 - arccos + cross product sign)."""
+        """Pipeline uses heel-pivot method (KNEE-HEEL shank, FOOT_INDEX-HEEL foot)."""
         knee = np.array([0.50, 0.55])
-        ankle = np.array([0.50, 0.80])
+        heel = np.array([0.48, 0.82])
         foot_index = np.array([0.56, 0.82])
 
         # Build a full frame and compute angles with the pipeline
@@ -485,9 +485,10 @@ class TestConsistencyWithPipeline:
 
         pipeline_ankle_R = data["angles"]["frames"][0]["ankle_R"]
 
-        # Manually compute Formula E: 90 - arccos + cross product sign
-        shank = knee - ankle
-        foot_seg = foot_index - ankle
+        # Manually compute heel-pivot method: shank = KNEE - HEEL,
+        # foot = FOOT_INDEX - HEEL, angle = 90 - arccos + cross sign
+        shank = knee - heel
+        foot_seg = foot_index - heel
         denom = np.linalg.norm(shank) * np.linalg.norm(foot_seg)
         cos_val = np.clip(np.dot(shank, foot_seg) / denom, -1, 1)
         unsigned = np.degrees(np.arccos(cos_val))

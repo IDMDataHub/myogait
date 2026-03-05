@@ -338,6 +338,7 @@ def _method_sagittal_vertical_axis(frame: dict, model: str) -> dict:
         hip = _get_xy(f, f"{prefix}_HIP")
         knee = _get_xy(f, f"{prefix}_KNEE")
         ankle = _get_xy(f, f"{prefix}_ANKLE")
+        heel = _get_xy(f, f"{prefix}_HEEL")
         # Use real toe midpoint when available, else standard FOOT_INDEX
         foot = _get_foot_index_from_toes(f, prefix)
 
@@ -364,14 +365,23 @@ def _method_sagittal_vertical_axis(frame: dict, model: str) -> dict:
         else:
             result[f"knee_{side}"] = np.nan
 
-        # Ankle: Formula E — both vectors from ANKLE (the anatomical pivot).
-        # shank = KNEE - ANKLE, foot_seg = FOOT_INDEX - ANKLE.
-        # Angle = 90° minus the unsigned angle between the two vectors,
-        # with sign determined by the 2D cross product.
+        # Ankle: heel-pivot method (Method B).
+        # shank = KNEE - HEEL  (tibial axis proxy, long stable vector)
+        # foot  = FOOT_INDEX - HEEL (rigid foot segment, long stable vector)
+        # Both vectors originate from HEEL, eliminating the noisy ANKLE
+        # landmark entirely.  HEEL is only 2-3 cm below the malleolus in
+        # sagittal projection so the angular difference is negligible,
+        # while both vectors are ~0.15 in normalised coords vs ~0.005
+        # for the old FOOT_INDEX - ANKLE vector.
+        # Falls back to ANKLE-based vectors when HEEL is unavailable.
         # Positive = dorsiflexion, negative = plantarflexion.
-        if knee is not None and ankle is not None and foot is not None:
-            shank = knee - ankle
-            foot_seg = foot - ankle
+        if knee is not None and foot is not None and (heel is not None or ankle is not None):
+            if heel is not None:
+                shank = knee - heel
+                foot_seg = foot - heel
+            else:
+                shank = knee - ankle
+                foot_seg = foot - ankle
             denom = np.linalg.norm(shank) * np.linalg.norm(foot_seg) + 1e-12
             cos_val = np.clip(np.dot(shank, foot_seg) / denom, -1, 1)
             unsigned = np.degrees(np.arccos(cos_val))
@@ -418,6 +428,7 @@ def _method_sagittal_classic(frame: dict, model: str) -> dict:
         hip = _get_xy(f, f"{prefix}_HIP")
         knee = _get_xy(f, f"{prefix}_KNEE")
         ankle = _get_xy(f, f"{prefix}_ANKLE")
+        heel = _get_xy(f, f"{prefix}_HEEL")
         # Use real toe midpoint when available, else standard FOOT_INDEX
         foot = _get_foot_index_from_toes(f, prefix)
 
@@ -439,10 +450,14 @@ def _method_sagittal_classic(frame: dict, model: str) -> dict:
         else:
             result[f"knee_{side}"] = np.nan
 
-        # Ankle: Formula E — same as sagittal_vertical_axis.
-        if knee is not None and ankle is not None and foot is not None:
-            shank = knee - ankle
-            foot_seg = foot - ankle
+        # Ankle: heel-pivot method (same as sagittal_vertical_axis).
+        if knee is not None and foot is not None and (heel is not None or ankle is not None):
+            if heel is not None:
+                shank = knee - heel
+                foot_seg = foot - heel
+            else:
+                shank = knee - ankle
+                foot_seg = foot - ankle
             denom = np.linalg.norm(shank) * np.linalg.norm(foot_seg) + 1e-12
             cos_val = np.clip(np.dot(shank, foot_seg) / denom, -1, 1)
             unsigned = np.degrees(np.arccos(cos_val))
