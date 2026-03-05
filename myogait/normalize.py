@@ -1990,15 +1990,162 @@ def _get_lm_xy(frame: dict, name: str):
     return (xf, yf)
 
 
+def _get_lm_vis(frame: dict, name: str) -> float:
+    """Extract visibility score from a frame's landmark, default 1.0."""
+    lm = frame.get("landmarks", {}).get(name)
+    if lm is None:
+        return 1.0
+    v = lm.get("visibility", 1.0)
+    if v is None:
+        return 1.0
+    vf = float(v)
+    return 0.0 if np.isnan(vf) else vf
+
+
 def _sq_dist(a, b):
     """Squared Euclidean distance between two (x, y) tuples."""
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
 
+def _vec_sub(a, b):
+    """Subtract two (x, y) tuples."""
+    return (a[0] - b[0], a[1] - b[1])
+
+
+def _detect_transitions_position(
+    frames, l_name, r_name, n_frames,
+    ratio, min_sep_sq, vis_drop,
+):
+    """Detect swap transitions using position cost + visibility.
+
+    Returns list of (frame_idx, score) for detected transitions.
+    """
+    transition_list = []
+    prev_l = prev_r = None
+    avg_vis_l = avg_vis_r = 1.0
+    _alpha = 0.1
+
+    for i in range(n_frames):
+        curr_l = _get_lm_xy(frames[i], l_name)
+        curr_r = _get_lm_xy(frames[i], r_name)
+        if curr_l is None or curr_r is None:
+            continue
+
+        vis_l = _get_lm_vis(frames[i], l_name)
+        vis_r = _get_lm_vis(frames[i], r_name)
+        avg_vis_l = _alpha * vis_l + (1.0 - _alpha) * avg_vis_l
+        avg_vis_r = _alpha * vis_r + (1.0 - _alpha) * avg_vis_r
+
+        # Skip when L and R too close — do NOT update history
+        if _sq_dist(curr_l, curr_r) < min_sep_sq:
+            continue
+
+        if prev_l is None:
+            prev_l, prev_r = curr_l, curr_r
+            continue
+
+        cost_keep = (_sq_dist(prev_l, curr_l)
+                     + _sq_dist(prev_r, curr_r))
+        cost_swap = (_sq_dist(prev_l, curr_r)
+                     + _sq_dist(prev_r, curr_l))
+
+        eff_ratio = ratio
+        if (vis_l < avg_vis_l - vis_drop
+                and vis_r < avg_vis_r - vis_drop):
+            eff_ratio = ratio * 2.0
+
+        if cost_keep > 0 and cost_swap / cost_keep < eff_ratio:
+            transition_list.append(
+                (i, cost_swap / cost_keep))
+
+        prev_l, prev_r = curr_l, curr_r
+
+    return transition_list
+
+
+def _detect_transitions_direction(
+    frames, l_name, r_name, n_frames, half_window,
+):
+    """Detect swap transitions using direction-vector coherence.
+
+    For each frame *i*, computes direction vectors before and after
+    (over *half_window* frames) and checks whether the trajectory
+    after *i* is more coherent with the same landmark's direction
+    (keep) or the opposite landmark's (swap).
+
+    Only frames where ``cost_keep`` is an outlier (above
+    ``Q3 + 1.5 * IQR`` of the cost_keep distribution) are
+    considered as candidates — this filters out normal gait
+    oscillation while catching real trajectory discontinuities
+    caused by label swaps.
+
+    Returns list of (frame_idx, score) for detected transitions.
+    Score = cost_swap / cost_keep (lower = stronger swap signal).
+    """
+    hw = half_window
+
+    # Pre-extract all positions (None for missing)
+    pos_l = [_get_lm_xy(frames[i], l_name) for i in range(n_frames)]
+    pos_r = [_get_lm_xy(frames[i], r_name) for i in range(n_frames)]
+
+    # First pass: collect costs for all frames
+    all_costs = []
+    for i in range(hw, n_frames - hw):
+        l_before = pos_l[i - hw]
+        l_at = pos_l[i]
+        l_after = pos_l[i + hw]
+        r_before = pos_r[i - hw]
+        r_at = pos_r[i]
+        r_after = pos_r[i + hw]
+
+        if any(p is None for p in (
+                l_before, l_at, l_after, r_before, r_at, r_after)):
+            continue
+
+        dir_before_l = _vec_sub(l_at, l_before)
+        dir_after_l = _vec_sub(l_after, l_at)
+        dir_before_r = _vec_sub(r_at, r_before)
+        dir_after_r = _vec_sub(r_after, r_at)
+
+        cost_keep = (_sq_dist(dir_after_l, dir_before_l)
+                     + _sq_dist(dir_after_r, dir_before_r))
+        cost_swap = (_sq_dist(dir_after_l, dir_before_r)
+                     + _sq_dist(dir_after_r, dir_before_l))
+
+        all_costs.append((i, cost_keep, cost_swap))
+
+    if not all_costs:
+        return []
+
+    # Adaptive threshold: only consider frames where cost_keep is
+    # an outlier (IQR method).  Normal gait produces small cost_keep
+    # (smooth direction changes); swaps produce large cost_keep
+    # (abrupt discontinuity).
+    keeps = sorted(c[1] for c in all_costs)
+    n = len(keeps)
+    q1 = keeps[n // 4]
+    q3 = keeps[3 * n // 4]
+    iqr = q3 - q1
+    threshold = q3 + 1.5 * iqr
+
+    # Second pass: flag transitions where cost_keep is an outlier
+    # AND swap trajectory is more coherent than keep.
+    transition_list = []
+    for i, ck, cs in all_costs:
+        if ck > threshold and cs < ck:
+            transition_list.append(
+                (i, cs / ck if ck > 0 else 0.0))
+
+    return transition_list
+
+
 def correct_lateral_labels(
     data: dict,
+    method: str = "transition",
     ratio: float = 0.25,
     min_sep: float = 0.03,
+    vis_drop: float = 0.25,
+    half_window: int = 5,
     window: Optional[int] = None,
 ) -> dict:
     """Detect and correct per-landmark LEFT/RIGHT label swaps.
@@ -2006,17 +2153,31 @@ def correct_lateral_labels(
     MediaPipe swaps individual landmark pairs (e.g. ankles, knees)
     during leg crossings in sagittal view while the rest of the leg
     stays correctly labelled.  This function treats **each L/R pair
-    independently** using consecutive-frame transition detection.
+    independently** and supports two detection methods.
 
-    For each pair, consecutive frames are compared: when swapping
-    labels produces a much smoother trajectory than keeping them
-    (``cost_swap / cost_keep < ratio``), a transition is recorded
-    and the swap state is toggled.  Frames where L and R are closer
-    than *min_sep* are skipped (too close to distinguish).
+    Methods
+    -------
+    ``"transition"`` (default)
+        Consecutive-frame position cost.  Compares displacement
+        ``L_{i-1} -> L_i`` (keep) vs ``L_{i-1} -> R_i`` (swap).
+        A transition is flagged when ``cost_swap / cost_keep < ratio``.
+        Visibility is used as a secondary signal: when both
+        landmarks' visibility drops, the threshold is relaxed.
+        Frames where ``dist(L, R) < min_sep`` are skipped without
+        updating the trajectory history.
 
-    After per-pair corrections, an anatomical chain consistency pass
-    ensures that connected landmarks (hip → knee → ankle → heel →
-    foot) remain on the same side.
+    ``"direction"``
+        Direction-vector coherence over a sliding window.  For each
+        frame *i*, computes direction vectors before and after
+        (over *half_window* frames) and checks whether the
+        trajectory after *i* continues the same landmark's
+        trajectory (keep) or the opposite landmark's (swap).
+        No ratio/min_sep threshold — purely relative comparison.
+
+    After detection, **chain consistency** (Phase C) ensures that
+    connected landmarks (hip -> knee -> ankle -> heel -> foot)
+    remain on the same side, and a **coherence check** (Phase D)
+    counts remaining violations for diagnostics.
 
     Call **after** extraction and **before** ``normalize()`` or
     ``compute_angles()``.
@@ -2025,16 +2186,20 @@ def correct_lateral_labels(
     ----------
     data : dict
         Pivot JSON dict with ``frames`` populated.
+    method : str
+        Detection method: ``"transition"`` (position cost) or
+        ``"direction"`` (direction-vector coherence).
     ratio : float
-        Transition detection threshold.  A swap transition is
-        flagged when ``cost_swap / cost_keep < ratio``.  Default
-        0.25 (swap must be 4x cheaper).
+        Transition threshold (``"transition"`` only).  Default 0.25.
     min_sep : float
-        Minimum L/R separation in normalised coords.  Frames where
-        ``dist(L, R) < min_sep`` are skipped.  Default 0.03.
+        Minimum L/R separation (``"transition"`` only).  Default 0.03.
+    vis_drop : float
+        Visibility drop threshold (``"transition"`` only).  Default 0.25.
+    half_window : int
+        Half-window for direction vectors (``"direction"`` only).
+        Full window = ``2 * half_window + 1``.  Default 5.
     window : int, optional
-        Deprecated legacy parameter kept for backward compatibility.
-        The transition-based algorithm ignores this value.
+        Deprecated, ignored.
 
     Returns
     -------
@@ -2069,47 +2234,21 @@ def correct_lateral_labels(
     min_sep_sq = min_sep ** 2
 
     # Phase B: per-pair transition detection
-    # For each consecutive frame pair, compare displacement cost of
-    # keeping vs swapping labels.  A transition is flagged when swap
-    # is much cheaper (ratio < threshold).  The swap mask is built
-    # by toggling state at each transition.
     pair_results = {}
     for pair_name, l_name, r_name in _LATERAL_PAIRS:
-        # Detect transitions between consecutive frames.
-        # Store (frame_idx, ratio_value) so we can rank by confidence.
-        transition_list = []
-        prev_l = prev_r = None
-        for i in range(n_frames):
-            curr_l = _get_lm_xy(frames[i], l_name)
-            curr_r = _get_lm_xy(frames[i], r_name)
-            if curr_l is None or curr_r is None:
-                continue
-            if prev_l is None:
-                prev_l, prev_r = curr_l, curr_r
-                continue
-
-            # Skip when L and R too close to distinguish
-            if _sq_dist(curr_l, curr_r) < min_sep_sq:
-                prev_l, prev_r = curr_l, curr_r
-                continue
-
-            cost_keep = (_sq_dist(prev_l, curr_l)
-                         + _sq_dist(prev_r, curr_r))
-            cost_swap = (_sq_dist(prev_l, curr_r)
-                         + _sq_dist(prev_r, curr_l))
-
-            if cost_keep > 0 and cost_swap / cost_keep < ratio:
-                transition_list.append(
-                    (i, cost_swap / cost_keep))
-
-            prev_l, prev_r = curr_l, curr_r
+        # Detect transitions using selected method
+        if method == "direction":
+            transition_list = _detect_transitions_direction(
+                frames, l_name, r_name, n_frames, half_window)
+        else:
+            transition_list = _detect_transitions_position(
+                frames, l_name, r_name, n_frames,
+                ratio, min_sep_sq, vis_drop)
 
         # MediaPipe swaps always produce paired transitions
         # (entry + exit).  If we have an odd number, the weakest
         # detection is likely a false positive — remove it.
         if len(transition_list) % 2 != 0:
-            # Remove the transition with the highest ratio
-            # (least confident)
             weakest = max(transition_list, key=lambda t: t[1])
             transition_list.remove(weakest)
             logger.debug(
@@ -2158,43 +2297,81 @@ def correct_lateral_labels(
                 pair_results[pair_name]["pct"],
             )
 
-    # Phase C: anatomical chain consistency
+    # Phase C: anatomical chain consistency (iterative)
     # Ensure child landmarks stay on the same side as their parent.
-    # Walk the chain top-down: hip → knee → ankle → heel → foot.
-    n_reverted = 0
-    for child_l, child_r, parent_l, parent_r in _CHAIN_CHECKS:
-        for i in range(n_frames):
+    # Walk the chain top-down: hip -> knee -> ankle -> heel -> foot.
+    # Repeat until convergence (swapping a child may affect its own
+    # children).
+    n_chain_fixes = 0
+    for _iteration in range(3):
+        n_fixes_this_pass = 0
+        for child_l, child_r, parent_l, parent_r in _CHAIN_CHECKS:
+            for i in range(n_frames):
+                cl = _get_lm_xy(frames[i], child_l)
+                cr = _get_lm_xy(frames[i], child_r)
+                pl = _get_lm_xy(frames[i], parent_l)
+                pr = _get_lm_xy(frames[i], parent_r)
+                if cl is None or cr is None or pl is None or pr is None:
+                    continue
+                d_same = _sq_dist(cl, pl) + _sq_dist(cr, pr)
+                d_cross = _sq_dist(cl, pr) + _sq_dist(cr, pl)
+                if d_cross < d_same:
+                    lm = frames[i].get("landmarks", {})
+                    if child_l in lm and child_r in lm:
+                        lm[child_l], lm[child_r] = (
+                            lm[child_r], lm[child_l])
+                        n_fixes_this_pass += 1
+        n_chain_fixes += n_fixes_this_pass
+        if n_fixes_this_pass == 0:
+            break
+
+    if n_chain_fixes:
+        logger.info(
+            "Lateral correction: fixed %d chain inconsistencies",
+            n_chain_fixes)
+
+    # Phase D: post-correction coherence verification (read-only)
+    # For each frame, verify that same-leg landmarks are closer to
+    # each other than to the opposite leg.  Count violations as a
+    # diagnostic — these indicate remaining label errors that could
+    # not be resolved.
+    n_coherence_violations = 0
+    violation_frames = []
+    for i in range(n_frames):
+        frame_bad = False
+        for child_l, child_r, parent_l, parent_r in _CHAIN_CHECKS:
             cl = _get_lm_xy(frames[i], child_l)
             cr = _get_lm_xy(frames[i], child_r)
             pl = _get_lm_xy(frames[i], parent_l)
             pr = _get_lm_xy(frames[i], parent_r)
             if cl is None or cr is None or pl is None or pr is None:
                 continue
-            # Same-side: child_L↔parent_L + child_R↔parent_R
             d_same = _sq_dist(cl, pl) + _sq_dist(cr, pr)
-            # Cross-side: child_L↔parent_R + child_R↔parent_L
             d_cross = _sq_dist(cl, pr) + _sq_dist(cr, pl)
             if d_cross < d_same:
-                # Child is closer to opposite parent — swap child
-                lm = frames[i].get("landmarks", {})
-                if child_l in lm and child_r in lm:
-                    lm[child_l], lm[child_r] = lm[child_r], lm[child_l]
-                    n_reverted += 1
+                n_coherence_violations += 1
+                frame_bad = True
+        if frame_bad:
+            violation_frames.append(frames[i].get("frame_idx", i))
 
-    if n_reverted:
-        logger.info(
-            "Lateral correction: fixed %d chain inconsistencies",
-            n_reverted)
+    if n_coherence_violations:
+        logger.warning(
+            "Lateral correction: %d coherence violations remain "
+            "in %d frames",
+            n_coherence_violations, len(violation_frames))
 
-    # Phase D: metadata
+    # Phase E: metadata
     n_total = sum(
         pr["n_corrections"] for pr in pair_results.values()
     )
     lateral_meta = {
+        "method": method,
         "walking_direction": walking_direction,
         "pairs": pair_results,
         "n_total_frame_corrections": n_total,
-        "chain_fixes": n_reverted,
+        "chain_fixes": n_chain_fixes,
+        "coherence_violations": n_coherence_violations,
+        "coherence_violation_frames": violation_frames,
     }
 
     if data.get("normalization") is None:

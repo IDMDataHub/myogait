@@ -1,7 +1,11 @@
 """Full pipeline test on a real gait video."""
+import os
+import tempfile
+import time
+
 import myogait as mg
-import time, tempfile, os
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 

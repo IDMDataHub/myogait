@@ -1,7 +1,11 @@
 """Test full pipeline with Sapiens 0.3B extractor on CPU."""
+import os
+import tempfile
+import time
+
 import myogait as mg
-import time, tempfile, os
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -26,7 +30,7 @@ print(f"   -> Time: {t1-t0:.1f}s ({(t1-t0)/n:.2f}s/frame)\n")
 # 2. NORMALIZATION
 print("2. Normalization (butterworth)...")
 data = mg.normalize(data, filters=["butterworth"])
-print(f"   -> OK\n")
+print("   -> OK\n")
 
 # 3. ANGLES
 print("3. Angle computation...")
@@ -66,7 +70,7 @@ print("\n6. Export...")
 with tempfile.TemporaryDirectory() as td:
     mg.export_mot(data, os.path.join(td, "gait.mot"))
     mg.export_trc(data, os.path.join(td, "markers.trc"))
-    print(f"   -> MOT + TRC: OK")
+    print("   -> MOT + TRC: OK")
 
 # 7. PLOTS
 print("\n7. Plot...")

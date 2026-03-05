@@ -1,7 +1,11 @@
 """Test full pipeline with YOLO extractor."""
+import os
+import tempfile
+import time
+
 import myogait as mg
-import time, tempfile, os
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -82,7 +86,7 @@ if total_ev >= 4:
             files = mg.export_csv(data, td, cycles, stats)
             print(f"   -> CSV: {len(files)} files")
             mg.export_mot(data, os.path.join(td, "gait.mot"))
-            print(f"   -> MOT: OK")
+            print("   -> MOT: OK")
 
         # 9. PLOTS
         print("\n9. Plots...")
