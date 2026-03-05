@@ -40,6 +40,8 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 from scipy.signal import find_peaks, butter, filtfilt
 
+from .axis_utils import detect_walking_direction_from_feet
+
 logger = logging.getLogger(__name__)
 
 # Module-level reference to the current data dict, set by detect_events()
@@ -139,12 +141,16 @@ def _detect_zeni(
     # Pelvis midpoint
     pelvis_x = (left_hip_x + right_hip_x) / 2
 
-    # Detect walking direction from pelvis displacement
-    valid_pelvis = pelvis_x[~np.isnan(pelvis_x)]
-    if len(valid_pelvis) >= 2:
-        walking_right = valid_pelvis[-1] > valid_pelvis[0]
+    # Detect walking direction from foot orientation (toe vs heel).
+    # This is more robust than displacement-based detection and
+    # works on treadmills.
+    if _current_data is not None:
+        walking_right = detect_walking_direction_from_feet(_current_data) == "right"
     else:
-        walking_right = True  # default left-to-right
+        # Fallback: pelvis displacement
+        valid_pelvis = pelvis_x[~np.isnan(pelvis_x)]
+        walking_right = (valid_pelvis[-1] > valid_pelvis[0]
+                         if len(valid_pelvis) >= 2 else True)
 
     # Relative ankle position
     left_ankle_rel = left_ankle_x - pelvis_x
@@ -235,9 +241,12 @@ def _detect_crossing(
     left_ankle_x = _lowpass_filter(left_ankle_x, cutoff_freq, fps)
     right_ankle_x = _lowpass_filter(right_ankle_x, cutoff_freq, fps)
 
-    # Detect walking direction from ankle displacement
-    valid_la = left_ankle_x[~np.isnan(left_ankle_x)]
-    walking_right = len(valid_la) >= 2 and valid_la[-1] > valid_la[0]
+    # Detect walking direction from foot orientation
+    if _current_data is not None:
+        walking_right = detect_walking_direction_from_feet(_current_data) == "right"
+    else:
+        valid_la = left_ankle_x[~np.isnan(left_ankle_x)]
+        walking_right = len(valid_la) >= 2 and valid_la[-1] > valid_la[0]
 
     # Compute crossing signal (difference between left and right knee x)
     # Flip for right-to-left walking so rising crossing always = left forward
@@ -383,9 +392,12 @@ def _detect_oconnor(
 
     pelvis_x = (left_hip_x + right_hip_x) / 2
 
-    # Detect walking direction
-    valid_pelvis = pelvis_x[~np.isnan(pelvis_x)]
-    walking_right = len(valid_pelvis) >= 2 and valid_pelvis[-1] > valid_pelvis[0]
+    # Detect walking direction from foot orientation
+    if _current_data is not None:
+        walking_right = detect_walking_direction_from_feet(_current_data) == "right"
+    else:
+        valid_pelvis = pelvis_x[~np.isnan(pelvis_x)]
+        walking_right = len(valid_pelvis) >= 2 and valid_pelvis[-1] > valid_pelvis[0]
 
     results = {}
     for side, heel_name in [("left", "LEFT_HEEL"), ("right", "RIGHT_HEEL")]:

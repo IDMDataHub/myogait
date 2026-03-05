@@ -40,7 +40,7 @@ Validation::
     report = validate_biomechanical(data, cycles)
 """
 
-__version__ = "0.5.17"
+__version__ = "0.5.18"
 
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
@@ -134,6 +134,10 @@ from .video import (
     render_stickfigure_animation,
 )
 from .config import load_config, save_config, DEFAULT_CONFIG
+from .axis_utils import (
+    detect_walking_direction_from_feet,
+    detect_walking_direction_from_feet_arrays,
+)
 from .experimental import (
     VIDEO_DEGRADATION_DEFAULTS,
     build_video_degradation_config,
@@ -281,6 +285,9 @@ __all__ = [
     "DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG",
     "build_single_pair_benchmark_config",
     "run_single_pair_benchmark",
+    # Axis utilities
+    "detect_walking_direction_from_feet",
+    "detect_walking_direction_from_feet_arrays",
     # Meta
     "__version__",
 ]
