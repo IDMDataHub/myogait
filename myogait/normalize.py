@@ -1955,229 +1955,53 @@ def procrustes_align(
 
 # ── Lateral label correction ────────────────────────────────────────
 
-
-# L/R landmark pairs to check independently.
-_LATERAL_PAIRS = [
-    ("hip", "LEFT_HIP", "RIGHT_HIP"),
-    ("knee", "LEFT_KNEE", "RIGHT_KNEE"),
-    ("ankle", "LEFT_ANKLE", "RIGHT_ANKLE"),
-    ("heel", "LEFT_HEEL", "RIGHT_HEEL"),
-    ("foot_index", "LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX"),
-    ("shoulder", "LEFT_SHOULDER", "RIGHT_SHOULDER"),
-]
-
-# Anatomical chain: child must stay on same side as parent.
-# (child_L, child_R, parent_L, parent_R)
-_CHAIN_CHECKS = [
-    ("LEFT_KNEE", "RIGHT_KNEE", "LEFT_HIP", "RIGHT_HIP"),
-    ("LEFT_ANKLE", "RIGHT_ANKLE", "LEFT_KNEE", "RIGHT_KNEE"),
-    ("LEFT_HEEL", "RIGHT_HEEL", "LEFT_ANKLE", "RIGHT_ANKLE"),
-    ("LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX", "LEFT_HEEL", "RIGHT_HEEL"),
+# All L/R landmark pairs to swap together.
+_LR_PAIRS = [
+    ("LEFT_HIP", "RIGHT_HIP"),
+    ("LEFT_KNEE", "RIGHT_KNEE"),
+    ("LEFT_ANKLE", "RIGHT_ANKLE"),
+    ("LEFT_HEEL", "RIGHT_HEEL"),
+    ("LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX"),
+    ("LEFT_SHOULDER", "RIGHT_SHOULDER"),
 ]
 
 
-def _get_lm_xy(frame: dict, name: str):
-    """Extract (x, y) as floats from a frame's landmarks, or None."""
+def _get_lm_x(frame: dict, name: str):
+    """Extract x coordinate from a frame's landmark, or None."""
     lm = frame.get("landmarks", {}).get(name)
     if lm is None:
         return None
-    x, y = lm.get("x"), lm.get("y")
-    if x is None or y is None:
+    x = lm.get("x")
+    if x is None:
         return None
-    xf, yf = float(x), float(y)
-    if np.isnan(xf) or np.isnan(yf):
-        return None
-    return (xf, yf)
+    xf = float(x)
+    return None if np.isnan(xf) else xf
 
 
-def _get_lm_vis(frame: dict, name: str) -> float:
-    """Extract visibility score from a frame's landmark, default 1.0."""
-    lm = frame.get("landmarks", {}).get(name)
-    if lm is None:
-        return 1.0
-    v = lm.get("visibility", 1.0)
-    if v is None:
-        return 1.0
-    vf = float(v)
-    return 0.0 if np.isnan(vf) else vf
+def correct_lateral_labels(data: dict, **kwargs) -> dict:
+    """Detect and correct LEFT/RIGHT label inversions.
 
+    Detects frames where the pose estimator swapped all L/R labels
+    by tracking the relative horizontal ordering of bilateral
+    landmarks (hips confirmed by knees).  The detection produces
+    **transition points** where the ordering flips; a toggle state
+    machine then marks contiguous runs of inverted frames and swaps
+    all L/R landmarks back.
 
-def _sq_dist(a, b):
-    """Squared Euclidean distance between two (x, y) tuples."""
-    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+    This preserves **temporal continuity**: each label tracks the
+    same physical joint across time.  The algorithm never corrects
+    individual landmarks independently — it swaps everything or
+    nothing on a given frame.
 
-
-def _vec_sub(a, b):
-    """Subtract two (x, y) tuples."""
-    return (a[0] - b[0], a[1] - b[1])
-
-
-def _detect_transitions_position(
-    frames, l_name, r_name, n_frames,
-    ratio, min_sep_sq, vis_drop,
-):
-    """Detect swap transitions using position cost + visibility.
-
-    Returns list of (frame_idx, score) for detected transitions.
-    """
-    transition_list = []
-    prev_l = prev_r = None
-    avg_vis_l = avg_vis_r = 1.0
-    _alpha = 0.1
-
-    for i in range(n_frames):
-        curr_l = _get_lm_xy(frames[i], l_name)
-        curr_r = _get_lm_xy(frames[i], r_name)
-        if curr_l is None or curr_r is None:
-            continue
-
-        vis_l = _get_lm_vis(frames[i], l_name)
-        vis_r = _get_lm_vis(frames[i], r_name)
-        avg_vis_l = _alpha * vis_l + (1.0 - _alpha) * avg_vis_l
-        avg_vis_r = _alpha * vis_r + (1.0 - _alpha) * avg_vis_r
-
-        # Skip when L and R too close — do NOT update history
-        if _sq_dist(curr_l, curr_r) < min_sep_sq:
-            continue
-
-        if prev_l is None:
-            prev_l, prev_r = curr_l, curr_r
-            continue
-
-        cost_keep = (_sq_dist(prev_l, curr_l)
-                     + _sq_dist(prev_r, curr_r))
-        cost_swap = (_sq_dist(prev_l, curr_r)
-                     + _sq_dist(prev_r, curr_l))
-
-        eff_ratio = ratio
-        if (vis_l < avg_vis_l - vis_drop
-                and vis_r < avg_vis_r - vis_drop):
-            eff_ratio = ratio * 2.0
-
-        if cost_keep > 0 and cost_swap / cost_keep < eff_ratio:
-            transition_list.append(
-                (i, cost_swap / cost_keep))
-
-        prev_l, prev_r = curr_l, curr_r
-
-    return transition_list
-
-
-def _detect_transitions_direction(
-    frames, l_name, r_name, n_frames, half_window,
-):
-    """Detect swap transitions using direction-vector coherence.
-
-    For each frame *i*, computes direction vectors before and after
-    (over *half_window* frames) and checks whether the trajectory
-    after *i* is more coherent with the same landmark's direction
-    (keep) or the opposite landmark's (swap).
-
-    Only frames where ``cost_keep`` is an outlier (above
-    ``Q3 + 1.5 * IQR`` of the cost_keep distribution) are
-    considered as candidates — this filters out normal gait
-    oscillation while catching real trajectory discontinuities
-    caused by label swaps.
-
-    Returns list of (frame_idx, score) for detected transitions.
-    Score = cost_swap / cost_keep (lower = stronger swap signal).
-    """
-    hw = half_window
-
-    # Pre-extract all positions (None for missing)
-    pos_l = [_get_lm_xy(frames[i], l_name) for i in range(n_frames)]
-    pos_r = [_get_lm_xy(frames[i], r_name) for i in range(n_frames)]
-
-    # First pass: collect costs for all frames
-    all_costs = []
-    for i in range(hw, n_frames - hw):
-        l_before = pos_l[i - hw]
-        l_at = pos_l[i]
-        l_after = pos_l[i + hw]
-        r_before = pos_r[i - hw]
-        r_at = pos_r[i]
-        r_after = pos_r[i + hw]
-
-        if any(p is None for p in (
-                l_before, l_at, l_after, r_before, r_at, r_after)):
-            continue
-
-        dir_before_l = _vec_sub(l_at, l_before)
-        dir_after_l = _vec_sub(l_after, l_at)
-        dir_before_r = _vec_sub(r_at, r_before)
-        dir_after_r = _vec_sub(r_after, r_at)
-
-        cost_keep = (_sq_dist(dir_after_l, dir_before_l)
-                     + _sq_dist(dir_after_r, dir_before_r))
-        cost_swap = (_sq_dist(dir_after_l, dir_before_r)
-                     + _sq_dist(dir_after_r, dir_before_l))
-
-        all_costs.append((i, cost_keep, cost_swap))
-
-    if not all_costs:
-        return []
-
-    # Adaptive threshold: only consider frames where cost_keep is
-    # an outlier (IQR method).  Normal gait produces small cost_keep
-    # (smooth direction changes); swaps produce large cost_keep
-    # (abrupt discontinuity).
-    keeps = sorted(c[1] for c in all_costs)
-    n = len(keeps)
-    q1 = keeps[n // 4]
-    q3 = keeps[3 * n // 4]
-    iqr = q3 - q1
-    threshold = q3 + 1.5 * iqr
-
-    # Second pass: flag transitions where cost_keep is an outlier
-    # AND swap trajectory is more coherent than keep.
-    transition_list = []
-    for i, ck, cs in all_costs:
-        if ck > threshold and cs < ck:
-            transition_list.append(
-                (i, cs / ck if ck > 0 else 0.0))
-
-    return transition_list
-
-
-def correct_lateral_labels(
-    data: dict,
-    method: str = "transition",
-    ratio: float = 0.25,
-    min_sep: float = 0.03,
-    vis_drop: float = 0.25,
-    half_window: int = 5,
-    window: Optional[int] = None,
-) -> dict:
-    """Detect and correct per-landmark LEFT/RIGHT label swaps.
-
-    MediaPipe swaps individual landmark pairs (e.g. ankles, knees)
-    during leg crossings in sagittal view while the rest of the leg
-    stays correctly labelled.  This function treats **each L/R pair
-    independently** and supports two detection methods.
-
-    Methods
-    -------
-    ``"transition"`` (default)
-        Consecutive-frame position cost.  Compares displacement
-        ``L_{i-1} -> L_i`` (keep) vs ``L_{i-1} -> R_i`` (swap).
-        A transition is flagged when ``cost_swap / cost_keep < ratio``.
-        Visibility is used as a secondary signal: when both
-        landmarks' visibility drops, the threshold is relaxed.
-        Frames where ``dist(L, R) < min_sep`` are skipped without
-        updating the trajectory history.
-
-    ``"direction"``
-        Direction-vector coherence over a sliding window.  For each
-        frame *i*, computes direction vectors before and after
-        (over *half_window* frames) and checks whether the
-        trajectory after *i* continues the same landmark's
-        trajectory (keep) or the opposite landmark's (swap).
-        No ratio/min_sep threshold — purely relative comparison.
-
-    After detection, **chain consistency** (Phase C) ensures that
-    connected landmarks (hip -> knee -> ankle -> heel -> foot)
-    remain on the same side, and a **coherence check** (Phase D)
-    counts remaining violations for diagnostics.
+    Algorithm
+    ---------
+    1. For consecutive frames, compare the x-ordering of LEFT_HIP
+       vs RIGHT_HIP.  If the ordering flips AND the LEFT_KNEE vs
+       RIGHT_KNEE ordering also flips, record a transition.
+    2. Toggle an ``in_inversion`` boolean at each transition.
+    3. While ``in_inversion`` is True, swap all L/R landmark pairs.
+    4. Bootstrap polarity: if >50 % of frames are flagged, invert
+       the mask (the initial labels were globally wrong).
 
     Call **after** extraction and **before** ``normalize()`` or
     ``compute_angles()``.
@@ -2186,20 +2010,6 @@ def correct_lateral_labels(
     ----------
     data : dict
         Pivot JSON dict with ``frames`` populated.
-    method : str
-        Detection method: ``"transition"`` (position cost) or
-        ``"direction"`` (direction-vector coherence).
-    ratio : float
-        Transition threshold (``"transition"`` only).  Default 0.25.
-    min_sep : float
-        Minimum L/R separation (``"transition"`` only).  Default 0.03.
-    vis_drop : float
-        Visibility drop threshold (``"transition"`` only).  Default 0.25.
-    half_window : int
-        Half-window for direction vectors (``"direction"`` only).
-        Full window = ``2 * half_window + 1``.  Default 5.
-    window : int, optional
-        Deprecated, ignored.
 
     Returns
     -------
@@ -2207,189 +2017,91 @@ def correct_lateral_labels(
         Modified *data* with corrected landmark labels and metadata
         in ``data["normalization"]["lateral_correction"]``.
     """
-    from .axis_utils import detect_walking_direction_from_feet
-
     frames = data.get("frames", [])
     n_frames = len(frames)
-
-    if window is not None:
-        logger.warning(
-            "correct_lateral_labels(window=...) is deprecated and ignored; "
-            "use ratio/min_sep parameters instead."
-        )
-
-    valid_methods = {"transition", "direction"}
-    if method not in valid_methods:
-        raise ValueError(
-            f"Unknown method '{method}'. Valid: {sorted(valid_methods)}"
-        )
-    if not np.isfinite(ratio) or ratio <= 0:
-        raise ValueError(f"ratio must be > 0, got {ratio}")
-    if not np.isfinite(min_sep) or min_sep < 0:
-        raise ValueError(f"min_sep must be >= 0, got {min_sep}")
-    if not np.isfinite(vis_drop) or vis_drop < 0:
-        raise ValueError(f"vis_drop must be >= 0, got {vis_drop}")
-    if (not isinstance(half_window, int)) or half_window < 1:
-        raise ValueError(f"half_window must be an integer >= 1, got {half_window}")
 
     if n_frames == 0:
         if data.get("normalization") is None:
             data["normalization"] = {}
         data["normalization"]["lateral_correction"] = {
-            "method": method,
-            "walking_direction": "right",
-            "pairs": {},
-            "n_total_frame_corrections": 0,
-            "chain_fixes": 0,
-            "coherence_violations": 0,
-            "coherence_violation_frames": [],
+            "n_inversions": 0,
+            "n_frames_corrected": 0,
+            "inversion_frames": [],
         }
         return data
 
-    # Phase A: walking direction
-    walking_direction = detect_walking_direction_from_feet(data)
+    # ── Step 1: detect transition frames ────────────────────────
+    transitions = []
+    for i in range(1, n_frames):
+        prev, curr = frames[i - 1], frames[i]
 
-    min_sep_sq = min_sep ** 2
+        prev_lh = _get_lm_x(prev, "LEFT_HIP")
+        prev_rh = _get_lm_x(prev, "RIGHT_HIP")
+        curr_lh = _get_lm_x(curr, "LEFT_HIP")
+        curr_rh = _get_lm_x(curr, "RIGHT_HIP")
 
-    # Phase B: per-pair transition detection
-    pair_results = {}
-    for pair_name, l_name, r_name in _LATERAL_PAIRS:
-        # Detect transitions using selected method
-        if method == "direction":
-            transition_list = _detect_transitions_direction(
-                frames, l_name, r_name, n_frames, half_window)
-        else:
-            transition_list = _detect_transitions_position(
-                frames, l_name, r_name, n_frames,
-                ratio, min_sep_sq, vis_drop)
+        if any(v is None for v in (prev_lh, prev_rh, curr_lh, curr_rh)):
+            continue
 
-        # MediaPipe swaps always produce paired transitions
-        # (entry + exit).  If we have an odd number, the weakest
-        # detection is likely a false positive — remove it.
-        if len(transition_list) % 2 != 0:
-            weakest = max(transition_list, key=lambda t: t[1])
-            transition_list.remove(weakest)
-            logger.debug(
-                "Lateral [%s]: dropped unpaired transition at "
-                "frame %d (ratio=%.3f)",
-                pair_name, weakest[0], weakest[1])
+        prev_order = prev_lh < prev_rh
+        curr_order = curr_lh < curr_rh
 
-        transitions = {t[0] for t in transition_list}
+        if prev_order != curr_order:
+            # Confirm with knees
+            prev_lk = _get_lm_x(prev, "LEFT_KNEE")
+            prev_rk = _get_lm_x(prev, "RIGHT_KNEE")
+            curr_lk = _get_lm_x(curr, "LEFT_KNEE")
+            curr_rk = _get_lm_x(curr, "RIGHT_KNEE")
 
-        # Build mask by toggling at each transition
-        swap_mask = [False] * n_frames
-        in_swap = False
-        for i in range(n_frames):
-            if i in transitions:
-                in_swap = not in_swap
-            swap_mask[i] = in_swap
-
-        # Bootstrap polarity: if majority are flagged, the initial
-        # labels were wrong for this pair — invert the mask.
-        n_swapped = sum(swap_mask)
-        if n_swapped > n_frames / 2:
-            swap_mask = [not s for s in swap_mask]
-            n_swapped = sum(swap_mask)
-
-        # Apply swaps for this pair
-        corrected_frames = []
-        if n_swapped > 0:
-            for i in range(n_frames):
-                if swap_mask[i]:
-                    lm = frames[i].get("landmarks", {})
-                    if l_name in lm and r_name in lm:
-                        lm[l_name], lm[r_name] = lm[r_name], lm[l_name]
-                        corrected_frames.append(
-                            frames[i].get("frame_idx", i))
-
-        pair_results[pair_name] = {
-            "n_corrections": len(corrected_frames),
-            "pct": round(100.0 * len(corrected_frames) / n_frames, 1),
-            "corrected_frames": corrected_frames,
-        }
-
-        if corrected_frames:
-            logger.info(
-                "Lateral correction [%s]: %d frames (%.1f%%)",
-                pair_name, len(corrected_frames),
-                pair_results[pair_name]["pct"],
-            )
-
-    # Phase C: anatomical chain consistency (iterative)
-    # Ensure child landmarks stay on the same side as their parent.
-    # Walk the chain top-down: hip -> knee -> ankle -> heel -> foot.
-    # Repeat until convergence (swapping a child may affect its own
-    # children).
-    n_chain_fixes = 0
-    for _iteration in range(3):
-        n_fixes_this_pass = 0
-        for child_l, child_r, parent_l, parent_r in _CHAIN_CHECKS:
-            for i in range(n_frames):
-                cl = _get_lm_xy(frames[i], child_l)
-                cr = _get_lm_xy(frames[i], child_r)
-                pl = _get_lm_xy(frames[i], parent_l)
-                pr = _get_lm_xy(frames[i], parent_r)
-                if cl is None or cr is None or pl is None or pr is None:
-                    continue
-                d_same = _sq_dist(cl, pl) + _sq_dist(cr, pr)
-                d_cross = _sq_dist(cl, pr) + _sq_dist(cr, pl)
-                if d_cross < d_same:
-                    lm = frames[i].get("landmarks", {})
-                    if child_l in lm and child_r in lm:
-                        lm[child_l], lm[child_r] = (
-                            lm[child_r], lm[child_l])
-                        n_fixes_this_pass += 1
-        n_chain_fixes += n_fixes_this_pass
-        if n_fixes_this_pass == 0:
-            break
-
-    if n_chain_fixes:
-        logger.info(
-            "Lateral correction: fixed %d chain inconsistencies",
-            n_chain_fixes)
-
-    # Phase D: post-correction coherence verification (read-only)
-    # For each frame, verify that same-leg landmarks are closer to
-    # each other than to the opposite leg.  Count violations as a
-    # diagnostic — these indicate remaining label errors that could
-    # not be resolved.
-    n_coherence_violations = 0
-    violation_frames = []
-    for i in range(n_frames):
-        frame_bad = False
-        for child_l, child_r, parent_l, parent_r in _CHAIN_CHECKS:
-            cl = _get_lm_xy(frames[i], child_l)
-            cr = _get_lm_xy(frames[i], child_r)
-            pl = _get_lm_xy(frames[i], parent_l)
-            pr = _get_lm_xy(frames[i], parent_r)
-            if cl is None or cr is None or pl is None or pr is None:
+            if any(v is None for v in (prev_lk, prev_rk, curr_lk, curr_rk)):
                 continue
-            d_same = _sq_dist(cl, pl) + _sq_dist(cr, pr)
-            d_cross = _sq_dist(cl, pr) + _sq_dist(cr, pl)
-            if d_cross < d_same:
-                n_coherence_violations += 1
-                frame_bad = True
-        if frame_bad:
-            violation_frames.append(frames[i].get("frame_idx", i))
 
-    if n_coherence_violations:
-        logger.warning(
-            "Lateral correction: %d coherence violations remain "
-            "in %d frames",
-            n_coherence_violations, len(violation_frames))
+            prev_knee_order = prev_lk < prev_rk
+            curr_knee_order = curr_lk < curr_rk
 
-    # Phase E: metadata
-    n_total = sum(
-        pr["n_corrections"] for pr in pair_results.values()
-    )
+            if prev_knee_order != curr_knee_order:
+                transitions.append(i)
+
+    # ── Step 2: build toggle mask ───────────────────────────────
+    swap_mask = [False] * n_frames
+    in_inversion = False
+    transition_set = set(transitions)
+
+    for i in range(n_frames):
+        if i in transition_set:
+            in_inversion = not in_inversion
+        swap_mask[i] = in_inversion
+
+    # Bootstrap polarity: if majority flagged, initial labels wrong
+    n_flagged = sum(swap_mask)
+    if n_flagged > n_frames / 2:
+        swap_mask = [not s for s in swap_mask]
+        n_flagged = sum(swap_mask)
+
+    # ── Step 3: apply swaps ─────────────────────────────────────
+    corrected_frame_indices = []
+    for i in range(n_frames):
+        if swap_mask[i]:
+            lm = frames[i].get("landmarks", {})
+            for l_name, r_name in _LR_PAIRS:
+                if l_name in lm and r_name in lm:
+                    lm[l_name], lm[r_name] = lm[r_name], lm[l_name]
+            corrected_frame_indices.append(
+                frames[i].get("frame_idx", i))
+
+    if corrected_frame_indices:
+        logger.info(
+            "Lateral correction: %d inversions detected, "
+            "%d frames corrected (%.1f%%)",
+            len(transitions), len(corrected_frame_indices),
+            100.0 * len(corrected_frame_indices) / n_frames,
+        )
+
+    # ── Step 4: metadata ────────────────────────────────────────
     lateral_meta = {
-        "method": method,
-        "walking_direction": walking_direction,
-        "pairs": pair_results,
-        "n_total_frame_corrections": n_total,
-        "chain_fixes": n_chain_fixes,
-        "coherence_violations": n_coherence_violations,
-        "coherence_violation_frames": violation_frames,
+        "n_inversions": len(transitions),
+        "n_frames_corrected": len(corrected_frame_indices),
+        "inversion_frames": corrected_frame_indices,
     }
 
     if data.get("normalization") is None:

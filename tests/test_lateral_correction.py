@@ -1,4 +1,4 @@
-"""Tests for correct_lateral_labels() — per-pair L/R swap correction."""
+"""Tests for correct_lateral_labels() — toggle-based L/R inversion correction."""
 
 import numpy as np
 import copy
@@ -68,125 +68,114 @@ def _make_data(n_frames=30, direction="right"):
     }
 
 
-def _swap_pair(frame, l_name, r_name):
-    """Swap a single L/R pair in a frame's landmarks."""
+def _swap_all_pairs(frame):
+    """Swap ALL L/R pairs in a frame (simulates a full MediaPipe inversion)."""
     lm = frame["landmarks"]
-    lm[l_name], lm[r_name] = lm[r_name], lm[l_name]
+    pairs = [
+        ("LEFT_HIP", "RIGHT_HIP"),
+        ("LEFT_KNEE", "RIGHT_KNEE"),
+        ("LEFT_ANKLE", "RIGHT_ANKLE"),
+        ("LEFT_HEEL", "RIGHT_HEEL"),
+        ("LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX"),
+        ("LEFT_SHOULDER", "RIGHT_SHOULDER"),
+    ]
+    for l_name, r_name in pairs:
+        if l_name in lm and r_name in lm:
+            lm[l_name], lm[r_name] = lm[r_name], lm[l_name]
 
 
-# ── Tests: no swaps needed ───────────────────────────────────────────
+# ── Tests: no inversions ────────────────────────────────────────────
 
 
-class TestNoSwaps:
+class TestNoInversions:
     """When landmarks are correct, no corrections should be applied."""
 
     def test_no_corrections(self):
         data = _make_data(n_frames=30)
         result = correct_lateral_labels(data)
         meta = result["normalization"]["lateral_correction"]
-        assert meta["n_total_frame_corrections"] == 0
+        assert meta["n_frames_corrected"] == 0
 
-    def test_all_pairs_zero(self):
+    def test_no_inversions_detected(self):
         data = _make_data(n_frames=30)
         result = correct_lateral_labels(data)
         meta = result["normalization"]["lateral_correction"]
-        for pair_name, info in meta["pairs"].items():
-            assert info["n_corrections"] == 0, (
-                f"Pair {pair_name} has {info['n_corrections']} corrections"
-            )
+        assert meta["n_inversions"] == 0
 
-    def test_walking_direction_detected(self):
-        data = _make_data(direction="right")
+    def test_longer_sequence(self):
+        data = _make_data(n_frames=60)
         result = correct_lateral_labels(data)
         meta = result["normalization"]["lateral_correction"]
-        assert meta["walking_direction"] == "right"
+        assert meta["n_frames_corrected"] == 0
 
 
-# ── Tests: ankle swap only ───────────────────────────────────────────
+# ── Tests: full inversion detected and corrected ────────────────────
 
 
-class TestAnkleSwap:
-    """ANKLE swapped for a few frames while rest stays correct."""
+class TestFullInversion:
+    """All landmarks swapped for a few frames should be detected."""
 
-    def test_ankle_swap_detected(self):
+    def test_inversion_detected(self):
         data = _make_data(n_frames=30)
-        # Swap ANKLE at frames 10, 11, 12
+        # Swap ALL landmarks at frames 10, 11, 12
         for i in [10, 11, 12]:
-            _swap_pair(data["frames"][i], "LEFT_ANKLE", "RIGHT_ANKLE")
+            _swap_all_pairs(data["frames"][i])
 
         result = correct_lateral_labels(data)
         meta = result["normalization"]["lateral_correction"]
+        assert meta["n_inversions"] >= 1
+        assert meta["n_frames_corrected"] >= 2
 
-        assert meta["pairs"]["ankle"]["n_corrections"] >= 2
-        # Other pairs should be untouched
-        assert meta["pairs"]["hip"]["n_corrections"] == 0
-        assert meta["pairs"]["knee"]["n_corrections"] == 0
-
-    def test_ankle_swap_values_restored(self):
-        """After correction, ankle positions should match original."""
+    def test_inversion_values_restored(self):
+        """After correction, positions should match original."""
         data_orig = _make_data(n_frames=30)
         data = copy.deepcopy(data_orig)
 
-        # Swap ANKLE at frame 10
-        _swap_pair(data["frames"][10], "LEFT_ANKLE", "RIGHT_ANKLE")
+        # Swap ALL landmarks at frames 10, 11, 12
+        for i in [10, 11, 12]:
+            _swap_all_pairs(data["frames"][i])
 
         result = correct_lateral_labels(data)
 
-        # Compare corrected ankle to original
-        orig_la = data_orig["frames"][10]["landmarks"]["LEFT_ANKLE"]
-        corr_la = result["frames"][10]["landmarks"]["LEFT_ANKLE"]
+        # Compare corrected vs original
+        for i in [10, 11, 12]:
+            orig_lh = data_orig["frames"][i]["landmarks"]["LEFT_HIP"]
+            corr_lh = result["frames"][i]["landmarks"]["LEFT_HIP"]
+            assert abs(orig_lh["x"] - corr_lh["x"]) < 0.001
+            assert abs(orig_lh["y"] - corr_lh["y"]) < 0.001
+
+    def test_non_inverted_frames_untouched(self):
+        """Frames outside the inversion should not be modified."""
+        data_orig = _make_data(n_frames=30)
+        data = copy.deepcopy(data_orig)
+
+        for i in [10, 11, 12]:
+            _swap_all_pairs(data["frames"][i])
+
+        result = correct_lateral_labels(data)
+
+        # Frame 5 should be unchanged
+        orig_la = data_orig["frames"][5]["landmarks"]["LEFT_ANKLE"]
+        corr_la = result["frames"][5]["landmarks"]["LEFT_ANKLE"]
         assert abs(orig_la["x"] - corr_la["x"]) < 0.001
-        assert abs(orig_la["y"] - corr_la["y"]) < 0.001
 
+    def test_two_inversion_bursts(self):
+        """Two separate inversion periods should both be corrected."""
+        data = _make_data(n_frames=50)
 
-# ── Tests: hip swap only ─────────────────────────────────────────────
-
-
-class TestHipSwap:
-    """HIP swapped for a few frames while rest stays correct."""
-
-    def test_hip_swap_detected(self):
-        data = _make_data(n_frames=30)
-        for i in [5, 6]:
-            _swap_pair(data["frames"][i], "LEFT_HIP", "RIGHT_HIP")
+        for i in [10, 11, 12]:
+            _swap_all_pairs(data["frames"][i])
+        for i in [30, 31, 32]:
+            _swap_all_pairs(data["frames"][i])
 
         result = correct_lateral_labels(data)
         meta = result["normalization"]["lateral_correction"]
-
-        assert meta["pairs"]["hip"]["n_corrections"] >= 1
-        assert meta["pairs"]["ankle"]["n_corrections"] == 0
-
-
-# ── Tests: knee + lower leg swap ─────────────────────────────────────
+        # Should detect transitions for both bursts
+        assert meta["n_inversions"] >= 2
+        assert meta["n_frames_corrected"] >= 4
 
 
-class TestKneePlusLowerLeg:
-    """KNEE + ANKLE + HEEL + FOOT_INDEX swapped together."""
-
-    def test_knee_plus_lower_leg(self):
-        data = _make_data(n_frames=30)
-        # Swap knee + ankle + heel + foot_index at frames 15, 16
-        for i in [15, 16]:
-            _swap_pair(data["frames"][i], "LEFT_KNEE", "RIGHT_KNEE")
-            _swap_pair(data["frames"][i], "LEFT_ANKLE", "RIGHT_ANKLE")
-            _swap_pair(data["frames"][i], "LEFT_HEEL", "RIGHT_HEEL")
-            _swap_pair(
-                data["frames"][i],
-                "LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX")
-
-        result = correct_lateral_labels(data)
-        meta = result["normalization"]["lateral_correction"]
-
-        # All four pairs should be corrected
-        assert meta["pairs"]["knee"]["n_corrections"] >= 1
-        assert meta["pairs"]["ankle"]["n_corrections"] >= 1
-        assert meta["pairs"]["heel"]["n_corrections"] >= 1
-        assert meta["pairs"]["foot_index"]["n_corrections"] >= 1
-        # Hip should be untouched
-        assert meta["pairs"]["hip"]["n_corrections"] == 0
-
-
-# ── Tests: empty and edge cases ──────────────────────────────────────
+# ── Tests: edge cases ───────────────────────────────────────────────
 
 
 class TestEdgeCases:
@@ -195,24 +184,20 @@ class TestEdgeCases:
         data = {"frames": [], "normalization": None}
         result = correct_lateral_labels(data)
         meta = result["normalization"]["lateral_correction"]
-        assert meta["n_total_frame_corrections"] == 0
-        assert meta["method"] == "transition"
-        assert meta["chain_fixes"] == 0
-        assert meta["coherence_violations"] == 0
-        assert meta["coherence_violation_frames"] == []
+        assert meta["n_frames_corrected"] == 0
+        assert meta["n_inversions"] == 0
 
     def test_single_frame(self):
         data = _make_data(n_frames=1)
         result = correct_lateral_labels(data)
         meta = result["normalization"]["lateral_correction"]
-        assert meta["n_total_frame_corrections"] == 0
+        assert meta["n_frames_corrected"] == 0
 
     def test_missing_landmarks(self):
         """Frames with missing landmarks should not crash."""
         data = _make_data(n_frames=10)
-        # Remove some landmarks from frame 5
-        del data["frames"][5]["landmarks"]["LEFT_ANKLE"]
-        del data["frames"][5]["landmarks"]["RIGHT_ANKLE"]
+        del data["frames"][5]["landmarks"]["LEFT_HIP"]
+        del data["frames"][5]["landmarks"]["RIGHT_HIP"]
 
         result = correct_lateral_labels(data)
         assert "lateral_correction" in result["normalization"]
@@ -224,53 +209,38 @@ class TestEdgeCases:
         assert result["normalization"] is not None
         assert "lateral_correction" in result["normalization"]
 
-    def test_legacy_window_argument_is_accepted(self):
-        """Legacy API window=... should not break callers."""
+    def test_kwargs_ignored(self):
+        """Old keyword arguments should be silently ignored."""
         data = _make_data(n_frames=10)
-        result = correct_lateral_labels(data, window=2)
+        result = correct_lateral_labels(
+            data, method="transition", ratio=0.25, window=2)
         assert "lateral_correction" in result["normalization"]
 
-    def test_invalid_method_raises(self):
-        data = _make_data(n_frames=10)
-        with pytest.raises(ValueError, match="Unknown method"):
-            correct_lateral_labels(data, method="direciton")
 
-    def test_invalid_ratio_raises(self):
-        data = _make_data(n_frames=10)
-        with pytest.raises(ValueError, match="ratio must be > 0"):
-            correct_lateral_labels(data, ratio=0.0)
-
-    def test_invalid_half_window_raises(self):
-        data = _make_data(n_frames=10)
-        with pytest.raises(ValueError, match="half_window must be an integer >= 1"):
-            correct_lateral_labels(data, half_window=0)
-
-
-# ── Tests: idempotence ───────────────────────────────────────────────
+# ── Tests: idempotence ──────────────────────────────────────────────
 
 
 class TestIdempotence:
 
     def test_second_pass_zero_corrections(self):
         data = _make_data(n_frames=30)
-        # Create swaps
         for i in [10, 11, 12]:
-            _swap_pair(data["frames"][i], "LEFT_ANKLE", "RIGHT_ANKLE")
+            _swap_all_pairs(data["frames"][i])
 
         # First pass fixes them
         result = correct_lateral_labels(data)
         n_first = result["normalization"]["lateral_correction"][
-            "n_total_frame_corrections"]
+            "n_frames_corrected"]
         assert n_first > 0
 
         # Second pass should find nothing
         result2 = correct_lateral_labels(result)
         n_second = result2["normalization"]["lateral_correction"][
-            "n_total_frame_corrections"]
+            "n_frames_corrected"]
         assert n_second == 0
 
 
-# ── Tests: metadata ──────────────────────────────────────────────────
+# ── Tests: metadata ─────────────────────────────────────────────────
 
 
 class TestMetadata:
@@ -279,205 +249,83 @@ class TestMetadata:
         data = _make_data()
         result = correct_lateral_labels(data)
         meta = result["normalization"]["lateral_correction"]
+        assert "n_inversions" in meta
+        assert "n_frames_corrected" in meta
+        assert "inversion_frames" in meta
 
-        assert "walking_direction" in meta
-        assert "pairs" in meta
-        assert "n_total_frame_corrections" in meta
-
-    def test_all_pairs_present(self):
-        data = _make_data()
-        result = correct_lateral_labels(data)
-        pairs = result["normalization"]["lateral_correction"]["pairs"]
-
-        for name in ["ankle", "knee", "hip", "heel",
-                     "foot_index", "shoulder"]:
-            assert name in pairs
-            assert "n_corrections" in pairs[name]
-            assert "pct" in pairs[name]
-            assert "corrected_frames" in pairs[name]
-
-
-# ── Tests: anatomical coherence ──────────────────────────────────────
-
-
-class TestAnatomicalCoherence:
-    """Verify post-correction coherence check works."""
-
-    def test_ankle_heel_coherence(self):
-        """After correction, ankle should be closer to same-side heel."""
+    def test_inversion_frames_list(self):
+        """inversion_frames should list the corrected frame indices."""
         data = _make_data(n_frames=30)
-        # Swap ankle only (not heel) at frame 10
-        _swap_pair(data["frames"][10], "LEFT_ANKLE", "RIGHT_ANKLE")
+        for i in [10, 11, 12]:
+            _swap_all_pairs(data["frames"][i])
+
+        result = correct_lateral_labels(data)
+        meta = result["normalization"]["lateral_correction"]
+        assert isinstance(meta["inversion_frames"], list)
+        assert len(meta["inversion_frames"]) > 0
+
+
+# ── Tests: temporal continuity ──────────────────────────────────────
+
+
+class TestTemporalContinuity:
+    """Verify that correction preserves temporal continuity of signals."""
+
+    def test_hip_x_continuity(self):
+        """LEFT_HIP x should be smooth after correction (no jumps)."""
+        data = _make_data(n_frames=40)
+        for i in [15, 16, 17]:
+            _swap_all_pairs(data["frames"][i])
 
         result = correct_lateral_labels(data)
 
-        # After correction, check coherence:
-        # LEFT_ANKLE should be closer to LEFT_HEEL than RIGHT_HEEL
-        lm = result["frames"][10]["landmarks"]
-        la = (lm["LEFT_ANKLE"]["x"], lm["LEFT_ANKLE"]["y"])
-        lh = (lm["LEFT_HEEL"]["x"], lm["LEFT_HEEL"]["y"])
-        rh = (lm["RIGHT_HEEL"]["x"], lm["RIGHT_HEEL"]["y"])
+        # Extract LEFT_HIP x after correction
+        xs = []
+        for f in result["frames"]:
+            xs.append(f["landmarks"]["LEFT_HIP"]["x"])
 
-        d_same = (la[0] - lh[0]) ** 2 + (la[1] - lh[1]) ** 2
-        d_cross = (la[0] - rh[0]) ** 2 + (la[1] - rh[1]) ** 2
-        assert d_same < d_cross, (
-            f"Ankle should be closer to same-side heel: "
-            f"d_same={d_same:.4f}, d_cross={d_cross:.4f}"
+        # Max frame-to-frame change should be small
+        diffs = [abs(xs[i+1] - xs[i]) for i in range(len(xs) - 1)]
+        max_diff = max(diffs)
+        # Normal walking: dx ~ 0.001/frame + noise
+        # A label swap would cause ~0.1 jump
+        assert max_diff < 0.05, (
+            f"Max frame-to-frame hip_x diff = {max_diff:.4f}, "
+            "suggesting broken temporal continuity"
         )
 
-
-# ── Tests: coherence metadata ──────────────────────────────────────
-
-
-class TestCoherenceMetadata:
-    """Verify coherence_violations and coherence_violation_frames."""
-
-    def test_no_violations_when_correct(self):
-        data = _make_data(n_frames=30)
-        result = correct_lateral_labels(data)
-        meta = result["normalization"]["lateral_correction"]
-        assert meta["coherence_violations"] == 0
-        assert meta["coherence_violation_frames"] == []
-
-    def test_no_violations_after_swap_fix(self):
-        """After fixing a swap, coherence should be clean."""
-        data = _make_data(n_frames=30)
-        for i in [10, 11, 12]:
-            _swap_pair(data["frames"][i], "LEFT_ANKLE", "RIGHT_ANKLE")
-        result = correct_lateral_labels(data)
-        meta = result["normalization"]["lateral_correction"]
-        assert meta["coherence_violations"] == 0
-
-    def test_chain_fixes_in_metadata(self):
-        data = _make_data(n_frames=30)
-        result = correct_lateral_labels(data)
-        meta = result["normalization"]["lateral_correction"]
-        assert "chain_fixes" in meta
-
-
-# ── Tests: visibility / confidence signal ────────────────────────────
-
-
-class TestVisibilitySignal:
-    """Verify visibility-based ratio relaxation."""
-
-    def test_swap_with_low_visibility_detected(self):
-        """Swap during low-visibility period should be detected
-        thanks to relaxed threshold."""
+    def test_knee_x_continuity(self):
+        """LEFT_KNEE x should be smooth after correction."""
         data = _make_data(n_frames=40)
-        # Swap ANKLE at frames 20, 21 AND lower visibility
-        for i in [20, 21]:
-            _swap_pair(data["frames"][i], "LEFT_ANKLE", "RIGHT_ANKLE")
-            data["frames"][i]["landmarks"]["LEFT_ANKLE"]["visibility"] = 0.3
-            data["frames"][i]["landmarks"]["RIGHT_ANKLE"]["visibility"] = 0.3
+        for i in [15, 16, 17]:
+            _swap_all_pairs(data["frames"][i])
+
+        result = correct_lateral_labels(data)
+
+        xs = []
+        for f in result["frames"]:
+            xs.append(f["landmarks"]["LEFT_KNEE"]["x"])
+
+        diffs = [abs(xs[i+1] - xs[i]) for i in range(len(xs) - 1)]
+        max_diff = max(diffs)
+        assert max_diff < 0.05
+
+
+# ── Tests: bootstrap polarity ──────────────────────────────────────
+
+
+class TestBootstrapPolarity:
+    """When majority of frames are inverted, polarity should flip."""
+
+    def test_majority_inverted(self):
+        """If most frames are swapped, only the minority gets corrected."""
+        data = _make_data(n_frames=30)
+        # Swap 20 out of 30 frames (majority)
+        for i in range(5, 25):
+            _swap_all_pairs(data["frames"][i])
+
         result = correct_lateral_labels(data)
         meta = result["normalization"]["lateral_correction"]
-        assert meta["pairs"]["ankle"]["n_corrections"] >= 1
-
-    def test_high_visibility_no_false_positive(self):
-        """Correct data with high visibility should never swap."""
-        data = _make_data(n_frames=60)
-        result = correct_lateral_labels(data)
-        meta = result["normalization"]["lateral_correction"]
-        assert meta["n_total_frame_corrections"] == 0
-
-    def test_visibility_missing_graceful(self):
-        """Missing visibility key should not crash."""
-        data = _make_data(n_frames=20)
-        # Remove visibility from some landmarks
-        for i in [5, 6, 7]:
-            del data["frames"][i]["landmarks"]["LEFT_ANKLE"]["visibility"]
-            del data["frames"][i]["landmarks"]["RIGHT_ANKLE"]["visibility"]
-        result = correct_lateral_labels(data)
-        assert "lateral_correction" in result["normalization"]
-
-
-# ── Tests: direction method ──────────────────────────────────────────
-
-
-class TestDirectionMethod:
-    """Tests for method='direction' (direction-vector coherence)."""
-
-    def test_no_corrections_when_correct(self):
-        data = _make_data(n_frames=30)
-        result = correct_lateral_labels(
-            data, method="direction", half_window=2)
-        meta = result["normalization"]["lateral_correction"]
-        assert meta["n_total_frame_corrections"] == 0
-        assert meta["method"] == "direction"
-
-    def test_no_corrections_long_sequence(self):
-        data = _make_data(n_frames=60)
-        result = correct_lateral_labels(
-            data, method="direction", half_window=2)
-        meta = result["normalization"]["lateral_correction"]
-        assert meta["n_total_frame_corrections"] == 0
-
-    def test_ankle_swap_detected(self):
-        data = _make_data(n_frames=30)
-        for i in [10, 11, 12]:
-            _swap_pair(data["frames"][i], "LEFT_ANKLE", "RIGHT_ANKLE")
-        result = correct_lateral_labels(
-            data, method="direction", half_window=2)
-        meta = result["normalization"]["lateral_correction"]
-        assert meta["pairs"]["ankle"]["n_corrections"] >= 1
-        assert meta["pairs"]["hip"]["n_corrections"] == 0
-
-    def test_hip_swap_detected(self):
-        data = _make_data(n_frames=30)
-        for i in [5, 6]:
-            _swap_pair(data["frames"][i], "LEFT_HIP", "RIGHT_HIP")
-        result = correct_lateral_labels(
-            data, method="direction", half_window=2)
-        meta = result["normalization"]["lateral_correction"]
-        assert meta["pairs"]["hip"]["n_corrections"] >= 1
-        assert meta["pairs"]["ankle"]["n_corrections"] == 0
-
-    def test_knee_plus_lower_leg(self):
-        data = _make_data(n_frames=30)
-        for i in [15, 16]:
-            _swap_pair(data["frames"][i], "LEFT_KNEE", "RIGHT_KNEE")
-            _swap_pair(data["frames"][i], "LEFT_ANKLE", "RIGHT_ANKLE")
-            _swap_pair(data["frames"][i], "LEFT_HEEL", "RIGHT_HEEL")
-            _swap_pair(
-                data["frames"][i],
-                "LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX")
-        result = correct_lateral_labels(
-            data, method="direction", half_window=2)
-        meta = result["normalization"]["lateral_correction"]
-        assert meta["pairs"]["knee"]["n_corrections"] >= 1
-        assert meta["pairs"]["ankle"]["n_corrections"] >= 1
-        assert meta["pairs"]["heel"]["n_corrections"] >= 1
-        assert meta["pairs"]["foot_index"]["n_corrections"] >= 1
-        assert meta["pairs"]["hip"]["n_corrections"] == 0
-
-    def test_idempotence(self):
-        data = _make_data(n_frames=30)
-        for i in [10, 11, 12]:
-            _swap_pair(data["frames"][i], "LEFT_ANKLE", "RIGHT_ANKLE")
-        r1 = correct_lateral_labels(
-            data, method="direction", half_window=2)
-        n_first = r1["normalization"]["lateral_correction"][
-            "n_total_frame_corrections"]
-        assert n_first > 0
-        r2 = correct_lateral_labels(
-            r1, method="direction", half_window=2)
-        n_second = r2["normalization"]["lateral_correction"][
-            "n_total_frame_corrections"]
-        assert n_second == 0
-
-    def test_empty_frames(self):
-        data = {"frames": [], "normalization": None}
-        result = correct_lateral_labels(
-            data, method="direction", half_window=2)
-        meta = result["normalization"]["lateral_correction"]
-        assert meta["n_total_frame_corrections"] == 0
-
-    def test_coherence_clean_after_fix(self):
-        data = _make_data(n_frames=30)
-        for i in [10, 11, 12]:
-            _swap_pair(data["frames"][i], "LEFT_ANKLE", "RIGHT_ANKLE")
-        result = correct_lateral_labels(
-            data, method="direction", half_window=2)
-        meta = result["normalization"]["lateral_correction"]
-        assert meta["coherence_violations"] == 0
+        # Should correct the minority (frames 0-4 and 25-29 = ~10)
+        # not the majority (20 frames)
+        assert meta["n_frames_corrected"] <= 15
