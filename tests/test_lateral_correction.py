@@ -1,7 +1,6 @@
 """Tests for correct_lateral_labels() — per-pair L/R swap correction."""
 
 import numpy as np
-import pytest
 import copy
 
 from myogait.normalize import correct_lateral_labels

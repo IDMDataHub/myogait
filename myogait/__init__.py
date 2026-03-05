@@ -186,6 +186,7 @@ __all__ = [
     "cross_correlation_lag",
     "align_signals",
     "procrustes_align",
+    "correct_lateral_labels",
     # Analysis functions
     "regularity_index",
     "harmonic_ratio",
