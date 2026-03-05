@@ -514,6 +514,10 @@ def render_stickfigure_animation(
         raise ValueError(f"fps must be > 0, got {anim_fps}")
     frames_data = data.get("frames", [])
 
+    # If landmarks were flipped during extraction (flip_if_right), un-flip
+    # x coordinates so the stick figure matches the original orientation.
+    was_flipped = (data.get("extraction") or {}).get("was_flipped", False)
+
     # Filter frames by confidence
     if min_confidence > 0:
         render_indices = [
@@ -583,6 +587,13 @@ def render_stickfigure_animation(
                                      alpha=1.0, lw=2)
         else:
             lm = fd.get("landmarks", {})
+            # Un-flip x coordinates if extraction used flip_if_right
+            if was_flipped and lm:
+                lm = {
+                    name: {**val, "x": 1.0 - val["x"]}
+                    if val.get("x") is not None else val
+                    for name, val in lm.items()
+                }
             # Draw trail
             if show_trail:
                 trail_frames.append(dict(lm))

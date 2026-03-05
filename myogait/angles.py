@@ -354,39 +354,30 @@ def _method_sagittal_vertical_axis(frame: dict, model: str) -> dict:
         else:
             result[f"hip_{side}"] = np.nan
 
-        # Knee: signed flexion angle (positive = flexion, negative = hyperextension)
+        # Knee: unsigned flexion angle (0 = full extension, positive = flexion)
         if hip is not None and knee is not None and ankle is not None:
             thigh = hip - knee
             shank = ankle - knee
             unsigned = _angle_between(thigh, shank)
-            # Cross product sign: positive when shank is "behind" thigh (flexion)
-            cross = float(thigh[0] * shank[1] - thigh[1] * shank[0])
-            result[f"knee_{side}"] = (180.0 - unsigned) if cross >= 0 else -(180.0 - unsigned)
+            result[f"knee_{side}"] = 180.0 - unsigned
         else:
             result[f"knee_{side}"] = np.nan
 
-        # Ankle: heel-pivot method (Method B).
-        # shank = KNEE - HEEL  (tibial axis proxy, long stable vector)
-        # foot  = FOOT_INDEX - HEEL (rigid foot segment, long stable vector)
-        # Both vectors originate from HEEL, eliminating the noisy ANKLE
-        # landmark entirely.  HEEL is only 2-3 cm below the malleolus in
-        # sagittal projection so the angular difference is negligible,
-        # while both vectors are ~0.15 in normalised coords vs ~0.005
-        # for the old FOOT_INDEX - ANKLE vector.
-        # Falls back to ANKLE-based vectors when HEEL is unavailable.
+        # Ankle: 4-point method (tibial axis + foot axis).
+        # shank_dir = KNEE - ANKLE  (tibial axis, long stable ~0.18 normalised)
+        # foot_dir  = FOOT_INDEX - HEEL (foot axis, long stable ~0.15 normalised)
+        # Angle between the two axes; 90 - unsigned gives dorsi > 0,
+        # plantar < 0, because the axes are quasi-perpendicular at rest.
+        # Falls back to ANKLE-based foot vector when HEEL is unavailable.
         # Positive = dorsiflexion, negative = plantarflexion.
-        if knee is not None and foot is not None and (heel is not None or ankle is not None):
+        if knee is not None and ankle is not None and foot is not None:
+            shank_dir = knee - ankle
             if heel is not None:
-                shank = knee - heel
-                foot_seg = foot - heel
+                foot_dir = foot - heel
             else:
-                shank = knee - ankle
-                foot_seg = foot - ankle
-            denom = np.linalg.norm(shank) * np.linalg.norm(foot_seg) + 1e-12
-            cos_val = np.clip(np.dot(shank, foot_seg) / denom, -1, 1)
-            unsigned = np.degrees(np.arccos(cos_val))
-            cross = float(shank[0] * foot_seg[1] - shank[1] * foot_seg[0])
-            result[f"ankle_{side}"] = (90.0 - unsigned) if cross >= 0 else -(90.0 - unsigned)
+                foot_dir = foot - ankle
+            unsigned = _angle_between(shank_dir, foot_dir)
+            result[f"ankle_{side}"] = 90.0 - unsigned
         else:
             result[f"ankle_{side}"] = np.nan
 
@@ -440,29 +431,24 @@ def _method_sagittal_classic(frame: dict, model: str) -> dict:
         else:
             result[f"hip_{side}"] = np.nan
 
-        # Knee: signed flexion angle (positive = flexion, negative = hyperextension)
+        # Knee: unsigned flexion angle (0 = full extension, positive = flexion)
         if hip is not None and knee is not None and ankle is not None:
             thigh = hip - knee
             shank = ankle - knee
             unsigned = _angle_between(thigh, shank)
-            cross = float(thigh[0] * shank[1] - thigh[1] * shank[0])
-            result[f"knee_{side}"] = (180.0 - unsigned) if cross >= 0 else -(180.0 - unsigned)
+            result[f"knee_{side}"] = 180.0 - unsigned
         else:
             result[f"knee_{side}"] = np.nan
 
-        # Ankle: heel-pivot method (same as sagittal_vertical_axis).
-        if knee is not None and foot is not None and (heel is not None or ankle is not None):
+        # Ankle: 4-point method (same as sagittal_vertical_axis).
+        if knee is not None and ankle is not None and foot is not None:
+            shank_dir = knee - ankle
             if heel is not None:
-                shank = knee - heel
-                foot_seg = foot - heel
+                foot_dir = foot - heel
             else:
-                shank = knee - ankle
-                foot_seg = foot - ankle
-            denom = np.linalg.norm(shank) * np.linalg.norm(foot_seg) + 1e-12
-            cos_val = np.clip(np.dot(shank, foot_seg) / denom, -1, 1)
-            unsigned = np.degrees(np.arccos(cos_val))
-            cross = float(shank[0] * foot_seg[1] - shank[1] * foot_seg[0])
-            result[f"ankle_{side}"] = (90.0 - unsigned) if cross >= 0 else -(90.0 - unsigned)
+                foot_dir = foot - ankle
+            unsigned = _angle_between(shank_dir, foot_dir)
+            result[f"ankle_{side}"] = 90.0 - unsigned
         else:
             result[f"ankle_{side}"] = np.nan
 
@@ -733,7 +719,7 @@ def compute_angles(
 
     # If the subject walks right-to-left the sagittal_vertical_axis
     # hip sign is mirrored.  Invert so that flexion stays positive.
-    if walking_direction == "right_to_left" and method == "sagittal_vertical_axis":
+    if walking_direction == "right_to_left":
         for af in angle_frames:
             for side in ("L", "R"):
                 key = f"hip_{side}"
@@ -876,19 +862,14 @@ def ankle_angle_method_A(
     float
         Ankle angle in degrees (dorsiflexion positive).
     """
-    shank = knee - ankle        # points up along the leg
-    foot_seg = foot_index - heel  # points forward along the foot
+    shank_dir = knee - ankle       # tibial axis, points up along the leg
+    foot_dir = foot_index - heel   # foot axis, points forward along the foot
 
-    n1 = np.linalg.norm(shank)
-    n2 = np.linalg.norm(foot_seg)
-    if n1 < 1e-10 or n2 < 1e-10:
+    unsigned = _angle_between(shank_dir, foot_dir)
+    if np.isnan(unsigned):
         return np.nan
 
-    cos_a = np.clip(np.dot(shank, foot_seg) / (n1 * n2), -1.0, 1.0)
-    unsigned = np.degrees(np.arccos(cos_a))
-    cross = float(shank[0] * foot_seg[1] - shank[1] * foot_seg[0])
-
-    return (90.0 - unsigned) if cross >= 0 else -(90.0 - unsigned)
+    return 90.0 - unsigned
 
 
 def ankle_angle_method_B(
@@ -938,18 +919,13 @@ def ankle_angle_method_B(
         Ankle angle in degrees (dorsiflexion positive).
     """
     shank = knee - heel           # tibial axis proxy, points up
-    foot_seg = foot_index - heel  # foot axis, points forward
+    foot_dir = foot_index - heel  # foot axis, points forward
 
-    n1 = np.linalg.norm(shank)
-    n2 = np.linalg.norm(foot_seg)
-    if n1 < 1e-10 or n2 < 1e-10:
+    unsigned = _angle_between(shank, foot_dir)
+    if np.isnan(unsigned):
         return np.nan
 
-    cos_a = np.clip(np.dot(shank, foot_seg) / (n1 * n2), -1.0, 1.0)
-    unsigned = np.degrees(np.arccos(cos_a))
-    cross = float(shank[0] * foot_seg[1] - shank[1] * foot_seg[0])
-
-    return (90.0 - unsigned) if cross >= 0 else -(90.0 - unsigned)
+    return 90.0 - unsigned
 
 
 def detect_ankle_swap(

@@ -447,8 +447,9 @@ class TestConsistencyWithPipeline:
     _method_sagittal_vertical_axis ankle computation."""
 
     def test_pipeline_formula_e(self):
-        """Pipeline uses heel-pivot method (KNEE-HEEL shank, FOOT_INDEX-HEEL foot)."""
+        """Pipeline uses 4-point method (KNEE-ANKLE shank, FOOT_INDEX-HEEL foot)."""
         knee = np.array([0.50, 0.55])
+        ankle = np.array([0.50, 0.80])
         heel = np.array([0.48, 0.82])
         foot_index = np.array([0.56, 0.82])
 
@@ -485,15 +486,14 @@ class TestConsistencyWithPipeline:
 
         pipeline_ankle_R = data["angles"]["frames"][0]["ankle_R"]
 
-        # Manually compute heel-pivot method: shank = KNEE - HEEL,
-        # foot = FOOT_INDEX - HEEL, angle = 90 - arccos + cross sign
-        shank = knee - heel
-        foot_seg = foot_index - heel
-        denom = np.linalg.norm(shank) * np.linalg.norm(foot_seg)
-        cos_val = np.clip(np.dot(shank, foot_seg) / denom, -1, 1)
+        # Manually compute 4-point method: shank = KNEE - ANKLE,
+        # foot = FOOT_INDEX - HEEL, angle = 90 - unsigned
+        shank_dir = knee - ankle
+        foot_dir = foot_index - heel
+        denom = np.linalg.norm(shank_dir) * np.linalg.norm(foot_dir)
+        cos_val = np.clip(np.dot(shank_dir, foot_dir) / denom, -1, 1)
         unsigned = np.degrees(np.arccos(cos_val))
-        cross = shank[0] * foot_seg[1] - shank[1] * foot_seg[0]
-        expected = (90.0 - unsigned) if cross >= 0 else -(90.0 - unsigned)
+        expected = 90.0 - unsigned
 
         assert pipeline_ankle_R == pytest.approx(expected, abs=0.01), (
             f"Pipeline={pipeline_ankle_R}, expected={expected}"

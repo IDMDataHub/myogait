@@ -773,6 +773,7 @@ def extract(
         "n_landmarks": 33,
         "landmark_names": MP_LANDMARK_NAMES,
         "direction_detected": direction,
+        "was_flipped": was_flipped,
         "inversions_corrected": correct_inversions,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
     }
