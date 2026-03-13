@@ -7,12 +7,16 @@ and computes comparison metrics on the overlapping temporal window.
 
 from __future__ import annotations
 
+import logging
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.io import loadmat
 from scipy import signal
+
+logger = logging.getLogger(__name__)
 
 
 _ANGLE_CANDIDATES = {
@@ -439,3 +443,152 @@ def run_single_trial_vicon_benchmark(
     alignment = align_vicon_to_myogait(myogait_data, vicon, offset_seconds=sync["offset_seconds"])
     metrics = compute_single_trial_benchmark_metrics(myogait_data, vicon, alignment)
     return attach_vicon_experimental_block(myogait_data, vicon, sync, alignment, metrics)
+
+
+# ── C3D loading ──────────────────────────────────────────────────────
+
+DEFAULT_C3D_MARKER_MAP: Dict[str, List[str]] = {
+    "LEFT_HIP":        ["LASIS", "LHJC"],
+    "RIGHT_HIP":       ["RASIS", "RHJC"],
+    "LEFT_KNEE":       ["LLFE", "LMFE"],
+    "RIGHT_KNEE":      ["RLFE", "RMFE"],
+    "LEFT_ANKLE":      ["LLM", "LMM"],
+    "RIGHT_ANKLE":     ["RLM", "RMM"],
+    "LEFT_HEEL":       ["LCAL"],
+    "RIGHT_HEEL":      ["RCAL"],
+    "LEFT_FOOT_INDEX": ["LTT2"],
+    "RIGHT_FOOT_INDEX": ["RTT2"],
+    "LEFT_SHOULDER":   ["LASIS"],
+    "RIGHT_SHOULDER":  ["RASIS"],
+    "NOSE":            ["LASIS", "RASIS"],
+}
+
+
+def load_c3d(
+    c3d_path: str | Path,
+    marker_mapping: dict | None = None,
+    ap_axis: int = 1,
+    vertical_axis: int = 2,
+) -> dict:
+    """Load a C3D file and return a myogait-compatible pivot dict.
+
+    Reads 3-D marker trajectories with *ezc3d*, projects them into a 2-D
+    sagittal plane (antero-posterior → x, vertical → y inverted), normalises
+    coordinates to [0, 1] and builds the standard pivot structure expected by
+    :func:`normalize`, :func:`compute_angles`, etc.
+
+    Parameters
+    ----------
+    c3d_path : str or Path
+        Path to the ``.c3d`` file.
+    marker_mapping : dict, optional
+        Custom ``{landmark_name: [marker1, marker2, ...]}`` mapping.  When
+        *None*, :data:`DEFAULT_C3D_MARKER_MAP` is used.
+    ap_axis : int
+        Index of the antero-posterior axis in the C3D coordinate system
+        (default ``1`` → Y).
+    vertical_axis : int
+        Index of the vertical axis (default ``2`` → Z).
+
+    Returns
+    -------
+    dict
+        Pivot dict with ``meta``, ``extraction`` and ``frames`` keys.
+    """
+    try:
+        import ezc3d
+    except ImportError:
+        raise ImportError(
+            "ezc3d is required to read C3D files. "
+            "Install it with: pip install myogait[c3d]"
+        )
+
+    c3d_path = Path(c3d_path)
+    if not c3d_path.exists():
+        raise FileNotFoundError(f"C3D file not found: {c3d_path}")
+
+    c3d = ezc3d.c3d(str(c3d_path))
+    mapping = marker_mapping or DEFAULT_C3D_MARKER_MAP
+
+    # ── Extract marker labels and point data ──
+    labels = [lbl.strip() for lbl in c3d["parameters"]["POINT"]["LABELS"]["value"]]
+    points = c3d["data"]["points"]  # (4, n_markers, n_frames) — X,Y,Z,residual
+    fps = float(c3d["parameters"]["POINT"]["RATE"]["value"][0])
+    n_frames = points.shape[2]
+
+    label_idx = {lbl: i for i, lbl in enumerate(labels)}
+
+    # ── Resolve landmarks → 2-D sagittal coords per frame ──
+    # For each landmark: pick the first available marker or average all found.
+    # Then project: x = ap_axis component, y = -vertical_axis component.
+    raw: Dict[str, np.ndarray] = {}  # landmark → (n_frames, 2)
+    for lm_name, candidates in mapping.items():
+        found = [label_idx[mk] for mk in candidates if mk in label_idx]
+        if not found:
+            logger.debug("C3D: no marker found for %s (tried %s)", lm_name, candidates)
+            continue
+        # points shape: (4, n_markers, n_frames) → take XYZ (first 3 rows)
+        pts = points[:3, found, :]  # (3, n_found, n_frames)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            avg = np.nanmean(pts, axis=1)  # (3, n_frames)
+        raw[lm_name] = np.column_stack([avg[ap_axis], avg[vertical_axis]])
+
+    if not raw:
+        raise ValueError(
+            f"No matching markers found in {c3d_path.name}. "
+            f"Available labels: {labels}"
+        )
+
+    # ── Normalise to [0, 1] using global bounds ──
+    all_xy = np.vstack(list(raw.values()))  # (total_pts, 2)
+    x_min, y_min = np.nanmin(all_xy, axis=0)
+    x_max, y_max = np.nanmax(all_xy, axis=0)
+    x_range = x_max - x_min if (x_max - x_min) > 0 else 1.0
+    y_range = y_max - y_min if (y_max - y_min) > 0 else 1.0
+
+    virtual_w = 1000
+    virtual_h = 1000
+
+    # ── Build frames ──
+    frames = []
+    for fi in range(n_frames):
+        landmarks = {}
+        conf_sum = 0.0
+        for lm_name, xy in raw.items():
+            nx = float((xy[fi, 0] - x_min) / x_range)
+            # Invert vertical so that up in world = small y in image space
+            ny = 1.0 - float((xy[fi, 1] - y_min) / y_range)
+            vis = 0.0 if np.isnan(xy[fi, 0]) or np.isnan(xy[fi, 1]) else 1.0
+            landmarks[lm_name] = {"x": nx, "y": ny, "visibility": vis}
+            conf_sum += vis
+        confidence = conf_sum / max(len(raw), 1)
+        frames.append({
+            "frame_idx": fi,
+            "time_s": float(fi / fps) if fps > 0 else 0.0,
+            "confidence": confidence,
+            "landmarks": landmarks,
+        })
+
+    logger.info(
+        "Loaded C3D %s: %d frames, %d landmarks, %.1f fps",
+        c3d_path.name, n_frames, len(raw), fps,
+    )
+
+    return {
+        "meta": {
+            "fps": fps,
+            "n_frames": n_frames,
+            "duration_s": float(n_frames / fps) if fps > 0 else 0.0,
+            "source": "c3d",
+            "width": virtual_w,
+            "height": virtual_h,
+        },
+        "extraction": {
+            "model": "vicon",
+            "keypoint_format": "mediapipe33",
+            "n_landmarks": len(raw),
+            "source_file": str(c3d_path),
+        },
+        "frames": frames,
+    }

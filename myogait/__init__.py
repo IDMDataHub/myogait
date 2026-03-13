@@ -40,7 +40,7 @@ Validation::
     report = validate_biomechanical(data, cycles)
 """
 
-__version__ = "0.5.25"
+__version__ = "0.5.26"
 
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
@@ -147,6 +147,7 @@ from .experimental import (
 )
 from .experimental_vicon import (
     load_vicon_trial_mat,
+    load_c3d,
     estimate_vicon_offset_seconds,
     align_vicon_to_myogait,
     compute_single_trial_benchmark_metrics,
@@ -281,6 +282,7 @@ __all__ = [
     "build_video_degradation_config",
     "apply_video_degradation",
     "load_vicon_trial_mat",
+    "load_c3d",
     "estimate_vicon_offset_seconds",
     "align_vicon_to_myogait",
     "compute_single_trial_benchmark_metrics",

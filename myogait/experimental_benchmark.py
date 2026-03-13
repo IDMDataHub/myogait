@@ -85,6 +85,8 @@ def build_single_pair_benchmark_config(config: Optional[dict] = None) -> dict:
 def _resolve_models(models_cfg: Any) -> List[str]:
     if models_cfg == "all":
         return sorted(list_models())
+    if isinstance(models_cfg, str):
+        models_cfg = [models_cfg]
     if not isinstance(models_cfg, list) or not models_cfg:
         raise ValueError("benchmark.models must be 'all' or a non-empty list")
     return [str(m) for m in models_cfg]
@@ -93,6 +95,8 @@ def _resolve_models(models_cfg: Any) -> List[str]:
 def _resolve_event_methods(event_cfg: Any) -> List[str]:
     if event_cfg == "all":
         return sorted(list_event_methods())
+    if isinstance(event_cfg, str):
+        event_cfg = [event_cfg]
     if not isinstance(event_cfg, list) or not event_cfg:
         raise ValueError("benchmark.event_methods must be 'all' or a non-empty list")
     return [str(m) for m in event_cfg]

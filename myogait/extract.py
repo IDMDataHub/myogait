@@ -475,6 +475,12 @@ def extract(
     seg_estimator = None
 
     if with_depth:
+        if model not in _MODEL_TO_SAPIENS_SIZE:
+            logger.warning(
+                "with_depth=True but pose model '%s' is not a Sapiens model; "
+                "Sapiens depth will be loaded separately (extra GPU memory).",
+                model,
+            )
         from .models.sapiens_depth import SapiensDepthEstimator
         _ds = depth_model_size or _sapiens_size_from_model(model)
         depth_estimator = SapiensDepthEstimator(model_size=_ds)
@@ -482,6 +488,12 @@ def extract(
         logger.info(f"Depth estimation enabled (sapiens-depth-{_ds})")
 
     if with_seg:
+        if model not in _MODEL_TO_SAPIENS_SIZE:
+            logger.warning(
+                "with_seg=True but pose model '%s' is not a Sapiens model; "
+                "Sapiens segmentation will be loaded separately (extra GPU memory).",
+                model,
+            )
         from .models.sapiens_seg import SapiensSegEstimator
         _ss = seg_model_size or _sapiens_size_from_model(model)
         seg_estimator = SapiensSegEstimator(model_size=_ss)
