@@ -2,7 +2,6 @@
 
 import numpy as np
 import copy
-import pytest
 
 from myogait.normalize import correct_lateral_labels
 
