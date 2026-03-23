@@ -170,3 +170,25 @@ def test_oconnor_rtl_detects_events():
     detect_events(data, method="oconnor")
     assert len(data["events"]["left_hs"]) > 0
     assert len(data["events"]["right_hs"]) > 0
+
+
+def test_remap_event_frames_preserves_subframe_time():
+    """Remap should keep fractional timing while shifting to frame_idx space."""
+    from myogait.events import _remap_event_frames
+
+    events = {
+        "left_hs": [{"frame": 1, "time": 0.0123}],
+        "right_hs": [],
+        "left_to": [],
+        "right_to": [],
+    }
+    frames = [
+        {"frame_idx": 10},
+        {"frame_idx": 12},
+        {"frame_idx": 14},
+    ]
+
+    _remap_event_frames(events, frames, fps=100.0)
+
+    assert events["left_hs"][0]["frame"] == 12
+    assert events["left_hs"][0]["time"] == 0.1223

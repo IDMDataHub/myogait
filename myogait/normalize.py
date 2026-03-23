@@ -1965,6 +1965,22 @@ _LR_PAIRS = [
     ("LEFT_SHOULDER", "RIGHT_SHOULDER"),
 ]
 
+_PAIR_DEFS = [
+    ("hip", "LEFT_HIP", "RIGHT_HIP"),
+    ("knee", "LEFT_KNEE", "RIGHT_KNEE"),
+    ("ankle", "LEFT_ANKLE", "RIGHT_ANKLE"),
+    ("heel", "LEFT_HEEL", "RIGHT_HEEL"),
+    ("foot_index", "LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX"),
+    ("shoulder", "LEFT_SHOULDER", "RIGHT_SHOULDER"),
+]
+
+_CHAIN_CHECKS = [
+    ("LEFT_KNEE", "RIGHT_KNEE", "LEFT_HIP", "RIGHT_HIP"),
+    ("LEFT_ANKLE", "RIGHT_ANKLE", "LEFT_KNEE", "RIGHT_KNEE"),
+    ("LEFT_HEEL", "RIGHT_HEEL", "LEFT_ANKLE", "RIGHT_ANKLE"),
+    ("LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX", "LEFT_HEEL", "RIGHT_HEEL"),
+]
+
 
 def _get_lm_x(frame: dict, name: str):
     """Extract x coordinate from a frame's landmark, or None."""
@@ -1976,6 +1992,172 @@ def _get_lm_x(frame: dict, name: str):
         return None
     xf = float(x)
     return None if np.isnan(xf) else xf
+
+
+def _get_lm_xy(frame: dict, name: str):
+    """Extract (x, y) coordinates from a frame landmark, or None."""
+    lm = frame.get("landmarks", {}).get(name)
+    if lm is None:
+        return None
+    x = lm.get("x")
+    y = lm.get("y")
+    if x is None or y is None:
+        return None
+    xf = float(x)
+    yf = float(y)
+    if np.isnan(xf) or np.isnan(yf):
+        return None
+    return (xf, yf)
+
+
+def _get_lm_vis(frame: dict, name: str) -> float:
+    """Extract visibility score from a frame's landmark, default 1.0."""
+    lm = frame.get("landmarks", {}).get(name)
+    if lm is None:
+        return 1.0
+    v = lm.get("visibility", 1.0)
+    if v is None:
+        return 1.0
+    vf = float(v)
+    return 0.0 if np.isnan(vf) else vf
+
+
+def _sq_dist(a, b):
+    """Squared Euclidean distance between two (x, y) tuples."""
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+
+def _detect_pair_transitions(
+    frames: list,
+    l_name: str,
+    r_name: str,
+    ratio: float,
+    min_sep_sq: float,
+    vis_drop: float,
+) -> list:
+    """Detect per-pair L/R swap transitions from trajectory continuity."""
+    transition_list = []
+    prev_l = prev_r = None
+    avg_vis_l = avg_vis_r = 1.0
+    alpha = 0.1
+
+    for i, frame in enumerate(frames):
+        curr_l = _get_lm_xy(frame, l_name)
+        curr_r = _get_lm_xy(frame, r_name)
+        if curr_l is None or curr_r is None:
+            continue
+
+        vis_l = _get_lm_vis(frame, l_name)
+        vis_r = _get_lm_vis(frame, r_name)
+        avg_vis_l = alpha * vis_l + (1.0 - alpha) * avg_vis_l
+        avg_vis_r = alpha * vis_r + (1.0 - alpha) * avg_vis_r
+
+        if _sq_dist(curr_l, curr_r) < min_sep_sq:
+            continue
+
+        if prev_l is None:
+            prev_l, prev_r = curr_l, curr_r
+            continue
+
+        cost_keep = _sq_dist(prev_l, curr_l) + _sq_dist(prev_r, curr_r)
+        cost_swap = _sq_dist(prev_l, curr_r) + _sq_dist(prev_r, curr_l)
+
+        eff_ratio = ratio
+        if (vis_l < avg_vis_l - vis_drop
+                and vis_r < avg_vis_r - vis_drop):
+            eff_ratio = ratio * 2.0
+
+        if cost_keep > 0 and cost_swap / cost_keep < eff_ratio:
+            transition_list.append((i, cost_swap / cost_keep))
+
+        prev_l, prev_r = curr_l, curr_r
+
+    if len(transition_list) % 2 != 0:
+        weakest = max(transition_list, key=lambda item: item[1])
+        transition_list.remove(weakest)
+    return transition_list
+
+
+def _apply_partial_lateral_correction(
+    frames: list,
+    ratio: float,
+    min_sep: float,
+    vis_drop: float,
+) -> dict:
+    """Correct pair-specific swaps while keeping global mode unchanged."""
+    n_frames = len(frames)
+    min_sep_sq = float(min_sep) ** 2
+    pair_results = {}
+
+    for pair_name, l_name, r_name in _PAIR_DEFS:
+        transitions = {
+            idx for idx, _score in _detect_pair_transitions(
+                frames, l_name, r_name, ratio, min_sep_sq, vis_drop
+            )
+        }
+
+        swap_mask = [False] * n_frames
+        in_swap = False
+        for i in range(n_frames):
+            if i in transitions:
+                in_swap = not in_swap
+            swap_mask[i] = in_swap
+
+        if sum(swap_mask) > n_frames / 2:
+            swap_mask = [not val for val in swap_mask]
+
+        corrected_frames = []
+        for i, do_swap in enumerate(swap_mask):
+            if not do_swap:
+                continue
+            lm = frames[i].get("landmarks", {})
+            if l_name in lm and r_name in lm:
+                lm[l_name], lm[r_name] = lm[r_name], lm[l_name]
+                corrected_frames.append(frames[i].get("frame_idx", i))
+
+        pair_results[pair_name] = {
+            "n_corrections": len(corrected_frames),
+            "pct": round(100.0 * len(corrected_frames) / max(n_frames, 1), 1),
+            "corrected_frames": corrected_frames,
+        }
+
+    chain_fixes = 0
+    for _ in range(3):
+        changed = 0
+        for child_l, child_r, parent_l, parent_r in _CHAIN_CHECKS:
+            for frame in frames:
+                cl = _get_lm_xy(frame, child_l)
+                cr = _get_lm_xy(frame, child_r)
+                pl = _get_lm_xy(frame, parent_l)
+                pr = _get_lm_xy(frame, parent_r)
+                if cl is None or cr is None or pl is None or pr is None:
+                    continue
+                if _sq_dist(cl, pr) + _sq_dist(cr, pl) < _sq_dist(cl, pl) + _sq_dist(cr, pr):
+                    lm = frame.get("landmarks", {})
+                    if child_l in lm and child_r in lm:
+                        lm[child_l], lm[child_r] = lm[child_r], lm[child_l]
+                        changed += 1
+        chain_fixes += changed
+        if changed == 0:
+            break
+
+    n_frames_corrected = len({
+        frame_idx
+        for info in pair_results.values()
+        for frame_idx in info["corrected_frames"]
+    })
+    return {
+        "mode": "partial",
+        "pair_results": pair_results,
+        "n_inversions": sum(info["n_corrections"] > 0 for info in pair_results.values()),
+        "n_frames_corrected": n_frames_corrected,
+        "inversion_frames": sorted({
+            frame_idx
+            for info in pair_results.values()
+            for frame_idx in info["corrected_frames"]
+        }),
+        "chain_fixes": chain_fixes,
+    }
 
 
 def correct_lateral_labels(data: dict, **kwargs) -> dict:
@@ -2017,6 +2199,11 @@ def correct_lateral_labels(data: dict, **kwargs) -> dict:
         Modified *data* with corrected landmark labels and metadata
         in ``data["normalization"]["lateral_correction"]``.
     """
+    mode = str(kwargs.pop("mode", "global")).lower()
+    ratio = float(kwargs.pop("ratio", 0.25))
+    min_sep = float(kwargs.pop("min_sep", 0.03))
+    vis_drop = float(kwargs.pop("vis_drop", 0.25))
+
     frames = data.get("frames", [])
     n_frames = len(frames)
 
@@ -2024,10 +2211,18 @@ def correct_lateral_labels(data: dict, **kwargs) -> dict:
         if data.get("normalization") is None:
             data["normalization"] = {}
         data["normalization"]["lateral_correction"] = {
+            "mode": mode,
             "n_inversions": 0,
             "n_frames_corrected": 0,
             "inversion_frames": [],
         }
+        return data
+
+    if mode == "partial":
+        meta = _apply_partial_lateral_correction(frames, ratio, min_sep, vis_drop)
+        if data.get("normalization") is None:
+            data["normalization"] = {}
+        data["normalization"]["lateral_correction"] = meta
         return data
 
     # ── Step 1: detect transition frames ────────────────────────
@@ -2099,6 +2294,7 @@ def correct_lateral_labels(data: dict, **kwargs) -> dict:
 
     # ── Step 4: metadata ────────────────────────────────────────
     lateral_meta = {
+        "mode": "global",
         "n_inversions": len(transitions),
         "n_frames_corrected": len(corrected_frame_indices),
         "inversion_frames": corrected_frame_indices,

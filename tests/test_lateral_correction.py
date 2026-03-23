@@ -83,6 +83,12 @@ def _swap_all_pairs(frame):
             lm[l_name], lm[r_name] = lm[r_name], lm[l_name]
 
 
+def _swap_pair(frame, l_name, r_name):
+    """Swap a single bilateral pair."""
+    lm = frame["landmarks"]
+    lm[l_name], lm[r_name] = lm[r_name], lm[l_name]
+
+
 # ── Tests: no inversions ────────────────────────────────────────────
 
 
@@ -328,3 +334,32 @@ class TestBootstrapPolarity:
         # Should correct the minority (frames 0-4 and 25-29 = ~10)
         # not the majority (20 frames)
         assert meta["n_frames_corrected"] <= 15
+
+
+class TestPartialMode:
+    """Opt-in partial mode should fix isolated pair swaps."""
+
+    def test_partial_mode_corrects_ankle_only_swap(self):
+        data = _make_data(n_frames=30)
+        original = copy.deepcopy(data)
+
+        for i in [10, 11, 12]:
+            _swap_pair(data["frames"][i], "LEFT_ANKLE", "RIGHT_ANKLE")
+
+        result = correct_lateral_labels(data, mode="partial")
+        meta = result["normalization"]["lateral_correction"]
+
+        assert meta["mode"] == "partial"
+        assert meta["pair_results"]["ankle"]["n_corrections"] >= 2
+        assert meta["pair_results"]["hip"]["n_corrections"] == 0
+
+        for i in [10, 11, 12]:
+            expected = original["frames"][i]["landmarks"]["LEFT_ANKLE"]["x"]
+            got = result["frames"][i]["landmarks"]["LEFT_ANKLE"]["x"]
+            assert abs(expected - got) < 0.001
+
+    def test_default_mode_remains_global(self):
+        data = _make_data(n_frames=30)
+        result = correct_lateral_labels(data)
+        meta = result["normalization"]["lateral_correction"]
+        assert meta["mode"] == "global"

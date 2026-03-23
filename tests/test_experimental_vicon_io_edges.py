@@ -6,6 +6,7 @@ from myogait.experimental_vicon import (
     _pick_struct_array,
     align_vicon_to_myogait,
     compute_single_trial_benchmark_metrics,
+    load_c3d,
     load_vicon_trial_mat,
 )
 
@@ -61,3 +62,36 @@ def test_compute_single_trial_benchmark_metrics_event_metrics_none_when_no_event
     for key in ("left_hs", "right_hs", "left_to", "right_to"):
         assert out["event_metrics_ms"][key]["mae_ms"] is None
         assert out["event_metrics_ms"][key]["median_ms"] is None
+
+
+def test_load_c3d_missing_file_raises_clear_error(tmp_path):
+    missing = tmp_path / "missing.c3d"
+    try:
+        load_c3d(missing)
+    except FileNotFoundError as exc:
+        assert "C3D file not found" in str(exc)
+    else:
+        raise AssertionError("Expected FileNotFoundError")
+
+
+def test_load_c3d_import_error_is_clear(monkeypatch, tmp_path):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "ezc3d":
+            raise ImportError("blocked ezc3d")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    c3d_path = tmp_path / "trial.c3d"
+    c3d_path.write_bytes(b"dummy")
+
+    try:
+        load_c3d(c3d_path)
+    except ImportError as exc:
+        assert "ezc3d is required" in str(exc)
+    else:
+        raise AssertionError("Expected ImportError")
