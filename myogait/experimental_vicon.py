@@ -495,6 +495,10 @@ def load_c3d(
     dict
         Pivot dict with ``meta``, ``extraction`` and ``frames`` keys.
     """
+    c3d_path = Path(c3d_path)
+    if not c3d_path.exists():
+        raise FileNotFoundError(f"C3D file not found: {c3d_path}")
+
     try:
         import ezc3d
     except ImportError:
@@ -502,10 +506,6 @@ def load_c3d(
             "ezc3d is required to read C3D files. "
             "Install it with: pip install myogait[c3d]"
         )
-
-    c3d_path = Path(c3d_path)
-    if not c3d_path.exists():
-        raise FileNotFoundError(f"C3D file not found: {c3d_path}")
 
     c3d = ezc3d.c3d(str(c3d_path))
     mapping = marker_mapping or DEFAULT_C3D_MARKER_MAP
