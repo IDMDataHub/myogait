@@ -1200,6 +1200,226 @@ def data_quality_score(data: dict) -> dict:
     return result
 
 
+# ── Frame-by-frame coherence score ──────────────────────────────────
+
+_COHERENCE_SEGMENTS = [
+    ("LEFT_HIP", "LEFT_KNEE"),
+    ("RIGHT_HIP", "RIGHT_KNEE"),
+    ("LEFT_KNEE", "LEFT_ANKLE"),
+    ("RIGHT_KNEE", "RIGHT_ANKLE"),
+    ("LEFT_ANKLE", "LEFT_HEEL"),
+    ("RIGHT_ANKLE", "RIGHT_HEEL"),
+    ("LEFT_HIP", "RIGHT_HIP"),
+]
+
+_COHERENCE_LANDMARKS = [
+    "LEFT_HIP", "RIGHT_HIP", "LEFT_KNEE", "RIGHT_KNEE",
+    "LEFT_ANKLE", "RIGHT_ANKLE", "LEFT_HEEL", "RIGHT_HEEL",
+    "LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX",
+]
+
+
+def _lm_xy(frame: dict, name: str):
+    """Extract (x, y) for a landmark, or None if missing/NaN."""
+    lm = frame.get("landmarks", {}).get(name)
+    if lm is None:
+        return None
+    x, y = lm.get("x"), lm.get("y")
+    if x is None or y is None or np.isnan(x) or np.isnan(y):
+        return None
+    return np.array([x, y])
+
+
+def frame_coherence_score(data: dict) -> dict:
+    """Compute per-frame biomechanical coherence scores.
+
+    Evaluates three dimensions of spatial/temporal coherence at each
+    frame, producing a composite score in [0, 1]:
+
+    - **segment_stability** — deviation of each body-segment length from
+      its running median.  Large deviations indicate a misplaced landmark.
+    - **velocity** — frame-to-frame displacement of each landmark.
+      Sudden jumps indicate detection errors or label swaps.
+    - **angular_continuity** — frame-to-frame change in the knee angle
+      implied by the hip-knee-ankle geometry.  Large jumps indicate
+      artifacts.
+
+    The composite score is::
+
+        score = 0.4 * segment_stability + 0.35 * velocity + 0.25 * angular_continuity
+
+    Each frame in ``data["frames"]`` receives a ``coherence`` dict with
+    the sub-scores and the composite.  A ``coherence_summary`` dict is
+    added to ``data`` with aggregate statistics.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot dict with ``frames`` and ``meta`` (needs ``fps``).
+
+    Returns
+    -------
+    dict
+        The input *data* dict, modified in place.
+    """
+    frames = data.get("frames", [])
+    n = len(frames)
+    if n < 2:
+        for f in frames:
+            f["coherence"] = {"score": 1.0, "segment_stability": 1.0,
+                              "velocity": 1.0, "angular_continuity": 1.0}
+        data["coherence_summary"] = {"mean_score": 1.0 if n else 0.0,
+                                     "low_coherence_frames": 0,
+                                     "low_coherence_pct": 0.0}
+        return data
+
+    # ── 1. Segment lengths per frame ──
+    seg_lengths = {seg: [] for seg in _COHERENCE_SEGMENTS}
+    for f in frames:
+        for seg in _COHERENCE_SEGMENTS:
+            a = _lm_xy(f, seg[0])
+            b = _lm_xy(f, seg[1])
+            if a is not None and b is not None:
+                seg_lengths[seg].append(np.linalg.norm(a - b))
+            else:
+                seg_lengths[seg].append(np.nan)
+
+    # Running median per segment
+    seg_median = {}
+    for seg, lengths in seg_lengths.items():
+        arr = np.array(lengths)
+        valid = arr[np.isfinite(arr)]
+        seg_median[seg] = float(np.median(valid)) if len(valid) > 0 else 0.0
+
+    # Per-frame segment stability: detect sudden jumps in segment length
+    # via z-score of frame-to-frame deltas.  Normal gait variation
+    # (sagittal projection, different fps) is captured by the per-segment
+    # mean/std, so only genuine outlier jumps are penalised.
+    # Skip segments with median < 0.05 (too short in sagittal projection).
+    _MIN_SEG_MEDIAN = 0.05
+    reliable_segs = [s for s in _COHERENCE_SEGMENTS
+                     if seg_median[s] >= _MIN_SEG_MEDIAN]
+
+    # Pre-compute per-segment delta stats
+    seg_delta_stats = {}
+    for seg in reliable_segs:
+        arr = np.array(seg_lengths[seg])
+        deltas = np.abs(np.diff(arr))
+        valid = deltas[np.isfinite(deltas)]
+        if len(valid) > 2:
+            seg_delta_stats[seg] = (float(np.mean(valid)),
+                                    float(np.std(valid)) + 1e-10)
+        else:
+            seg_delta_stats[seg] = (0.0, 1e-10)
+
+    seg_scores = np.ones(n)
+    for i in range(1, n):
+        max_z = 0.0
+        for seg in reliable_segs:
+            L_curr = seg_lengths[seg][i]
+            L_prev = seg_lengths[seg][i - 1]
+            if np.isfinite(L_curr) and np.isfinite(L_prev):
+                delta = abs(L_curr - L_prev)
+                mu, sigma = seg_delta_stats[seg]
+                z = (delta - mu) / sigma
+                max_z = max(max_z, z)
+        # z < 2 → perfect, z = 3 → 0.5, z > 5 → ~0
+        if max_z > 2.0:
+            seg_scores[i] = float(np.clip(1.0 - (max_z - 2.0) / 4.0, 0.0, 1.0))
+
+    # ── 2. Landmark velocity score ──
+    # Z-score of per-frame max displacement across landmarks.  Normal
+    # gait velocity varies with fps and walking speed; z-score adapts
+    # automatically.  Only outlier jumps (z > 2) are penalised.
+    vel_scores = np.ones(n)
+    frame_max_disps = [0.0] * n
+    for i in range(1, n):
+        displacements = []
+        for lm_name in _COHERENCE_LANDMARKS:
+            prev = _lm_xy(frames[i - 1], lm_name)
+            curr = _lm_xy(frames[i], lm_name)
+            if prev is not None and curr is not None:
+                displacements.append(np.linalg.norm(curr - prev))
+        if displacements:
+            frame_max_disps[i] = float(np.max(displacements))
+    disp_arr = np.array(frame_max_disps[1:])
+    if len(disp_arr) > 2 and disp_arr.std() > 1e-10:
+        mu_d, sigma_d = float(disp_arr.mean()), float(disp_arr.std())
+        for i in range(1, n):
+            z = (frame_max_disps[i] - mu_d) / sigma_d
+            if z > 2.0:
+                vel_scores[i] = float(np.clip(1.0 - (z - 2.0) / 4.0, 0.0, 1.0))
+
+    # ── 3. Angular continuity (knee) ──
+    # Z-score of frame-to-frame knee-angle change.  Both sides are
+    # evaluated; the worst (highest z) governs the frame score.
+    ang_scores = np.ones(n)
+    all_ang_deltas = []  # collect deltas from both sides for joint stats
+    side_deltas = {}
+    for side, prefix in [("L", "LEFT"), ("R", "RIGHT")]:
+        angles = []
+        for f in frames:
+            hip = _lm_xy(f, f"{prefix}_HIP")
+            knee = _lm_xy(f, f"{prefix}_KNEE")
+            ankle = _lm_xy(f, f"{prefix}_ANKLE")
+            if hip is not None and knee is not None and ankle is not None:
+                thigh = hip - knee
+                shank = ankle - knee
+                n1 = np.linalg.norm(thigh)
+                n2 = np.linalg.norm(shank)
+                if n1 > 1e-10 and n2 > 1e-10:
+                    cos_a = np.clip(np.dot(thigh, shank) / (n1 * n2), -1.0, 1.0)
+                    angles.append(np.degrees(np.arccos(cos_a)))
+                else:
+                    angles.append(np.nan)
+            else:
+                angles.append(np.nan)
+        deltas = [np.nan] * n
+        for i in range(1, n):
+            if np.isfinite(angles[i]) and np.isfinite(angles[i - 1]):
+                deltas[i] = abs(angles[i] - angles[i - 1])
+                all_ang_deltas.append(deltas[i])
+        side_deltas[side] = deltas
+
+    if len(all_ang_deltas) > 2:
+        mu_a = float(np.mean(all_ang_deltas))
+        sigma_a = float(np.std(all_ang_deltas)) + 1e-10
+        for i in range(1, n):
+            worst_z = 0.0
+            for side in ("L", "R"):
+                d = side_deltas[side][i]
+                if np.isfinite(d):
+                    z = (d - mu_a) / sigma_a
+                    worst_z = max(worst_z, z)
+            if worst_z > 2.0:
+                ang_scores[i] = min(ang_scores[i],
+                                    float(np.clip(1.0 - (worst_z - 2.0) / 4.0, 0.0, 1.0)))
+
+    # ── Composite ──
+    composite = 0.40 * seg_scores + 0.35 * vel_scores + 0.25 * ang_scores
+
+    low_threshold = 0.5
+    n_low = 0
+    for i, f in enumerate(frames):
+        f["coherence"] = {
+            "score": round(float(composite[i]), 4),
+            "segment_stability": round(float(seg_scores[i]), 4),
+            "velocity": round(float(vel_scores[i]), 4),
+            "angular_continuity": round(float(ang_scores[i]), 4),
+        }
+        if composite[i] < low_threshold:
+            n_low += 1
+
+    data["coherence_summary"] = {
+        "mean_score": round(float(np.mean(composite)), 4),
+        "min_score": round(float(np.min(composite)), 4),
+        "std_score": round(float(np.std(composite)), 4),
+        "low_coherence_frames": n_low,
+        "low_coherence_pct": round(n_low / n * 100, 2),
+    }
+    return data
+
+
 # ── Cross-correlation alignment ──────────────────────────────────────
 
 
