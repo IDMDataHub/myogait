@@ -354,12 +354,17 @@ def _method_sagittal_vertical_axis(frame: dict, model: str) -> dict:
         else:
             result[f"hip_{side}"] = np.nan
 
-        # Knee: unsigned flexion angle (0 = full extension, positive = flexion)
+        # Knee: signed flexion angle (positive = flexion, negative = recurvatum)
+        # Cross-product sign gives flexion vs hyperextension in sagittal view.
+        # Convention assumes left-to-right walking; right-to-left is corrected
+        # in post-processing (same block as hip direction correction).
         if hip is not None and knee is not None and ankle is not None:
             thigh = hip - knee
             shank = ankle - knee
             unsigned = _angle_between(thigh, shank)
-            result[f"knee_{side}"] = 180.0 - unsigned
+            cross = float(thigh[0] * shank[1] - thigh[1] * shank[0])
+            signed = 180.0 - unsigned
+            result[f"knee_{side}"] = signed if cross <= 0 else -signed
         else:
             result[f"knee_{side}"] = np.nan
 
@@ -431,12 +436,14 @@ def _method_sagittal_classic(frame: dict, model: str) -> dict:
         else:
             result[f"hip_{side}"] = np.nan
 
-        # Knee: unsigned flexion angle (0 = full extension, positive = flexion)
+        # Knee: signed flexion angle (positive = flexion, negative = recurvatum)
         if hip is not None and knee is not None and ankle is not None:
             thigh = hip - knee
             shank = ankle - knee
             unsigned = _angle_between(thigh, shank)
-            result[f"knee_{side}"] = 180.0 - unsigned
+            cross = float(thigh[0] * shank[1] - thigh[1] * shank[0])
+            signed = 180.0 - unsigned
+            result[f"knee_{side}"] = signed if cross <= 0 else -signed
         else:
             result[f"knee_{side}"] = np.nan
 
@@ -724,6 +731,15 @@ def compute_angles(
         for af in angle_frames:
             for side in ("L", "R"):
                 key = f"hip_{side}"
+                v = af.get(key)
+                if v is not None and not np.isnan(v):
+                    af[key] = -v
+
+    # Knee cross-product sign assumes left-to-right; negate for right-to-left.
+    if walking_direction == "right_to_left":
+        for af in angle_frames:
+            for side in ("L", "R"):
+                key = f"knee_{side}"
                 v = af.get(key)
                 if v is not None and not np.isnan(v):
                     af[key] = -v

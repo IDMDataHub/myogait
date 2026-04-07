@@ -1122,18 +1122,31 @@ def _correct_label_inversions(landmarks_list: list) -> tuple:
                     result[i][ri].copy(), result[i][li].copy())
 
     # ── Pass 2: Per-pair velocity-based correction on corrected data ─
-    # After Pass 1 fixes global L/R swaps, the ankle pair may still
-    # be swapped independently (Sapiens swaps ankle labels while
-    # keeping heel/foot correct).  We check the ankle pair only —
-    # hip/knee/shoulder cross naturally in sagittal view and produce
-    # false positives if checked independently.
+    # After Pass 1 fixes global L/R swaps, individual pairs may still
+    # be swapped independently (e.g. Sapiens swaps ankle labels while
+    # keeping heel/foot correct, or the model confuses LEFT_KNEE /
+    # RIGHT_KNEE for a few frames during leg crossing in sagittal view).
     #
+    # Each pair has a reference pair for a post-swap consistency check
+    # (ankle↔heel, knee↔hip) to revert false positives.
     # A velocity-reduction validation ensures the correction only
     # applies when it genuinely smooths the trajectory.
     _PASS2_PAIRS = [
         (MP_NAME_TO_INDEX.get("LEFT_ANKLE", 27),
          MP_NAME_TO_INDEX.get("RIGHT_ANKLE", 28)),
+        (MP_NAME_TO_INDEX.get("LEFT_KNEE", 25),
+         MP_NAME_TO_INDEX.get("RIGHT_KNEE", 26)),
     ]
+    _PASS2_REFERENCE = {
+        (MP_NAME_TO_INDEX.get("LEFT_ANKLE", 27),
+         MP_NAME_TO_INDEX.get("RIGHT_ANKLE", 28)):
+            (MP_NAME_TO_INDEX.get("LEFT_HEEL", 29),
+             MP_NAME_TO_INDEX.get("RIGHT_HEEL", 30)),
+        (MP_NAME_TO_INDEX.get("LEFT_KNEE", 25),
+         MP_NAME_TO_INDEX.get("RIGHT_KNEE", 26)):
+            (MP_NAME_TO_INDEX.get("LEFT_HIP", 23),
+             MP_NAME_TO_INDEX.get("RIGHT_HIP", 24)),
+    }
     for li, ri in _PASS2_PAIRS:
         pair_transitions = set()
         prev = None
@@ -1228,32 +1241,29 @@ def _correct_label_inversions(landmarks_list: list) -> tuple:
                 n_applied += 1
                 pass2_swapped.add(i)
 
-        # Post-swap ankle-heel consistency check: revert frames where
-        # LEFT_ANKLE ends up closer to RIGHT_HEEL than LEFT_HEEL (and
-        # vice versa), which indicates a false-positive swap — common
-        # at high frame rates (≥60 fps) when legs are close together.
-        LH = MP_NAME_TO_INDEX.get("LEFT_HEEL", 29)
-        RH = MP_NAME_TO_INDEX.get("RIGHT_HEEL", 30)
+        # Post-swap consistency check: revert frames where the swapped
+        # landmark ends up closer to the opposite-side reference than
+        # its own-side reference (ankle↔heel, knee↔hip).
+        ref_pair = _PASS2_REFERENCE.get((li, ri))
         n_reverted = 0
-        for i in list(pass2_swapped):
-            lm = result[i]
-            if (LH < lm.shape[0] and RH < lm.shape[0]
-                    and not np.any(np.isnan(
-                        lm[[li, ri, LH, RH], :2]))):
-                # Same-side distance: L_ankle↔L_heel + R_ankle↔R_heel
-                d_same = (np.sum((lm[li, :2] - lm[LH, :2]) ** 2)
-                          + np.sum((lm[ri, :2] - lm[RH, :2]) ** 2))
-                # Cross-side distance: L_ankle↔R_heel + R_ankle↔L_heel
-                d_cross = (np.sum((lm[li, :2] - lm[RH, :2]) ** 2)
-                           + np.sum((lm[ri, :2] - lm[LH, :2]) ** 2))
-                if d_cross < d_same:
-                    # Ankles are closer to opposite heels — revert
-                    result[i][li], result[i][ri] = (
-                        result[i][ri].copy(), result[i][li].copy())
-                    inversion_mask[i] = False
-                    n_applied -= 1
-                    n_reverted += 1
-                    pass2_swapped.discard(i)
+        if ref_pair is not None:
+            REF_L, REF_R = ref_pair
+            for i in list(pass2_swapped):
+                lm = result[i]
+                if (REF_L < lm.shape[0] and REF_R < lm.shape[0]
+                        and not np.any(np.isnan(
+                            lm[[li, ri, REF_L, REF_R], :2]))):
+                    d_same = (np.sum((lm[li, :2] - lm[REF_L, :2]) ** 2)
+                              + np.sum((lm[ri, :2] - lm[REF_R, :2]) ** 2))
+                    d_cross = (np.sum((lm[li, :2] - lm[REF_R, :2]) ** 2)
+                               + np.sum((lm[ri, :2] - lm[REF_L, :2]) ** 2))
+                    if d_cross < d_same:
+                        result[i][li], result[i][ri] = (
+                            result[i][ri].copy(), result[i][li].copy())
+                        inversion_mask[i] = False
+                        n_applied -= 1
+                        n_reverted += 1
+                        pass2_swapped.discard(i)
 
         if n_reverted:
             logger.info(
