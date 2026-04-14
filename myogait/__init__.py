@@ -19,7 +19,7 @@ Full pipeline with cycle analysis::
 
 from importlib import import_module
 
-__version__ = "0.5.27"
+__version__ = "0.5.29"
 
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
@@ -43,6 +43,15 @@ from .angles import (
     compute_extended_angles,
     compute_frontal_angles,
     foot_progression_angle,
+)
+from .corrections import (
+    apply_perspective_correction,
+    apply_ankle_bias_correction,
+    apply_hip_bias_correction,
+    apply_knee_bias_correction,
+    ANKLE_BIAS_V1,
+    HIP_BIAS_V1,
+    KNEE_BIAS_V1,
 )
 from .events import detect_events, list_event_methods, event_consensus, validate_events
 from .cycles import segment_cycles, ensemble_average
@@ -164,6 +173,13 @@ __all__ = [
     "compute_extended_angles",
     "compute_frontal_angles",
     "foot_progression_angle",
+    "apply_perspective_correction",
+    "apply_ankle_bias_correction",
+    "apply_hip_bias_correction",
+    "apply_knee_bias_correction",
+    "ANKLE_BIAS_V1",
+    "HIP_BIAS_V1",
+    "KNEE_BIAS_V1",
     "detect_events",
     "list_event_methods",
     "event_consensus",
