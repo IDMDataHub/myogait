@@ -1,7 +1,37 @@
 """Post-hoc angle corrections for myogait.
 
-This module provides two corrections applied to joint angles after
-``compute_angles()``:
+.. warning::
+   **Bias corrections can hide pathological gait signatures.**
+
+   The ``apply_{hip,knee,ankle}_bias_correction`` functions in this module
+   apply frozen LASSO coefficients trained on *healthy young adults*
+   vs Vicon ground truth.  They encode the **average bias** of pose
+   estimators on typical gait.  When applied to a patient with
+   neuromuscular disease (DMD, CMT, SMA, myotonic dystrophy, etc.) or
+   any pathology that alters the kinematic pattern, they will
+   artificially "restore" a healthy-looking curve at exactly the phases
+   where the clinical sign is visible:
+
+   - knee flexion swing peak (60–75 % cycle) — masked in DMD, CMT
+   - ankle push-off plantaflexion (55–75 % cycle) — masked in drop foot
+   - hip extension end-stance — masked in hip weakness compensations
+
+   **Rule of thumb.**  Use these corrections only when you want to
+   benchmark your pipeline against a healthy Vicon reference, or when
+   the downstream question explicitly assumes a healthy population.
+   **For clinical reading of pathological gait, skip the bias
+   corrections entirely** and keep only :func:`apply_perspective_correction`
+   (zero-parameter, pure geometry, session-local, safe on any
+   population).  The uncorrected signal preserves pathological
+   signatures.
+
+   :func:`apply_perspective_correction` is always safe because it is
+   physics-only: it undoes orthographic projection foreshortening using
+   segment lengths from the current session.  It adds no prior from the
+   training population.
+
+This module provides two correction families applied to joint angles
+after ``compute_angles()``:
 
 **perspective_correction** — ``apply_perspective_correction(data)``
     Zero-parameter geometric correction for hip and knee flexion.
@@ -80,7 +110,11 @@ ANKLE_BIAS_V1 = {
     "scaler_scale": list(_SCALER_SCALE),
     "limitations": [
         "Valid for healthy adult gait at preferred walking speed.",
-        "May mask pathological anomalies (stiff ankle, drop-foot).",
+        "May mask pathological anomalies (stiff ankle, drop-foot, "
+        "absent push-off in gastrocnemius weakness, CMT, early DMD). "
+        "DO NOT apply when reading patient gait clinically — the push-off "
+        "correction adds ~5° of plantaflexion at 60-75%% cycle that may "
+        "not exist in the patient's real kinematics.",
         "Retain uncorrected signal for clinical screening.",
     ],
 }
@@ -101,7 +135,9 @@ HIP_BIAS_V1 = {
         "Valid for healthy adult gait at preferred walking speed.",
         "Apply AFTER apply_perspective_correction — the M1 residual is the "
         "target the LASSO was trained on.",
-        "May mask pathological anomalies (hip flexion contracture, etc.).",
+        "May mask pathological anomalies (hip flexion contracture, "
+        "antalgic compensations, Trendelenburg, etc.). "
+        "DO NOT apply when reading patient gait clinically.",
         "Retain uncorrected signal for clinical screening.",
     ],
 }
@@ -122,7 +158,11 @@ KNEE_BIAS_V1 = {
         "Valid for healthy adult gait at preferred walking speed.",
         "Apply AFTER apply_perspective_correction — the M1 residual is the "
         "target the LASSO was trained on.",
-        "May mask pathological anomalies (knee fusion, genu recurvatum, etc.).",
+        "May mask pathological anomalies (reduced knee flex in DMD/CMT, "
+        "stiff-knee gait, genu recurvatum). "
+        "DO NOT apply when reading patient gait clinically — the swing "
+        "peak at 60-75%% is precisely where this correction acts and "
+        "where clinical signs of neuromuscular disease appear.",
         "Retain uncorrected signal for clinical screening.",
     ],
 }
@@ -363,6 +403,13 @@ def apply_ankle_bias_correction(
 ) -> dict:
     """Apply the frozen Fourier LASSO correction to ankle_L and ankle_R.
 
+    .. warning::
+       **Do NOT apply to pathological gait for clinical reading.**
+       The push-off plantaflexion dip at 60–75 % cycle is injected from
+       the healthy reference and will mask drop-foot, gastrocnemius
+       weakness and absent push-off in NMD patients. Use only for
+       benchmarking vs a healthy Vicon reference.
+
     See :data:`ANKLE_BIAS_V1` for coefficient provenance and limitations.
     Does NOT require :func:`apply_perspective_correction` to have been
     called first — the ankle correction was trained on the un-M1 signal
@@ -389,6 +436,12 @@ def apply_hip_bias_correction(
        Applying it to raw (non-M1) angles will double-count part of the
        projection correction.
 
+    .. warning::
+       **Do NOT apply to pathological gait for clinical reading.**
+       The correction injects a healthy-population bias pattern and may
+       mask hip compensations (Trendelenburg, antalgic, hyperlordosis).
+       Use only for benchmarking vs a healthy Vicon reference.
+
     See :data:`HIP_BIAS_V1` for coefficient provenance and limitations.
     """
     return _apply_bias_correction_generic(
@@ -409,6 +462,15 @@ def apply_knee_bias_correction(
        This correction must be applied **after**
        :func:`apply_perspective_correction`.  The LASSO coefficients
        were trained on the residual of M1-corrected knee angles vs Vicon.
+
+    .. warning::
+       **Do NOT apply to pathological gait for clinical reading.**
+       This is the most dangerous of the three bias corrections for
+       clinical use: it acts on the swing peak flexion (60–75 % cycle),
+       which is precisely the phase where reduced knee flexion is the
+       hallmark sign of DMD, CMT and stiff-knee gait. The correction
+       will artificially restore a normal peak and mask these pathologies.
+       Use only for benchmarking vs a healthy Vicon reference.
 
     See :data:`KNEE_BIAS_V1` for coefficient provenance and limitations.
     """
