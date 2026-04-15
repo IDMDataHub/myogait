@@ -1265,6 +1265,91 @@ def _adaptive_params(frames: list, fps: float) -> tuple:
 # ── Public API ───────────────────────────────────────────────────────
 
 
+def _compute_motion_mask(frames: list, fps: float,
+                         window_s: float = 0.5,
+                         min_ankle_std_ratio: float = 0.003) -> np.ndarray:
+    """Per-frame boolean mask: True where the subject is actually moving.
+
+    A frame is flagged as "motion" when the rolling standard deviation
+    of at least one ankle y-coordinate over ``window_s`` exceeds
+    ``min_ankle_std_ratio`` times the range of that coordinate over
+    the whole clip.  This captures normal gait and excludes standstill
+    preludes without requiring fixed absolute thresholds.
+
+    Parameters
+    ----------
+    frames : list
+        Per-frame dicts with ``landmarks``.
+    fps : float
+        Frame rate, used to size the rolling window.
+    window_s : float, optional
+        Rolling window length in seconds (default 0.5 s).
+    min_ankle_std_ratio : float, optional
+        Minimum rolling std, expressed as a fraction of the whole-clip
+        y-range of the ankle, required to consider the frame "moving"
+        (default 0.3%).
+
+    Returns
+    -------
+    np.ndarray
+        Boolean array, one entry per frame.  ``True`` means "moving",
+        ``False`` means "standstill".  When the signal is too short or
+        both ankles are missing, returns all-True (fail-safe: never
+        over-trim).
+    """
+    n = len(frames)
+    if n == 0:
+        return np.zeros(0, dtype=bool)
+    w = max(3, int(round(window_s * max(fps, 1e-6))))
+
+    def _ankle_y(side: str) -> np.ndarray:
+        out = np.full(n, np.nan)
+        for i, f in enumerate(frames):
+            lm = f.get("landmarks") or {}
+            d = lm.get(f"{side}_ANKLE")
+            if isinstance(d, dict) and d.get("y") is not None:
+                out[i] = float(d["y"])
+        return out
+
+    def _rolling_std(arr: np.ndarray, w: int) -> np.ndarray:
+        if np.all(np.isnan(arr)):
+            return np.zeros_like(arr)
+        # Simple rolling std with NaN-aware
+        out = np.full_like(arr, np.nan)
+        half = w // 2
+        for i in range(n):
+            lo = max(0, i - half)
+            hi = min(n, i + half + 1)
+            seg = arr[lo:hi]
+            if np.sum(~np.isnan(seg)) >= 3:
+                out[i] = np.nanstd(seg, ddof=0)
+        return out
+
+    lay = _ankle_y("LEFT")
+    ray = _ankle_y("RIGHT")
+    if np.all(np.isnan(lay)) and np.all(np.isnan(ray)):
+        return np.ones(n, dtype=bool)
+
+    left_range = float(np.nanmax(lay) - np.nanmin(lay)) if not np.all(np.isnan(lay)) else 0.0
+    right_range = float(np.nanmax(ray) - np.nanmin(ray)) if not np.all(np.isnan(ray)) else 0.0
+    range_ref = max(left_range, right_range, 1e-6)
+    thr = min_ankle_std_ratio * range_ref
+
+    std_L = _rolling_std(lay, w)
+    std_R = _rolling_std(ray, w)
+    mask = np.zeros(n, dtype=bool)
+    for i in range(n):
+        s_l = std_L[i] if not np.isnan(std_L[i]) else 0.0
+        s_r = std_R[i] if not np.isnan(std_R[i]) else 0.0
+        mask[i] = (s_l > thr) or (s_r > thr)
+
+    # Fail-safe: if the mask would kill more than 95% of frames, something
+    # is wrong (very slow gait, small motion) — keep everything
+    if mask.sum() / n < 0.05:
+        return np.ones(n, dtype=bool)
+    return mask
+
+
 def detect_events(
     data: dict,
     method: str = "zeni",
@@ -1272,6 +1357,7 @@ def detect_events(
     cutoff_freq: float = 6.0,
     adaptive: bool = False,
     femur_length_mm: float = 400.0,
+    trim_standstill: bool = True,
 ) -> dict:
     """Detect gait events (heel strike and toe off) from pose data.
 
@@ -1299,6 +1385,13 @@ def detect_events(
         gaitkit methods (``gk_*``) to convert normalised landmark
         positions to real-world units before computing velocity
         features.
+    trim_standstill : bool, optional
+        When True (default), remove detected events that fall inside
+        detected standstill regions.  Fixes a class of false-positive
+        heel-strike detections on videos with a stationary prelude
+        before the subject starts walking — especially affects
+        ``gk_bike`` whose adaptive threshold collapses to noise level
+        during standstill.
 
     Returns
     -------
@@ -1351,6 +1444,31 @@ def detect_events(
         events = detect_func(frames, fps, min_cycle_duration, cutoff_freq)
     finally:
         _current_data = None
+
+    # Filter out events that fall inside a standstill region.  This fixes
+    # adaptive detectors (notably gk_bike) that fire spurious heel strikes
+    # during stationary preludes because their threshold collapses to the
+    # level of landmark micro-noise.
+    if trim_standstill:
+        mask = _compute_motion_mask(frames, fps)
+        trimmed = 0
+        for key in ("left_hs", "right_hs", "left_to", "right_to"):
+            lst = events.get(key, [])
+            if not lst: continue
+            kept = []
+            for ev_idx in lst:
+                idx = int(ev_idx) if not isinstance(ev_idx, dict) else int(
+                    ev_idx.get("frame_idx", ev_idx.get("index", 0)))
+                if 0 <= idx < len(mask) and mask[idx]:
+                    kept.append(ev_idx)
+                else:
+                    trimmed += 1
+            events[key] = kept
+        if trimmed:
+            logger.info(
+                "trim_standstill removed %d events inside standstill regions",
+                trimmed,
+            )
 
     # Remap array indices to actual frame_idx values.
     # Detection functions return indices into the frames list (0..N-1),
