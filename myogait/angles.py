@@ -89,15 +89,34 @@ def _trunk_angle(left_shoulder: np.ndarray, right_shoulder: np.ndarray,
     return angle if trunk[0] > 0 else -angle
 
 
-def _pelvis_tilt(left_hip: np.ndarray, right_hip: np.ndarray) -> float:
+def _pelvis_tilt(
+    left_hip: np.ndarray,
+    right_hip: np.ndarray,
+    trunk_length: Optional[float] = None,
+) -> float:
     """Pelvis tilt. Positive = right side up.
 
-    Returns NaN in lateral view (hips overlap < 2%).
+    Returns NaN in lateral view (hips overlap).
+
+    When ``trunk_length`` is provided (distance from shoulder center to
+    hip center), "overlap" is detected as a ratio: hip distance below
+    5 % of trunk length. This reference is large in any standing or
+    walking posture even when both shoulders and hips are seen edge-on
+    (lateral view), so the threshold stays meaningful in both normalised
+    [0, 1] and pixel coordinate spaces.
+
+    When ``trunk_length`` is ``None`` (legacy call), fall back to the
+    historical 2 %-of-normalised-space absolute threshold (only correct
+    when landmarks are in [0, 1]).
     """
     pelvis = right_hip - left_hip
-    dist = np.linalg.norm(pelvis)
-    if dist < 0.02:
-        return np.nan
+    dist = float(np.linalg.norm(pelvis))
+    if trunk_length is not None and trunk_length > 0:
+        if dist < 0.05 * trunk_length:
+            return np.nan
+    else:
+        if dist < 0.02:
+            return np.nan
     horizontal = np.array([1.0, 0.0])
     angle = _angle_between(horizontal, pelvis)
     return angle if pelvis[1] < 0 else -angle
@@ -386,8 +405,9 @@ def _method_sagittal_vertical_axis(frame: dict, model: str) -> dict:
         hip_center = (l_hip + r_hip) / 2
         shoulder_center = (l_shoulder + r_shoulder) / 2
         trunk_vec = hip_center - shoulder_center
+        trunk_length = float(np.linalg.norm(trunk_vec))
         result["trunk_angle"] = _trunk_angle(l_shoulder, r_shoulder, l_hip, r_hip)
-        result["pelvis_tilt"] = _pelvis_tilt(l_hip, r_hip)
+        result["pelvis_tilt"] = _pelvis_tilt(l_hip, r_hip, trunk_length)
     else:
         trunk_vec = None
         result["trunk_angle"] = np.nan
@@ -472,8 +492,11 @@ def _method_sagittal_classic(frame: dict, model: str) -> dict:
     r_hip = _get_xy(f, "RIGHT_HIP")
 
     if l_shoulder is not None and r_shoulder is not None and l_hip is not None and r_hip is not None:
+        shoulder_center = (l_shoulder + r_shoulder) / 2
+        hip_center = (l_hip + r_hip) / 2
+        trunk_length = float(np.linalg.norm(hip_center - shoulder_center))
         result["trunk_angle"] = _trunk_angle(l_shoulder, r_shoulder, l_hip, r_hip)
-        result["pelvis_tilt"] = _pelvis_tilt(l_hip, r_hip)
+        result["pelvis_tilt"] = _pelvis_tilt(l_hip, r_hip, trunk_length)
     else:
         result["trunk_angle"] = np.nan
         result["pelvis_tilt"] = np.nan
