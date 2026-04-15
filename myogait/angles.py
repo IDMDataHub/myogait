@@ -803,6 +803,8 @@ def compute_angles(
     min_confidence: float = 0.0,
     correct_ankle_sliding: bool = True,
     apply_aspect_ratio: bool = True,
+    calibration_dynamic_fallback: bool = True,
+    calibration_min_std_deg: float = 1.0,
 ) -> dict:
     """Compute joint angles and add to pivot JSON.
 
@@ -822,6 +824,23 @@ def compute_angles(
         Number of frames for neutral calibration (default 30).
     calibration_joints : list of str, optional
         Joints to calibrate (default: ``["ankle_L", "ankle_R"]``).
+    calibration_dynamic_fallback : bool, optional
+        When ``True`` (default), if the first
+        ``calibration_frames`` of a joint show no meaningful motion
+        (angle std below ``calibration_min_std_deg``), the calibration
+        falls back to the median of all valid frames of that joint
+        instead of the static window.  This prevents the "standstill
+        prelude" failure mode where a patient begins the recording in a
+        pathological or asymmetric standing pose: using only those
+        frames as reference would silently shift the entire cycle by
+        the pose offset.  Set to ``False`` to keep the strict
+        "first-N-frames" semantic.
+    calibration_min_std_deg : float, optional
+        Minimum angle std (in degrees) over the first
+        ``calibration_frames`` required to accept those frames as a
+        calibration window.  Below this threshold, the window is
+        considered static and ``calibration_dynamic_fallback`` kicks
+        in (default 1.0°).
     min_confidence : float, optional
         Skip angle computation on frames with confidence below this
         threshold (default 0.0, i.e. compute on all frames).  Skipped
@@ -971,14 +990,46 @@ def compute_angles(
     # Neutral calibration
     if calibrate and len(angle_frames) >= calibration_frames:
         for key in calibration_joints:
-            vals = [af[key] for af in angle_frames[:calibration_frames]
-                    if not np.isnan(af.get(key, np.nan))]
-            if vals:
-                offset = float(np.median(vals))
-                for af in angle_frames:
-                    v = af.get(key)
-                    if v is not None and not np.isnan(v):
-                        af[key] = v - offset
+            window_vals = [
+                af[key] for af in angle_frames[:calibration_frames]
+                if not np.isnan(af.get(key, np.nan))
+            ]
+            all_vals = [
+                af[key] for af in angle_frames
+                if not np.isnan(af.get(key, np.nan))
+            ]
+
+            use_window = bool(window_vals)
+            if (calibration_dynamic_fallback
+                    and len(window_vals) >= 5
+                    and float(np.std(window_vals)) < calibration_min_std_deg
+                    and len(all_vals) >= calibration_frames):
+                # Window is suspiciously static — likely a standstill
+                # prelude with a possibly-pathological pose. Fall back
+                # to the full-clip median, which is more representative
+                # of the subject's mid-cycle neutral once walking.
+                logger.info(
+                    "calibration: %s first-window std=%.2f° < %.2f°, "
+                    "switching to full-clip median (%.1f° vs %.1f°)",
+                    key,
+                    float(np.std(window_vals)),
+                    calibration_min_std_deg,
+                    float(np.median(window_vals)),
+                    float(np.median(all_vals)),
+                )
+                use_window = False
+
+            if use_window and window_vals:
+                offset = float(np.median(window_vals))
+            elif all_vals:
+                offset = float(np.median(all_vals))
+            else:
+                continue
+
+            for af in angle_frames:
+                v = af.get(key)
+                if v is not None and not np.isnan(v):
+                    af[key] = v - offset
 
     # Convert NaN to None for JSON serialization
     for af in angle_frames:
