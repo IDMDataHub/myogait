@@ -323,13 +323,32 @@ def _unwrap_angles(values: list) -> list:
 
 
 def _detect_walking_direction(data: dict) -> str:
-    """Detect walking direction from hip center horizontal displacement.
+    """Detect walking direction from multiple robust body-orientation signals.
 
-    Analyses the mean horizontal displacement of the hip center
-    (average of LEFT_HIP and RIGHT_HIP x-coordinates) across all
-    frames.  If x increases over time the subject walks left-to-right
-    (in image coordinates); if it decreases the subject walks
-    right-to-left.
+    The previous implementation used the horizontal displacement of the
+    hip center between the first and last quarter of the video. That is
+    unreliable on recordings where the camera pans to follow the subject
+    — the hip stays centred in the frame and the displacement collapses
+    to the level of landmark noise, so the sign is effectively random.
+
+    The new implementation combines four signals that are each at least
+    10x larger than the camera-tracked hip displacement, and takes a
+    majority vote across the available ones:
+
+    1. **Hip center displacement** (legacy) — positive slope → LtoR.
+       Only counted when the magnitude exceeds a noise floor.
+    2. **Foot-index forward offset**: mean of
+       ``(FOOT_INDEX.x − HIP.x)`` across both sides and all frames.
+       The swinging foot leads ahead of the body in the walking
+       direction, so positive → LtoR.
+    3. **Nose forward offset**: mean of ``(NOSE.x − HIP.x)``. The head
+       tilts forward in the walking direction in natural gait, so
+       positive → LtoR.
+    4. **Toe vs heel offset**: mean of ``(FOOT_INDEX.x − HEEL.x)``.
+       Toes point in the walking direction, positive → LtoR.
+
+    Signals 2–4 are invariant to camera panning because they are
+    intra-frame spatial offsets, not temporal displacements.
 
     Parameters
     ----------
@@ -339,35 +358,89 @@ def _detect_walking_direction(data: dict) -> str:
     Returns
     -------
     str
-        ``"left_to_right"`` or ``"right_to_left"``.
+        ``"left_to_right"`` or ``"right_to_left"``. Defaults to
+        ``"left_to_right"`` if no signal can be computed.
     """
     frames = data.get("frames", [])
     if len(frames) < 2:
         return "left_to_right"
 
-    xs = []
-    for frame in frames:
-        if frame.get("confidence", 1.0) < 0.1:
-            continue
-        lm = frame.get("landmarks", {})
-        lh = lm.get("LEFT_HIP")
-        rh = lm.get("RIGHT_HIP")
-        if (lh is not None and rh is not None
-                and lh.get("x") is not None and rh.get("x") is not None
-                and not np.isnan(lh["x"]) and not np.isnan(rh["x"])):
-            xs.append((lh["x"] + rh["x"]) / 2.0)
+    def _get(name: str, field: str = "x") -> np.ndarray:
+        out = np.full(len(frames), np.nan)
+        for i, f in enumerate(frames):
+            if f.get("confidence", 1.0) < 0.1:
+                continue
+            lm = f.get("landmarks") or {}
+            d = lm.get(name)
+            if isinstance(d, dict) and d.get(field) is not None:
+                out[i] = float(d[field])
+        return out
 
-    if len(xs) < 2:
+    lh = _get("LEFT_HIP")
+    rh = _get("RIGHT_HIP")
+    lfi = _get("LEFT_FOOT_INDEX")
+    rfi = _get("RIGHT_FOOT_INDEX")
+    lheel = _get("LEFT_HEEL")
+    rheel = _get("RIGHT_HEEL")
+    nose = _get("NOSE")
+
+    import warnings as _warnings
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", RuntimeWarning)
+        hip_center = np.nanmean(np.stack([lh, rh]), axis=0)
+    valid_hip = ~np.isnan(hip_center)
+    n_valid = int(valid_hip.sum())
+    if n_valid < 2:
         return "left_to_right"
 
-    # Use the overall displacement (last quarter vs first quarter) to be
-    # robust to noise.
-    n = len(xs)
-    q = max(1, n // 4)
-    mean_start = float(np.mean(xs[:q]))
-    mean_end = float(np.mean(xs[-q:]))
+    votes: list = []
 
-    return "left_to_right" if mean_end >= mean_start else "right_to_left"
+    def _safe_mean(arr: np.ndarray) -> float:
+        if arr.size == 0 or np.all(np.isnan(arr)):
+            return float("nan")
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", RuntimeWarning)
+            return float(np.nanmean(arr))
+
+    # Signal 1 — hip displacement (legacy)
+    hc_valid = hip_center[valid_hip]
+    q = max(1, n_valid // 4)
+    displacement = float(np.mean(hc_valid[-q:]) - np.mean(hc_valid[:q]))
+    # Noise floor: only vote if the displacement is clearly above
+    # camera-tracking residuals. Use 2x the signal std as a data-driven
+    # floor, but never less than 0.005 (0.5% image width).
+    hc_std = float(np.std(hc_valid))
+    if abs(displacement) > max(0.005, 2.0 * hc_std):
+        votes.append(1 if displacement > 0 else -1)
+
+    # Signal 2 — foot index forward offset (invariant to camera tracking)
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", RuntimeWarning)
+        foot_mean = np.nanmean(np.stack([lfi, rfi]), axis=0)
+    foot_vs_hip = _safe_mean(foot_mean - hip_center)
+    if np.isfinite(foot_vs_hip):
+        votes.append(1 if foot_vs_hip > 0 else -1)
+
+    # Signal 3 — nose forward offset (head leads in gait direction)
+    nose_vs_hip = _safe_mean(nose - hip_center)
+    if np.isfinite(nose_vs_hip):
+        votes.append(1 if nose_vs_hip > 0 else -1)
+
+    # Signal 4 — toe vs heel offset (both sides averaged)
+    toe_vs_heel_L = _safe_mean(lfi - lheel)
+    toe_vs_heel_R = _safe_mean(rfi - rheel)
+    tvh_vals = [v for v in (toe_vs_heel_L, toe_vs_heel_R) if np.isfinite(v)]
+    if tvh_vals:
+        toe_vs_heel = float(np.mean(tvh_vals))
+        votes.append(1 if toe_vs_heel > 0 else -1)
+
+    if not votes:
+        return "left_to_right"
+    score = sum(votes)
+    if score == 0:
+        # Perfect tie — fall back to the unfiltered hip displacement sign.
+        return "left_to_right" if displacement >= 0 else "right_to_left"
+    return "left_to_right" if score > 0 else "right_to_left"
 
 
 def _extract_landmark_positions(frame: dict) -> dict:
