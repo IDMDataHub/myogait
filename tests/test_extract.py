@@ -566,6 +566,109 @@ def test_calibration_joints_custom():
     assert data["angles"]["calibration_joints"] == ["knee_L", "knee_R"]
 
 
+def _make_standstill_then_walk_data(n_stand=40, n_walk=200, fps=30.0,
+                                     standing_foot_tilt_y=0.04):
+    """Build fully synthetic data combining a static prelude (subject
+    standing with a non-neutral ankle pose: foot tilted upward, i.e.
+    dorsiflexion) followed by a walking phase. No video, no real
+    landmarks — pure numpy coordinates.
+
+    ``standing_foot_tilt_y`` raises the FOOT_INDEX in y during the
+    standstill, making the foot-index point above the heel and
+    producing a non-zero ankle angle (simulates a patient starting
+    the recording in dorsiflexed pose, e.g. contracture).
+    """
+    from myogait.schema import create_empty
+    n = n_stand + n_walk
+    data = create_empty("synthetic.mp4", fps=fps, width=1920, height=1080, n_frames=n)
+    data["extraction"] = {"model": "mediapipe"}
+    frames = []
+    for i in range(n):
+        in_standstill = i < n_stand
+        hip_x = 0.50
+        if in_standstill:
+            phase_l = phase_r = 0.0
+            ankle_amp = 0.0
+            tilt_y = standing_foot_tilt_y   # dorsiflexed pose during standstill
+        else:
+            t = (i - n_stand) / fps
+            phase_l = 2 * np.pi * t
+            phase_r = phase_l + np.pi
+            ankle_amp = 0.08
+            tilt_y = 0.0                    # neutral during walking
+        lm = {
+            "NOSE":             {"x": hip_x, "y": 0.10, "visibility": 1.0},
+            "LEFT_SHOULDER":    {"x": hip_x, "y": 0.25, "visibility": 1.0},
+            "RIGHT_SHOULDER":   {"x": hip_x + 0.01, "y": 0.25, "visibility": 1.0},
+            "LEFT_HIP":         {"x": hip_x, "y": 0.50, "visibility": 1.0},
+            "RIGHT_HIP":        {"x": hip_x + 0.01, "y": 0.50, "visibility": 1.0},
+            "LEFT_KNEE":        {"x": hip_x + 0.03 * np.sin(phase_l), "y": 0.65, "visibility": 1.0},
+            "RIGHT_KNEE":       {"x": hip_x + 0.01 + 0.03 * np.sin(phase_r), "y": 0.65, "visibility": 1.0},
+            "LEFT_ANKLE":       {"x": hip_x + ankle_amp * np.sin(phase_l), "y": 0.80, "visibility": 1.0},
+            "RIGHT_ANKLE":      {"x": hip_x + 0.01 + ankle_amp * np.sin(phase_r), "y": 0.80, "visibility": 1.0},
+            "LEFT_HEEL":        {"x": hip_x + ankle_amp * np.sin(phase_l) - 0.02, "y": 0.82, "visibility": 1.0},
+            "RIGHT_HEEL":       {"x": hip_x + 0.01 + ankle_amp * np.sin(phase_r) - 0.02, "y": 0.82, "visibility": 1.0},
+            "LEFT_FOOT_INDEX":  {"x": hip_x + ankle_amp * np.sin(phase_l) + 0.03,
+                                  "y": 0.82 - tilt_y, "visibility": 1.0},
+            "RIGHT_FOOT_INDEX": {"x": hip_x + 0.01 + ankle_amp * np.sin(phase_r) + 0.03,
+                                  "y": 0.82 - tilt_y, "visibility": 1.0},
+        }
+        frames.append({"frame_idx": i, "time_s": i / fps,
+                       "landmarks": lm, "confidence": 0.95})
+    data["frames"] = frames
+    return data
+
+
+def test_calibration_dynamic_fallback_on_standstill_prelude():
+    """Regression — bug 4: when the first N frames are a static
+    standstill with a non-neutral ankle pose (dorsiflexion), the old
+    calibration used them as the zero reference, shifting the entire
+    walking cycle by the pose offset. The new dynamic fallback detects
+    the static window (std < 1°) and uses the full-clip median instead.
+    """
+    from myogait import compute_angles
+
+    # With legacy behaviour: static standstill pose is used as zero.
+    data_legacy = _make_standstill_then_walk_data(
+        n_stand=40, n_walk=200, standing_foot_tilt_y=0.04
+    )
+    compute_angles(
+        data_legacy,
+        correction_factor=1.0,
+        calibrate=True,
+        calibration_frames=30,
+        calibration_dynamic_fallback=False,
+    )
+    ankle_legacy = np.array([
+        af["ankle_L"] for af in data_legacy["angles"]["frames"][40:]
+        if af["ankle_L"] is not None
+    ])
+
+    # With dynamic fallback: static window detected, use full-clip median.
+    data_fb = _make_standstill_then_walk_data(
+        n_stand=40, n_walk=200, standing_foot_tilt_y=0.04
+    )
+    compute_angles(
+        data_fb,
+        correction_factor=1.0,
+        calibrate=True,
+        calibration_frames=30,
+        calibration_dynamic_fallback=True,
+    )
+    ankle_fb = np.array([
+        af["ankle_L"] for af in data_fb["angles"]["frames"][40:]
+        if af["ankle_L"] is not None
+    ])
+
+    # The walking-phase means must differ — proves the fallback fires.
+    mean_legacy = float(np.mean(ankle_legacy))
+    mean_fb = float(np.mean(ankle_fb))
+    assert abs(mean_fb - mean_legacy) > 1.0, (
+        f"dynamic fallback did not change the calibration offset: "
+        f"legacy={mean_legacy:.2f}, fb={mean_fb:.2f}"
+    )
+
+
 # ── Normalize steps ─────────────────────────────────────────────────
 
 def test_normalize_with_steps():
