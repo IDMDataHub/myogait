@@ -442,6 +442,17 @@ class TestDetectWalkingDirection:
             "left_to_right", "right_to_left"
         )
 
+    def test_camera_tracked_left_to_right(self):
+        """Camera pans with subject; hip stays centred but foot/nose
+        lead forward. Foot-offset signal should still detect LtoR."""
+        data = _make_camera_tracked_data(direction="left_to_right")
+        assert _detect_walking_direction(data) == "left_to_right"
+
+    def test_camera_tracked_right_to_left(self):
+        """Same but reversed direction."""
+        data = _make_camera_tracked_data(direction="right_to_left")
+        assert _detect_walking_direction(data) == "right_to_left"
+
     def test_right_to_left_hip_flip_only_for_vertical_axis(self, monkeypatch):
         """Right-to-left correction must not invert sagittal_classic hip sign."""
         base = make_walking_data(n_frames=60)
@@ -487,6 +498,40 @@ class TestDetectWalkingDirection:
         assert vertical_r2l["angles"]["frames"][i]["hip_L"] == pytest.approx(
             -vertical_l2r["angles"]["frames"][i]["hip_L"], abs=1e-9
         )
+
+
+def _make_camera_tracked_data(direction="left_to_right", n_frames=60):
+    """Build minimal data where the HIP stays centred (as if the camera
+    is panning with the subject) but the FOOT/NOSE clearly lead forward
+    in the intended direction. Reproduces the camera-tracking failure
+    mode of the old hip-slope-only walking direction detector.
+    """
+    sign = 1.0 if direction == "left_to_right" else -1.0
+    frames = []
+    for i in range(n_frames):
+        # Tiny residual hip jitter (simulates imperfect pan compensation)
+        hip_x = 0.5 + 0.0005 * (i - n_frames / 2)
+        frames.append({
+            "frame_idx": i,
+            "time_s": i / 30.0,
+            "confidence": 0.95,
+            "landmarks": {
+                "LEFT_HIP": {"x": hip_x - 0.01, "y": 0.50, "visibility": 1.0},
+                "RIGHT_HIP": {"x": hip_x + 0.01, "y": 0.50, "visibility": 1.0},
+                # Feet 5 % of image width in the walking direction
+                "LEFT_FOOT_INDEX": {"x": hip_x + sign * 0.05,
+                                     "y": 0.80, "visibility": 1.0},
+                "RIGHT_FOOT_INDEX": {"x": hip_x + sign * 0.05,
+                                      "y": 0.80, "visibility": 1.0},
+                "LEFT_HEEL": {"x": hip_x - sign * 0.02,
+                               "y": 0.82, "visibility": 1.0},
+                "RIGHT_HEEL": {"x": hip_x - sign * 0.02,
+                                "y": 0.82, "visibility": 1.0},
+                # Nose leads forward by 3 % of image width
+                "NOSE": {"x": hip_x + sign * 0.03, "y": 0.10, "visibility": 1.0},
+            },
+        })
+    return {"frames": frames, "meta": {"width": 1920, "height": 1080}}
 
 
 def _make_direction_data(start_x, end_x, n_frames=50):
