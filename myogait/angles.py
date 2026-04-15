@@ -89,15 +89,34 @@ def _trunk_angle(left_shoulder: np.ndarray, right_shoulder: np.ndarray,
     return angle if trunk[0] > 0 else -angle
 
 
-def _pelvis_tilt(left_hip: np.ndarray, right_hip: np.ndarray) -> float:
+def _pelvis_tilt(
+    left_hip: np.ndarray,
+    right_hip: np.ndarray,
+    trunk_length: Optional[float] = None,
+) -> float:
     """Pelvis tilt. Positive = right side up.
 
-    Returns NaN in lateral view (hips overlap < 2%).
+    Returns NaN in lateral view (hips overlap).
+
+    When ``trunk_length`` is provided (distance from shoulder center to
+    hip center), "overlap" is detected as a ratio: hip distance below
+    5 % of trunk length. This reference is large in any standing or
+    walking posture even when both shoulders and hips are seen edge-on
+    (lateral view), so the threshold stays meaningful in both normalised
+    [0, 1] and pixel coordinate spaces.
+
+    When ``trunk_length`` is ``None`` (legacy call), fall back to the
+    historical 2 %-of-normalised-space absolute threshold (only correct
+    when landmarks are in [0, 1]).
     """
     pelvis = right_hip - left_hip
-    dist = np.linalg.norm(pelvis)
-    if dist < 0.02:
-        return np.nan
+    dist = float(np.linalg.norm(pelvis))
+    if trunk_length is not None and trunk_length > 0:
+        if dist < 0.05 * trunk_length:
+            return np.nan
+    else:
+        if dist < 0.02:
+            return np.nan
     horizontal = np.array([1.0, 0.0])
     angle = _angle_between(horizontal, pelvis)
     return angle if pelvis[1] < 0 else -angle
@@ -207,6 +226,67 @@ def _estimate_foot_landmarks(frame: dict) -> dict:
 
     frame["landmarks"] = lm
     return frame
+
+
+def _pixelify_frame(frame: dict, width: float, height: float) -> dict:
+    """Return a shallow copy of *frame* with landmark coordinates scaled
+    to pixel space.
+
+    Pose estimators normally output landmarks in normalised coordinates
+    (``x``, ``y`` in [0, 1]).  For a non-square image, the *normalised*
+    space is metrically distorted: a unit step in ``x`` corresponds to
+    ``width`` pixels while a unit step in ``y`` corresponds to ``height``
+    pixels.  Computing the angle between two vectors in this distorted
+    space yields a *biased* result whenever the two vectors are not
+    co-linear in pixel space.  The bias is largest for joints whose
+    proximal and distal segments have very different orientations
+    relative to the image axes — typically the ANKLE (vertical shank
+    versus horizontal foot).
+
+    Multiplying ``x`` by ``width`` and ``y`` by ``height`` restores the
+    Euclidean metric of pixel space, so the angle calculation becomes
+    geometrically correct.
+
+    The returned frame shares its top-level fields with the input but
+    has a new ``landmarks`` dict containing scaled copies of each
+    landmark.  The original frame is left untouched.
+
+    Parameters
+    ----------
+    frame : dict
+        Input frame with normalised landmark coordinates.
+    width, height : float
+        Image dimensions in pixels.
+
+    Returns
+    -------
+    dict
+        New frame with pixel-scaled landmarks.
+    """
+    if width == 1.0 and height == 1.0:
+        return frame
+    new_lm = {}
+    for name, lm in (frame.get("landmarks") or {}).items():
+        if isinstance(lm, dict):
+            scaled = dict(lm)
+            x = lm.get("x")
+            y = lm.get("y")
+            if x is not None:
+                try:
+                    scaled["x"] = float(x) * width
+                except (TypeError, ValueError):
+                    scaled["x"] = x
+            if y is not None:
+                try:
+                    scaled["y"] = float(y) * height
+                except (TypeError, ValueError):
+                    scaled["y"] = y
+            new_lm[name] = scaled
+        else:
+            new_lm[name] = lm
+    out = dict(frame)
+    out["landmarks"] = new_lm
+    return out
 
 
 def _get_foot_index_from_toes(frame: dict, side: str) -> Optional[np.ndarray]:
@@ -325,8 +405,9 @@ def _method_sagittal_vertical_axis(frame: dict, model: str) -> dict:
         hip_center = (l_hip + r_hip) / 2
         shoulder_center = (l_shoulder + r_shoulder) / 2
         trunk_vec = hip_center - shoulder_center
+        trunk_length = float(np.linalg.norm(trunk_vec))
         result["trunk_angle"] = _trunk_angle(l_shoulder, r_shoulder, l_hip, r_hip)
-        result["pelvis_tilt"] = _pelvis_tilt(l_hip, r_hip)
+        result["pelvis_tilt"] = _pelvis_tilt(l_hip, r_hip, trunk_length)
     else:
         trunk_vec = None
         result["trunk_angle"] = np.nan
@@ -411,8 +492,11 @@ def _method_sagittal_classic(frame: dict, model: str) -> dict:
     r_hip = _get_xy(f, "RIGHT_HIP")
 
     if l_shoulder is not None and r_shoulder is not None and l_hip is not None and r_hip is not None:
+        shoulder_center = (l_shoulder + r_shoulder) / 2
+        hip_center = (l_hip + r_hip) / 2
+        trunk_length = float(np.linalg.norm(hip_center - shoulder_center))
         result["trunk_angle"] = _trunk_angle(l_shoulder, r_shoulder, l_hip, r_hip)
-        result["pelvis_tilt"] = _pelvis_tilt(l_hip, r_hip)
+        result["pelvis_tilt"] = _pelvis_tilt(l_hip, r_hip, trunk_length)
     else:
         result["trunk_angle"] = np.nan
         result["pelvis_tilt"] = np.nan
@@ -645,6 +729,7 @@ def compute_angles(
     calibration_joints: Optional[list] = None,
     min_confidence: float = 0.0,
     correct_ankle_sliding: bool = True,
+    apply_aspect_ratio: bool = True,
 ) -> dict:
     """Compute joint angles and add to pivot JSON.
 
@@ -674,6 +759,16 @@ def compute_angles(
         landmark sliding along the foot line during gait (default
         ``True``).  The correction is self-calibrated using flat-foot
         phases and requires no external reference data.
+    apply_aspect_ratio : bool, optional
+        Scale landmark coordinates from normalised [0, 1] to pixel
+        space using ``data["meta"]["width"]`` and
+        ``data["meta"]["height"]`` before computing angles (default
+        ``True``).  Required for non-square images: in normalised
+        space the X and Y axes have different metric units, which
+        biases any angle whose two vectors do not lie along a single
+        axis (most strongly the ankle).  When the image is square or
+        ``meta`` does not provide ``width``/``height``, this option is
+        a no-op.
 
     Returns
     -------
@@ -698,6 +793,20 @@ def compute_angles(
     method_func = ANGLE_METHODS[method]
     model = data.get("extraction", {}).get("model", "mediapipe")
 
+    # Aspect-ratio scaling: convert landmarks from normalised [0,1] to
+    # pixel space when the image is non-square.  Without this the
+    # angle computation is biased — see _pixelify_frame() docstring.
+    meta = data.get("meta") or {}
+    width = float(meta.get("width", 1.0)) if apply_aspect_ratio else 1.0
+    height = float(meta.get("height", 1.0)) if apply_aspect_ratio else 1.0
+    needs_scale = apply_aspect_ratio and (width != height) and (width > 0) and (height > 0)
+    if needs_scale:
+        logger.info(
+            "Applying aspect-ratio correction (width=%g, height=%g) "
+            "before angle computation.",
+            width, height,
+        )
+
     # Detect walking direction (only relevant for sagittal_vertical_axis)
     walking_direction = _detect_walking_direction(data)
     logger.info("Detected walking direction: %s", walking_direction)
@@ -719,7 +828,8 @@ def compute_angles(
             angle_frames.append(af)
             n_skipped += 1
         else:
-            angle_frames.append(method_func(frame, model))
+            scaled_frame = _pixelify_frame(frame, width, height) if needs_scale else frame
+            angle_frames.append(method_func(scaled_frame, model))
     if n_skipped:
         logger.info("Skipped %d/%d low-confidence frames (< %.2f)",
                      n_skipped, len(data["frames"]), min_confidence)
@@ -751,9 +861,15 @@ def compute_angles(
             if v is not None and not np.isnan(v):
                 af["trunk_angle"] = -v
 
-    # Ankle landmark sliding correction (projection-t method)
+    # Ankle landmark sliding correction (projection-t method).
+    # Use the same pixelified frames as the angle computation so the
+    # projection parameter t is computed in the same metric space.
     if correct_ankle_sliding:
-        _correct_ankle_projection(data["frames"], angle_frames, model)
+        if needs_scale:
+            scaled_frames = [_pixelify_frame(f, width, height) for f in data["frames"]]
+        else:
+            scaled_frames = data["frames"]
+        _correct_ankle_projection(scaled_frames, angle_frames, model)
 
     # Apply correction factor
     if correction_factor != 1.0:
