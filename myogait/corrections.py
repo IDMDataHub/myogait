@@ -78,7 +78,6 @@ list.  Calling either function twice is a no-op: a marker is set in
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 
@@ -201,7 +200,9 @@ def _segment_lengths(data: dict) -> dict:
         shank = np.full(N, np.nan)
         for i, f in enumerate(frames):
             lm = f.get("landmarks") or {}
-            h_lm = lm.get(hip_n); k_lm = lm.get(knee_n); a_lm = lm.get(ankle_n)
+            h_lm = lm.get(hip_n)
+            k_lm = lm.get(knee_n)
+            a_lm = lm.get(ankle_n)
             if (isinstance(h_lm, dict) and isinstance(k_lm, dict)
                     and h_lm.get("x") is not None and k_lm.get("x") is not None):
                 dx = (h_lm["x"] - k_lm["x"]) * w
@@ -311,7 +312,6 @@ def _phase_per_frame(data: dict, cycles: dict) -> dict:
 
     frame_idx = np.array([f.get("frame_idx", i) for i, f in enumerate(frames)])
     first_idx = int(frame_idx[0]) if N else 0
-    offsets = frame_idx - first_idx
 
     phase = {"L": np.full(N, np.nan), "R": np.full(N, np.nan)}
     for c in cycles.get("cycles", []):

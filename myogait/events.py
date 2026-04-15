@@ -1454,7 +1454,8 @@ def detect_events(
         trimmed = 0
         for key in ("left_hs", "right_hs", "left_to", "right_to"):
             lst = events.get(key, [])
-            if not lst: continue
+            if not lst:
+                continue
             kept = []
             for ev_idx in lst:
                 idx = int(ev_idx) if not isinstance(ev_idx, dict) else int(
