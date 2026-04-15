@@ -889,6 +889,22 @@ def compute_angles(
     # pixel space when the image is non-square.  Without this the
     # angle computation is biased — see _pixelify_frame() docstring.
     meta = data.get("meta") or {}
+    coord_space = (data.get("normalization") or {}).get(
+        "coord_space", "normalized"
+    )
+    if apply_aspect_ratio and coord_space != "normalized":
+        # A previous normalization step (e.g. align_skeleton) has already
+        # transformed the landmark coordinate system. Applying the
+        # aspect-ratio fix on top would double-transform and produce
+        # nonsense angles. Skip silently but warn so the caller can see
+        # why the fix did not run.
+        logger.warning(
+            "compute_angles: apply_aspect_ratio=True requested but "
+            "landmarks are in coord_space=%r (already transformed by a "
+            "previous normalize step); skipping aspect-ratio scaling.",
+            coord_space,
+        )
+        apply_aspect_ratio = False
     width = float(meta.get("width", 1.0)) if apply_aspect_ratio else 1.0
     height = float(meta.get("height", 1.0)) if apply_aspect_ratio else 1.0
     needs_scale = apply_aspect_ratio and (width != height) and (width > 0) and (height > 0)

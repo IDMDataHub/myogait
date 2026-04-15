@@ -669,6 +669,74 @@ def test_calibration_dynamic_fallback_on_standstill_prelude():
     )
 
 
+def test_correct_bilateral_preserves_foreshortening():
+    """Regression — bug 2: correct_bilateral used to rescale the right
+    side frame-by-frame, forcing right_length[t] = ref at every frame
+    and destroying the natural foreshortening variation. The fix uses
+    a single constant scale factor, so the right side's temporal
+    variation is preserved.
+    """
+    import pandas as pd
+    from myogait.normalize import correct_bilateral
+
+    n = 100
+    # Left limb: constant length of 0.15
+    lx = np.zeros(n)
+    ly = np.full(n, 0.50)
+    kx_l = np.zeros(n)
+    ky_l = np.full(n, 0.65)
+
+    # Right limb: oscillating length from 0.10 to 0.20
+    # (simulates foreshortening during gait)
+    right_lengths = 0.10 + 0.10 * (
+        np.sin(2 * np.pi * np.arange(n) / 30) * 0.5 + 0.5
+    )
+    rx = np.full(n, 0.10)
+    ry = np.full(n, 0.50)
+    kx_r = rx.copy()
+    ky_r = ry + right_lengths
+
+    df = pd.DataFrame({
+        "LEFT_HIP_x": lx, "LEFT_HIP_y": ly,
+        "LEFT_KNEE_x": kx_l, "LEFT_KNEE_y": ky_l,
+        "RIGHT_HIP_x": rx, "RIGHT_HIP_y": ry,
+        "RIGHT_KNEE_x": kx_r, "RIGHT_KNEE_y": ky_r,
+    })
+
+    out = correct_bilateral(df, use_full_clip_reference=True)
+
+    dx = out["RIGHT_KNEE_x"] - out["RIGHT_HIP_x"]
+    dy = out["RIGHT_KNEE_y"] - out["RIGHT_HIP_y"]
+    out_lengths = np.sqrt(dx ** 2 + dy ** 2)
+
+    # The corrected right segment must still vary in length (single
+    # constant scale factor preserves the natural variation).
+    assert out_lengths.std() > 0.01, (
+        "constant scale factor should preserve right-side length variation"
+    )
+    # Rescaled right median should match left reference (0.15).
+    assert abs(float(out_lengths.median()) - 0.15) < 0.01
+
+
+def test_align_skeleton_sets_coord_space_and_skips_aspect_ratio():
+    """Regression — bug 1: when normalize runs align_skeleton, the
+    resulting coordinates are no longer in [0, 1] but in torso-centered
+    percent units. compute_angles must detect this and skip the
+    aspect-ratio correction to avoid a double-transform.
+    """
+    from myogait import normalize, compute_angles
+    data = _make_walking_data(n_frames=40)
+    normalize(data, filters=["butterworth"], align=True)
+    assert data["normalization"]["coord_space"] == "torso_centered_pct"
+
+    # compute_angles with apply_aspect_ratio=True should not crash and
+    # should detect coord_space != 'normalized', skipping aspect scaling.
+    compute_angles(data, correction_factor=1.0, calibrate=False,
+                   apply_aspect_ratio=True)
+    assert "angles" in data
+    assert len(data["angles"]["frames"]) == 40
+
+
 # ── Normalize steps ─────────────────────────────────────────────────
 
 def test_normalize_with_steps():

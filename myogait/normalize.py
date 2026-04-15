@@ -608,13 +608,65 @@ def align_skeleton(
 def correct_bilateral(
     df: pd.DataFrame,
     num_ref_frames: int = 10,
+    use_full_clip_reference: bool = True,
     **kwargs,
 ) -> pd.DataFrame:
     """Correct right-side segment lengths to match left-side reference.
 
-    Args:
-        df: DataFrame with pose coordinate columns.
-        num_ref_frames: Number of frames to compute reference lengths.
+    Assumes a symmetric anatomy: the subject's left and right limbs
+    should have the same physical length, and any difference in the
+    observed length is a pose-estimator error that can be corrected by
+    rescaling the right side.
+
+    .. warning::
+       The symmetric-anatomy assumption is **wrong** for patients with
+       unilateral atrophy, amputation or asymmetric pathology. On such
+       subjects this function silently erases real clinical asymmetry.
+       It is disabled by default in the standard pipeline (``normalize``
+       does not apply it unless ``correct_limbs=True`` is passed).
+
+    Fix history (2026-04-15)
+    ------------------------
+    The original implementation had two bugs:
+
+    1. **Non-robust reference** — it used only the first
+       ``num_ref_frames`` frames of the LEFT limb to compute the
+       reference length. On a recording with a standstill prelude in
+       an asymmetric pose, those 10 frames gave a biased reference
+       and contaminated the entire right-side trajectory.
+
+    2. **Per-frame rescaling** — it recomputed a *new* scale factor
+       at every frame (``scale[t] = ref / right_length[t]``) and
+       rescaled the right landmarks frame by frame. This forces
+       ``right_length[t] = ref`` at every frame, which **completely
+       destroys the natural foreshortening variation** of the right
+       side during gait (segment lengths should contract and expand
+       as the leg swings out of and into the sagittal plane).
+
+    The fix uses a **single, constant scale factor** derived from
+    robust median-length estimates of both sides:
+
+    .. math::  \\mathrm{scale} = \\frac{\\mathrm{median}(L_\\text{left})}
+                                      {\\mathrm{median}(L_\\text{right})}
+
+    This preserves the right side's temporal variation while bringing
+    its mean length into agreement with the left. When
+    ``use_full_clip_reference`` is ``True`` (default), the medians are
+    computed over all valid frames of the clip. Set
+    ``use_full_clip_reference=False`` to fall back to the legacy
+    first-``num_ref_frames`` behaviour.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Per-frame pose coordinate columns.
+    num_ref_frames : int, optional
+        Legacy parameter — only used when
+        ``use_full_clip_reference=False`` (default 10).
+    use_full_clip_reference : bool, optional
+        When ``True`` (default), compute the reference length from the
+        median over all valid frames instead of the first
+        ``num_ref_frames``. Robust to standstill preludes.
     """
     df = df.copy()
     segments = [
@@ -625,25 +677,37 @@ def correct_bilateral(
         ("LEFT_ANKLE", "LEFT_HEEL", "RIGHT_ANKLE", "RIGHT_HEEL"),
     ]
 
+    def _seg_length(p1: str, p2: str) -> pd.Series:
+        dx = df[f"{p2}_x"] - df[f"{p1}_x"]
+        dy = df[f"{p2}_y"] - df[f"{p1}_y"]
+        return np.sqrt(dx ** 2 + dy ** 2)
+
     for p1_l, p2_l, p1_r, p2_r in segments:
-        cols_l = [f"{p1_l}_x", f"{p1_l}_y", f"{p2_l}_x", f"{p2_l}_y"]
-        cols_r = [f"{p1_r}_x", f"{p1_r}_y", f"{p2_r}_x", f"{p2_r}_y"]
-        if not all(c in df.columns for c in cols_l + cols_r):
+        cols = [f"{p1_l}_x", f"{p1_l}_y", f"{p2_l}_x", f"{p2_l}_y",
+                f"{p1_r}_x", f"{p1_r}_y", f"{p2_r}_x", f"{p2_r}_y"]
+        if not all(c in df.columns for c in cols):
             continue
 
-        dx_l = df[f"{p2_l}_x"] - df[f"{p1_l}_x"]
-        dy_l = df[f"{p2_l}_y"] - df[f"{p1_l}_y"]
-        lengths_l = np.sqrt(dx_l ** 2 + dy_l ** 2)
-        ref_length = np.median(lengths_l.iloc[:num_ref_frames])
+        lengths_l = _seg_length(p1_l, p2_l)
+        lengths_r = _seg_length(p1_r, p2_r)
 
-        if ref_length <= 0 or not np.isfinite(ref_length):
+        if use_full_clip_reference:
+            left_ref = float(np.nanmedian(lengths_l))
+            right_ref = float(np.nanmedian(lengths_r))
+        else:
+            left_ref = float(np.nanmedian(lengths_l.iloc[:num_ref_frames]))
+            right_ref = float(np.nanmedian(lengths_r.iloc[:num_ref_frames]))
+
+        if (not np.isfinite(left_ref) or not np.isfinite(right_ref)
+                or left_ref <= 0 or right_ref <= 0):
             continue
+
+        # ONE constant scale factor — preserves foreshortening variation
+        # on the right side.
+        scale = left_ref / right_ref
 
         dx_r = df[f"{p2_r}_x"] - df[f"{p1_r}_x"]
         dy_r = df[f"{p2_r}_y"] - df[f"{p1_r}_y"]
-        lengths_r = np.sqrt(dx_r ** 2 + dy_r ** 2)
-        scale = ref_length / lengths_r.replace(0, np.nan)
-
         df[f"{p2_r}_x"] = df[f"{p1_r}_x"] + dx_r * scale
         df[f"{p2_r}_y"] = df[f"{p1_r}_y"] + dy_r * scale
 
@@ -1779,6 +1843,17 @@ def normalize(
     # Write back
     data["frames"] = dataframe_to_frames(df, data["frames_raw"])
 
+    # Track the resulting coordinate space so downstream consumers
+    # (notably compute_angles' aspect-ratio correction) know not to
+    # re-scale already-transformed coordinates.
+    #
+    # - "normalized"         : MediaPipe-style [0, 1] — the default
+    # - "torso_centered_pct" : align_skeleton output (centered on the
+    #                          torso midpoint, scaled by body height *100)
+    coord_space = "normalized"
+    if "align_skeleton" in applied:
+        coord_space = "torso_centered_pct"
+
     # Record normalization parameters
     data["normalization"] = {
         "steps": [dict(s) for s in step_list] if step_list else [],
@@ -1786,6 +1861,7 @@ def normalize(
         "fps_used": fps,
         "gap_max_frames": gap_max_frames,
         "gaps": gap_info,
+        "coord_space": coord_space,
     }
 
     return data
