@@ -549,6 +549,21 @@ GOLIATH_SEG_CLASSES = [
 # Body-part indices (skin/body, excluding background and clothing)
 GOLIATH_SEG_BODY_INDICES = [2, 4, 5, 6, 7, 10, 11, 13, 14, 15, 16, 19, 20, 21]
 
+# ── Sapiens 2 body-part segmentation classes (29) ──────────────────
+# Source: facebookresearch/sapiens2 — adds Eyeglass at index 2
+SAPIENS2_SEG_CLASSES = [
+    "Background", "Apparel", "Eyeglass", "Face_Neck", "Hair",
+    "Left_Foot", "Left_Hand", "Left_Lower_Arm", "Left_Lower_Leg",
+    "Left_Shoe", "Left_Sock", "Left_Upper_Arm", "Left_Upper_Leg",
+    "Lower_Clothing", "Right_Foot", "Right_Hand", "Right_Lower_Arm",
+    "Right_Lower_Leg", "Right_Shoe", "Right_Sock", "Right_Upper_Arm",
+    "Right_Upper_Leg", "Torso", "Upper_Clothing",
+    "Lower_Lip", "Upper_Lip", "Lower_Teeth", "Upper_Teeth", "Tongue",
+]
+
+# Body-part indices for Sapiens 2 (shifted by Eyeglass at index 2)
+SAPIENS2_SEG_BODY_INDICES = [3, 5, 6, 7, 8, 11, 12, 14, 15, 16, 17, 20, 21, 22]
+
 # ── COCO-WholeBody 133 keypoints (RTMW) ──────────────────────────────
 # Source: mmpose configs/_base_/datasets/coco_wholebody.py
 WHOLEBODY_LANDMARK_NAMES = (

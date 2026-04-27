@@ -43,10 +43,23 @@ _MODEL_TO_SAPIENS_SIZE = {
     "sapiens-top": "1b",
 }
 
+# Sapiens 2 model size mapping
+_MODEL_TO_SAPIENS2_SIZE = {
+    "sapiens2-quick": "0.4b",
+    "sapiens2-mid": "0.8b",
+    "sapiens2-top": "1b",
+    "sapiens2-ultra": "5b",
+}
+
 
 def _sapiens_size_from_model(model: str) -> str:
     """Infer Sapiens model size from pose model name."""
     return _MODEL_TO_SAPIENS_SIZE.get(model, "0.3b")
+
+
+def _sapiens2_size_from_model(model: str) -> str:
+    """Infer Sapiens 2 model size from pose model name."""
+    return _MODEL_TO_SAPIENS2_SIZE.get(model, "0.4b")
 
 
 def _coco_to_mediapipe(landmarks_17: np.ndarray) -> np.ndarray:
@@ -475,30 +488,46 @@ def extract(
     seg_estimator = None
 
     if with_depth:
-        if model not in _MODEL_TO_SAPIENS_SIZE:
+        _is_s2 = model in _MODEL_TO_SAPIENS2_SIZE
+        _is_s1 = model in _MODEL_TO_SAPIENS_SIZE
+        if not _is_s1 and not _is_s2:
             logger.warning(
                 "with_depth=True but pose model '%s' is not a Sapiens model; "
                 "Sapiens depth will be loaded separately (extra GPU memory).",
                 model,
             )
-        from .models.sapiens_depth import SapiensDepthEstimator
-        _ds = depth_model_size or _sapiens_size_from_model(model)
-        depth_estimator = SapiensDepthEstimator(model_size=_ds)
+        if _is_s2:
+            from .models.sapiens2_depth import Sapiens2DepthEstimator
+            _ds = depth_model_size or _sapiens2_size_from_model(model)
+            depth_estimator = Sapiens2DepthEstimator(model_size=_ds)
+        else:
+            from .models.sapiens_depth import SapiensDepthEstimator
+            _ds = depth_model_size or _sapiens_size_from_model(model)
+            depth_estimator = SapiensDepthEstimator(model_size=_ds)
         depth_estimator.setup()
-        logger.info(f"Depth estimation enabled (sapiens-depth-{_ds})")
+        _label = "sapiens2" if _is_s2 else "sapiens"
+        logger.info(f"Depth estimation enabled ({_label}-depth-{_ds})")
 
     if with_seg:
-        if model not in _MODEL_TO_SAPIENS_SIZE:
+        _is_s2 = model in _MODEL_TO_SAPIENS2_SIZE
+        _is_s1 = model in _MODEL_TO_SAPIENS_SIZE
+        if not _is_s1 and not _is_s2:
             logger.warning(
                 "with_seg=True but pose model '%s' is not a Sapiens model; "
                 "Sapiens segmentation will be loaded separately (extra GPU memory).",
                 model,
             )
-        from .models.sapiens_seg import SapiensSegEstimator
-        _ss = seg_model_size or _sapiens_size_from_model(model)
-        seg_estimator = SapiensSegEstimator(model_size=_ss)
+        if _is_s2:
+            from .models.sapiens2_seg import Sapiens2SegEstimator
+            _ss = seg_model_size or _sapiens2_size_from_model(model)
+            seg_estimator = Sapiens2SegEstimator(model_size=_ss)
+        else:
+            from .models.sapiens_seg import SapiensSegEstimator
+            _ss = seg_model_size or _sapiens_size_from_model(model)
+            seg_estimator = SapiensSegEstimator(model_size=_ss)
         seg_estimator.setup()
-        logger.info(f"Segmentation enabled (sapiens-seg-{_ss})")
+        _label = "sapiens2" if _is_s2 else "sapiens"
+        logger.info(f"Segmentation enabled ({_label}-seg-{_ss})")
 
     logger.info(
         f"Extracting ~{estimated_total} frames with {model} "
