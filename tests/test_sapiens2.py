@@ -165,8 +165,8 @@ class TestSapiens2LoadModel:
 
     def test_torchscript_path_uses_jit_load(self, monkeypatch, tmp_path):
         """A .pt2 path should trigger torch.jit.load()."""
+        torch = pytest.importorskip("torch")
         from myogait.models import sapiens2 as mod
-        import torch
 
         called = {}
         fake_model = types.SimpleNamespace(eval=lambda: None)
@@ -182,6 +182,7 @@ class TestSapiens2LoadModel:
 
     def test_safetensors_without_package_raises(self, monkeypatch, tmp_path):
         """SafeTensors path without sapiens2 package should give clear error."""
+        pytest.importorskip("torch")
         from myogait.models import sapiens2 as mod
 
         # Mock safetensors as available
@@ -241,6 +242,7 @@ class TestSapiens2IntelXPU:
 
     def test_extractor_setup_calls_ensure_xpu(self, monkeypatch):
         """Extractor.setup() must call ensure_xpu_torch() for Intel compat."""
+        pytest.importorskip("torch")
         from myogait.models.sapiens2 import Sapiens2QuickExtractor
         called = {"xpu": False, "ipex": False}
 
