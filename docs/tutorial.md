@@ -52,8 +52,11 @@ pip install myogait[mediapipe]
 # YOLO — fast, GPU supported, 17 COCO keypoints
 pip install myogait[yolo]
 
-# Sapiens — Meta AI, depth + segmentation
+# Sapiens v1 — Meta AI, depth + segmentation
 pip install myogait[sapiens]
+
+# Sapiens 2 — ICLR 2026, +4 mAP, 4K support, requires torch>=2.7
+pip install myogait[sapiens2]
 
 # ViTPose — state-of-the-art accuracy
 pip install myogait[vitpose]
@@ -213,8 +216,11 @@ data = extract("video.mp4", model="mediapipe")
 # YOLO — fast and robust
 data = extract("video.mp4", model="yolo")
 
-# Sapiens — most accurate + monocular depth
+# Sapiens v1 — accurate + monocular depth
 data = extract("video.mp4", model="sapiens-top", with_depth=True, with_seg=True)
+
+# Sapiens 2 — best accuracy (+4 mAP), same Goliath 308 keypoints
+data = extract("video.mp4", model="sapiens2-top", with_depth=True, with_seg=True)
 
 # ViTPose — excellent accuracy/speed trade-off
 data = extract("video.mp4", model="vitpose-large")
@@ -255,6 +261,27 @@ print(f"Quality score: {quality['score']}/100")
 print(f"Detection rate: {quality['detection_rate']:.1%}")
 print(f"Mean jitter: {quality['jitter']:.4f}")
 ```
+
+### Frame Coherence Scoring
+
+Per-frame biomechanical coherence using z-score based metrics.
+Adapts automatically to any FPS and data characteristics.
+
+```python
+from myogait import frame_coherence_score
+
+data = frame_coherence_score(data)
+
+# Per-frame scores [0, 1] in data["frames"][i]["coherence"]
+# Summary statistics in data["coherence_summary"]
+print(f"Mean coherence: {data['coherence_summary']['mean']:.3f}")
+print(f"Low-quality frames: {data['coherence_summary']['low_coherence_frames']}")
+```
+
+Three sub-metrics (weighted composite):
+- **segment_stability** (40%) — z-score of frame-to-frame segment length jumps
+- **velocity** (35%) — z-score of frame displacement outliers
+- **angular_continuity** (25%) — z-score of knee angle jumps
 
 ### Gap Filling
 
@@ -1024,8 +1051,11 @@ fig.savefig("longitudinal.png", dpi=150)
 # MediaPipe (default)
 myogait run walk.mp4
 
-# Sapiens with depth
+# Sapiens v1 with depth
 myogait run walk.mp4 -m sapiens-top --with-depth
+
+# Sapiens 2 with depth (ICLR 2026, better accuracy)
+myogait run walk.mp4 -m sapiens2-top --with-depth
 
 # ViTPose
 myogait run walk.mp4 -m vitpose-large
@@ -1035,6 +1065,7 @@ myogait run walk.mp4 -m vitpose-large
 
 ```bash
 myogait extract walk.mp4 -m sapiens-quick --with-depth --with-seg
+myogait extract walk.mp4 -m sapiens2-top --with-depth --with-seg
 ```
 
 ### Analyze an Existing JSON
@@ -1055,6 +1086,7 @@ myogait batch *.mp4 -o results/ -m mediapipe
 myogait download --list
 myogait download sapiens-0.3b
 myogait download sapiens-depth-1b
+myogait download sapiens2-1b             # Sapiens 2 pose 1B
 ```
 
 ---

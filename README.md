@@ -15,9 +15,10 @@ Markerless video-based gait analysis toolkit.
 
 ## Features
 
-- **Multi-model pose extraction** — MediaPipe, YOLO, Sapiens (3 sizes), ViTPose, RTMW, HRNet, RTMPose, OpenPose, AlphaPose, Detectron2
-- **Sapiens depth estimation** — monocular relative depth per landmark
-- **Sapiens body segmentation** — 28-class body-part labels per landmark
+- **Multi-model pose extraction** — MediaPipe, YOLO, Sapiens (3 sizes), Sapiens 2 (4 sizes), ViTPose, RTMW, HRNet, RTMPose, OpenPose, AlphaPose, Detectron2
+- **Sapiens / Sapiens 2 depth estimation** — monocular relative depth per landmark
+- **Sapiens / Sapiens 2 body segmentation** — 28/29-class body-part labels per landmark
+- **Frame coherence scoring** — per-frame biomechanical quality metric (z-score based)
 - Butterworth, Savitzky-Golay, and Kalman filtering
 - Joint angle computation (sagittal vertical axis, sagittal classic)
 - 4 event detection methods (Zeni, crossing, velocity, O'Connor)
@@ -45,7 +46,8 @@ Install with a specific pose estimation backend:
 ```bash
 pip install myogait[mediapipe]   # MediaPipe (lightweight, CPU)
 pip install myogait[yolo]        # YOLO via Ultralytics
-pip install myogait[sapiens]     # Sapiens (Meta AI) + Intel Arc GPU support
+pip install myogait[sapiens]     # Sapiens v1 (Meta AI) + Intel Arc GPU support
+pip install myogait[sapiens2]    # Sapiens 2 (Meta AI, ICLR 2026) — requires torch>=2.7
 pip install myogait[vitpose]     # ViTPose via HuggingFace Transformers
 pip install myogait[rtmw]        # RTMW 133-keypoint whole-body
 pip install myogait[mmpose]      # HRNet / RTMPose via MMPose
@@ -62,6 +64,7 @@ pip install myogait[all]         # All backends
 | YOLOv8-Pose | `pip install myogait[yolo]` | Fast, robust. 17 COCO keypoints |
 | ViTPose | `pip install myogait[vitpose]` | State-of-the-art accuracy |
 | Sapiens | `pip install myogait[sapiens]` | Meta model, depth estimation |
+| Sapiens 2 | `pip install myogait[sapiens2]` | Meta ICLR 2026, +4 mAP, 4K support |
 | RTMPose/RTMLib | `pip install myogait[rtmw]` | Real-time, ONNX optimized |
 | MMPose | `pip install myogait[mmpose]` | Academic reference, many models |
 | OpenPose | Built-in (OpenCV DNN) | Historical baseline, bottom-up. 17 COCO keypoints |
@@ -78,6 +81,7 @@ All models support **NVIDIA CUDA** GPUs.  Sapiens and ViTPose also support
 | MediaPipe | — | — | yes |
 | YOLO | yes | — | yes |
 | Sapiens (pose, depth, seg) | yes | yes | yes |
+| Sapiens 2 (pose, depth, seg) | yes | yes | yes |
 | ViTPose | yes | yes | yes |
 | RTMW | yes (onnxruntime) | — | yes |
 | HRNet / RTMPose | yes | — | yes |
@@ -94,6 +98,10 @@ All models support **NVIDIA CUDA** GPUs.  Sapiens and ViTPose also support
 | `sapiens-quick` | 17 COCO + 308 Goliath | COCO | Meta Sapiens 0.3B (336M params) | `pip install myogait[sapiens]` |
 | `sapiens-mid` | 17 COCO + 308 Goliath | COCO | Meta Sapiens 0.6B (664M params) | `pip install myogait[sapiens]` |
 | `sapiens-top` | 17 COCO + 308 Goliath | COCO | Meta Sapiens 1B (1.1B params) | `pip install myogait[sapiens]` |
+| `sapiens2-quick` | 17 COCO + 308 Goliath | COCO | Meta Sapiens 2 0.4B (ICLR 2026) | `pip install myogait[sapiens2]` |
+| `sapiens2-mid` | 17 COCO + 308 Goliath | COCO | Meta Sapiens 2 0.8B | `pip install myogait[sapiens2]` |
+| `sapiens2-top` | 17 COCO + 308 Goliath | COCO | Meta Sapiens 2 1B | `pip install myogait[sapiens2]` |
+| `sapiens2-ultra` | 17 COCO + 308 Goliath | COCO | Meta Sapiens 2 5B | `pip install myogait[sapiens2]` |
 | `vitpose` | 17 | COCO | ViTPose-base (HuggingFace) | `pip install myogait[vitpose]` |
 | `vitpose-large` | 17 | COCO | ViTPose+-large (HuggingFace) | `pip install myogait[vitpose]` |
 | `vitpose-huge` | 17 | COCO | ViTPose+-huge (HuggingFace) | `pip install myogait[vitpose]` |
@@ -133,15 +141,36 @@ Per-landmark body-part labels are stored in each frame as `landmark_body_parts`.
 | 0.6b | 77.8 | `facebook/sapiens-seg-0.6b-torchscript` |
 | 1b | 79.9 | `facebook/sapiens-seg-1b-torchscript` |
 
+## Sapiens 2 (ICLR 2026)
+
+Sapiens 2 improves over v1 with +4 mAP (pose), +24.3 mIoU (seg), and 45.6%
+lower angular error (normals).  Same Goliath 308 keypoint layout as v1.
+Requires `torch>=2.7` and `safetensors`.
+
+| Size | HuggingFace pose repo | HuggingFace depth repo | HuggingFace seg repo |
+|------|----------------------|------------------------|---------------------|
+| 0.4b | `facebook/sapiens2-pose-0.4b` | `facebook/sapiens2-depth-0.4b` | `facebook/sapiens2-seg-0.4b` |
+| 0.8b | `facebook/sapiens2-pose-0.8b` | `facebook/sapiens2-depth-0.8b` | `facebook/sapiens2-seg-0.8b` |
+| 1b | `facebook/sapiens2-pose-1b` | `facebook/sapiens2-depth-1b` | `facebook/sapiens2-seg-1b` |
+| 5b | `facebook/sapiens2-pose-5b` | `facebook/sapiens2-depth-5b` | `facebook/sapiens2-seg-5b` |
+
+Sapiens 2 segmentation uses **29 classes** (adds `Eyeglass` at index 2).
+
+SafeTensors checkpoints require the `sapiens2` package for model architecture.
+TorchScript (`.pt2`) checkpoints load without extra dependencies.
+
 ### Usage
 
 ```bash
-# Pose + depth + segmentation in one pass
+# Sapiens v1 — pose + depth + segmentation
 myogait extract video.mp4 -m sapiens-quick --with-depth --with-seg
 
-# Or via Python
+# Sapiens 2 — same API, better accuracy
+myogait extract video.mp4 -m sapiens2-top --with-depth --with-seg
+
+# Python
 from myogait import extract
-data = extract("video.mp4", model="sapiens-top", with_depth=True, with_seg=True)
+data = extract("video.mp4", model="sapiens2-top", with_depth=True, with_seg=True)
 ```
 
 ### Experimental AIM Benchmark Input Degradation
@@ -239,9 +268,8 @@ This runner is experimental and intended only for AIM benchmark workflows.
 
 ### References
 
-- **Paper:** Rawal et al., *Sapiens: Foundation for Human Vision Models*, ECCV 2024 — [arXiv:2408.12569](https://arxiv.org/abs/2408.12569)
-- **Code:** [github.com/facebookresearch/sapiens](https://github.com/facebookresearch/sapiens)
-- **Models:** [HuggingFace collection](https://huggingface.co/collections/facebook/sapiens-66d22047daa6402d565cb2fc)
+- **Sapiens v1:** Rawal et al., *Sapiens: Foundation for Human Vision Models*, ECCV 2024 — [arXiv:2408.12569](https://arxiv.org/abs/2408.12569) — [Code](https://github.com/facebookresearch/sapiens) — [Models](https://huggingface.co/collections/facebook/sapiens-66d22047daa6402d565cb2fc)
+- **Sapiens 2:** Rawal et al., *Sapiens 2: A Human Foundation Model*, ICLR 2026 — [arXiv:2604.21681](https://arxiv.org/abs/2604.21681) — [Code](https://github.com/facebookresearch/sapiens2) — [Models](https://huggingface.co/facebook/sapiens2)
 
 ## ViTPose
 
@@ -388,6 +416,7 @@ the analysis pipeline.
 
 ```python
 from myogait import confidence_filter, detect_outliers, data_quality_score
+from myogait import frame_coherence_score
 
 # Filter low-confidence landmarks
 data = confidence_filter(data, threshold=0.3)
@@ -398,6 +427,11 @@ data = detect_outliers(data, z_thresh=3.0)
 # Quality report
 quality = data_quality_score(data)
 print(f"Quality score: {quality['score']}/100")
+
+# Per-frame coherence scoring (z-score based, adapts to any FPS)
+data = frame_coherence_score(data)
+print(f"Mean coherence: {data['coherence_summary']['mean']:.3f}")
+print(f"Low frames: {data['coherence_summary']['low_coherence_frames']}")
 ```
 
 ### Normative Comparison
@@ -528,6 +562,8 @@ Run the full pipeline on a video:
 myogait run video.mp4                                    # MediaPipe (default)
 myogait run video.mp4 -m sapiens-quick                   # Sapiens 0.3B
 myogait run video.mp4 -m sapiens-top --with-depth        # Sapiens 1B + depth
+myogait run video.mp4 -m sapiens2-top --with-depth       # Sapiens 2 1B + depth
+myogait run video.mp4 -m sapiens2-ultra                  # Sapiens 2 5B
 myogait run video.mp4 -m vitpose                         # ViTPose
 myogait run video.mp4 -m rtmw                            # RTMW 133 keypoints
 ```
@@ -566,9 +602,10 @@ Download models:
 
 ```bash
 myogait download --list                 # list all available models
-myogait download sapiens-0.3b           # Sapiens pose 0.3B
-myogait download sapiens-depth-1b       # Sapiens depth 1B
-myogait download sapiens-seg-0.6b       # Sapiens seg 0.6B
+myogait download sapiens-0.3b           # Sapiens v1 pose 0.3B
+myogait download sapiens-depth-1b       # Sapiens v1 depth 1B
+myogait download sapiens2-1b            # Sapiens 2 pose 1B
+myogait download sapiens2-ultra         # Sapiens 2 pose 5B
 ```
 
 Inspect a result file:
@@ -603,6 +640,7 @@ All functions operate on a single `data` dict that flows through the pipeline.
 | `confidence_filter(data)` | Remove low-confidence landmarks |
 | `detect_outliers(data)` | Detect and interpolate spikes |
 | `data_quality_score(data)` | Composite quality score 0-100 |
+| `frame_coherence_score(data)` | Per-frame biomechanical coherence [0,1] (z-score based) |
 | `fill_gaps(data)` | Interpolate missing landmark gaps |
 | **Analysis** | |
 | `walking_speed(data, cycles)` | Estimated walking speed |
@@ -621,6 +659,7 @@ All functions operate on a single `data` dict that flows through the pipeline.
 | `export_csv(data, dir, cycles, stats)` | CSV files |
 | `export_mot(data, path)` | OpenSim .mot kinematics |
 | `export_trc(data, path)` | OpenSim .trc markers |
+| `load_c3d(path)` | Load VICON C3D file into myogait data dict |
 | `export_openpose_json(data, dir)` | OpenPose JSON for Pose2Sim |
 | `export_opensim_scale_setup(data, path)` | OpenSim Scale Tool XML |
 | `export_ik_setup(trc, path)` | OpenSim IK setup XML |
@@ -658,16 +697,16 @@ extract:
 
 ## JSON Output Format
 
-When using Sapiens with depth and segmentation:
+When using Sapiens (v1 or v2) with depth and segmentation:
 
 ```json
 {
   "extraction": {
-    "model": "sapiens-top",
-    "depth_model": "sapiens-depth-1b",
-    "seg_model": "sapiens-seg-1b",
+    "model": "sapiens2-top",
+    "depth_model": "sapiens2-depth-1b",
+    "seg_model": "sapiens2-seg-1b",
     "auxiliary_format": "goliath308",
-    "seg_classes": ["Background", "Apparel", "Face_Neck", "..."]
+    "seg_classes": ["Background", "Apparel", "Eyeglass", "Face_Neck", "..."]
   },
   "frames": [
     {
