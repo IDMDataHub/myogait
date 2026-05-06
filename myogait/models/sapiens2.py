@@ -108,6 +108,30 @@ _STRICT_MODEL_CHECKSUM = os.getenv(
 # Back-compat alias used in tests
 _MODEL_FILENAMES = {k: v[0] for k, v in _MODELS.items()}
 
+# Sapiens 2 ``init_model`` takes a *config* file as its first argument and the
+# checkpoint as the keyword argument ``checkpoint``.  The configs live inside
+# the installed ``sapiens`` package; these are the relpaths.
+_CONFIG_RELPATHS = {
+    "0.4b": "pose/configs/keypoints308/shutterstock_goliath_3po/sapiens2_0.4b_keypoints308_shutterstock_goliath_3po-1024x768.py",
+    "0.8b": "pose/configs/keypoints308/shutterstock_goliath_3po/sapiens2_0.8b_keypoints308_shutterstock_goliath_3po-1024x768.py",
+    "1b":   "pose/configs/keypoints308/shutterstock_goliath_3po/sapiens2_1b_keypoints308_shutterstock_goliath_3po-1024x768.py",
+    "5b":   "pose/configs/keypoints308/shutterstock_goliath_3po/sapiens2_5b_keypoints308_shutterstock_goliath_3po-1024x768.py",
+}
+
+
+def _config_path_for_safetensors(safetensors_path: str) -> str:
+    """Resolve the sapiens2 config that matches ``safetensors_path``."""
+    import sapiens
+    pkg_root = Path(sapiens.__file__).parent
+    name = Path(safetensors_path).name
+    for size, (filename, _repo) in _MODELS.items():
+        if filename == name:
+            return str(pkg_root / _CONFIG_RELPATHS[size])
+    raise FileNotFoundError(
+        f"Cannot map SafeTensors file '{name}' to a Sapiens 2 config. "
+        f"Expected one of: {sorted(v[0] for v in _MODELS.values())}"
+    )
+
 
 # ── Shared utilities (reused from sapiens v1) ───────────────────────
 # Import common helpers rather than duplicating them.
@@ -197,10 +221,13 @@ def _find_model(model_size: str, model_path: Optional[str] = None) -> str:
     filename = _MODELS[model_size][0]
     expected_sha256 = _MODEL_SHA256[model_size]
 
-    # Search local paths (also look for TorchScript variants)
+    # Search local paths. Prefer TorchScript (.pt2) over SafeTensors:
+    # .pt2 is self-contained and does not require the sapiens2 package
+    # at runtime, so once an export has been done the SafeTensors copy
+    # becomes redundant.
     ts_filename = filename.replace(".safetensors", ".pt2")
     for d in _DEFAULT_MODEL_PATHS:
-        for fn in (filename, ts_filename):
+        for fn in (ts_filename, filename):
             p = d / fn
             if p.exists():
                 if fn == filename:
@@ -234,13 +261,51 @@ def _find_model(model_size: str, model_path: Optional[str] = None) -> str:
         )
 
 
+_AUTO_CACHE_PT2 = os.getenv(
+    "MYOGAIT_SAPIENS2_AUTO_CACHE", "1"
+).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _auto_cache_torchscript(model, safetensors_path: str, device_str: str) -> None:
+    """Trace ``model`` and cache it next to ``safetensors_path`` as ``.pt2``.
+
+    On the next ``mg.extract`` call myogait picks the ``.pt2`` directly,
+    which means the ``sapiens`` Meta package is no longer required at
+    runtime — the colleague-friendly path. The trace is device-specific
+    (constants get baked at trace time), so we keep ``.pt2`` per-machine.
+    """
+    if not _AUTO_CACHE_PT2:
+        return
+    import torch  # noqa: WPS433
+    ts_path = safetensors_path.replace(".safetensors", ".pt2")
+    if os.path.exists(ts_path):
+        return
+    try:
+        dummy = torch.randn(1, 3, _INPUT_H, _INPUT_W, device=device_str)
+        with torch.no_grad():
+            traced = torch.jit.trace(model, dummy)
+        traced.save(ts_path)
+        logger.info(
+            "Cached TorchScript next to weights: %s "
+            "(future runs skip the sapiens2 package).",
+            ts_path,
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        logger.warning(
+            "Auto-cache of Sapiens 2 TorchScript failed: %s — "
+            "subsequent runs will keep using SafeTensors.",
+            exc,
+        )
+
+
 def _load_model(path: str, device):
     """Load a Sapiens 2 model from either TorchScript or SafeTensors.
 
-    TorchScript (.pt2) files are loaded directly with ``torch.jit.load()``.
-    SafeTensors files require the ``sapiens`` package from the
-    ``facebookresearch/sapiens2`` repository to reconstruct the model
-    architecture before loading weights.
+    TorchScript (.pt2) files are loaded directly with ``torch.jit.load()``
+    and need no extra dependency. SafeTensors files use Meta's ``sapiens``
+    package to rebuild the architecture, then we auto-cache the result as
+    ``.pt2`` so the next ``mg.extract`` call goes through the fast path
+    even if the colleague never installed ``sapiens`` from GitHub.
     """
     import torch
 
@@ -264,25 +329,35 @@ def _load_model(path: str, device):
             from sapiens.pose.models import init_model as _sapiens_init_model
         except ImportError:
             raise ImportError(
-                "Sapiens 2 SafeTensors checkpoints require the sapiens2 package "
-                "to reconstruct the model architecture.\n"
-                "Install from source:\n"
-                "  git clone https://github.com/facebookresearch/sapiens2\n"
-                "  cd sapiens2 && pip install -e .\n\n"
-                "Alternatively, convert checkpoints to TorchScript (.pt2) and "
-                "place them in ~/.myogait/models/\n"
-                "See: https://github.com/facebookresearch/sapiens2#export"
+                "Sapiens 2 needs Meta's `sapiens` package to load .safetensors "
+                "weights (it is not on PyPI, so myogait cannot pull it in via "
+                "extras). Two options:\n\n"
+                "  1) Run the helper command:\n"
+                "       myogait setup-sapiens2\n"
+                "     (downloads the weights, traces a .pt2, caches it)\n\n"
+                "  2) Install the package by hand:\n"
+                "       pip install git+https://github.com/facebookresearch/sapiens2.git\n\n"
+                "Once a .pt2 exists in ~/.myogait/models/ the `sapiens` package "
+                "is no longer needed at runtime."
             )
-        # The sapiens2 init_model handles config + weight loading
-        # We pass device as string since init_model expects that
+        # ``init_model`` builds the architecture from a config file and
+        # loads the checkpoint separately, so resolve the config that
+        # matches the SafeTensors filename.
         device_str = str(device)
         # Use XPU-safe device: avoid torch.compile on Intel GPUs
         if "xpu" in device_str:
             os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
+        config_path = _config_path_for_safetensors(path)
         logger.info(
-            "Loading Sapiens 2 from SafeTensors via sapiens2 package: %s", path
+            "Loading Sapiens 2 from SafeTensors via sapiens2 package: "
+            "config=%s checkpoint=%s",
+            config_path, path,
         )
-        model = _sapiens_init_model(path, device=device_str)
+        model = _sapiens_init_model(
+            config_path, checkpoint=path, device=device_str
+        )
+        # Cache TorchScript so the next call skips the Meta package entirely.
+        _auto_cache_torchscript(model, path, device_str)
         return model
 
     # Unknown format — try TorchScript as fallback

@@ -101,6 +101,9 @@ def render_skeleton_frame(
     events: Optional[dict] = None,
     skeleton_color: str = "auto",
     goliath308: Optional[list] = None,
+    line_thickness: int = 2,
+    dot_radius: int = 4,
+    darken: float = 1.0,
 ) -> np.ndarray:
     """Draw landmarks and skeleton connections on an image.
 
@@ -125,6 +128,15 @@ def render_skeleton_frame(
         List of 308 ``[x, y, confidence]`` triplets (Goliath keypoints).
         When provided, renders using all 308 keypoints and
         ``GOLIATH_SKELETON_CONNECTIONS`` instead of the MediaPipe skeleton.
+    line_thickness : int
+        Skeleton line thickness in pixels (default 2). Increase for higher-
+        resolution videos so the skeleton stays visible.
+    dot_radius : int
+        Joint dot radius in pixels (default 4).
+    darken : float
+        Multiply the source frame brightness by this factor before drawing
+        the skeleton on top. ``1.0`` is no darkening (default), ``0.5`` is
+        half brightness, useful to make the skeleton stand out.
 
     Returns
     -------
@@ -132,11 +144,14 @@ def render_skeleton_frame(
         Copy of *frame_image* with skeleton drawn on it.
     """
     frame = frame_image.copy()
+    if darken != 1.0:
+        frame = np.clip(frame.astype(np.float32) * darken, 0, 255).astype(np.uint8)
     h, w = frame.shape[:2]
 
     if goliath308 is not None:
         return _render_goliath_on_frame(
             frame, goliath308, h, w, skeleton_color, angles, events,
+            line_thickness=line_thickness, dot_radius=dot_radius,
         )
 
     # Convert normalised coords to pixel coords
@@ -161,7 +176,8 @@ def render_skeleton_frame(
                 color = _connection_color(name_a, name_b)
             else:
                 color = _COLOR_CENTER
-            cv2.line(frame, pts[name_a], pts[name_b], color, 2, cv2.LINE_AA)
+            cv2.line(frame, pts[name_a], pts[name_b], color,
+                     line_thickness, cv2.LINE_AA)
 
     # Draw landmarks (circles)
     for name, pt in pts.items():
@@ -169,8 +185,7 @@ def render_skeleton_frame(
             color = _side_color(name)
         else:
             color = _COLOR_CENTER
-        radius = 4
-        cv2.circle(frame, pt, radius, color, -1, cv2.LINE_AA)
+        cv2.circle(frame, pt, dot_radius, color, -1, cv2.LINE_AA)
 
     # Annotate angles next to joints
     if angles:
@@ -214,6 +229,8 @@ def _render_goliath_on_frame(
     skeleton_color: str,
     angles: Optional[dict],
     events: Optional[dict],
+    line_thickness: int = 2,
+    dot_radius: int = 3,
 ) -> np.ndarray:
     """Draw Goliath 308 keypoints and connections on a frame."""
     n_pts = len(goliath308)
@@ -237,15 +254,17 @@ def _render_goliath_on_frame(
                 color = _goliath_conn_color(idx_a, idx_b)
             else:
                 color = _COLOR_CENTER
-            cv2.line(frame, px_pts[idx_a], px_pts[idx_b], color, 2, cv2.LINE_AA)
+            cv2.line(frame, px_pts[idx_a], px_pts[idx_b], color,
+                     line_thickness, cv2.LINE_AA)
 
     # Draw landmarks — body/hands/feet (0-69) larger, face (70+) smaller
+    face_radius = max(1, dot_radius // 2)
     for idx, pt in px_pts.items():
         if skeleton_color == "auto":
             color = _goliath_side_color(idx)
         else:
             color = _COLOR_CENTER
-        radius = 3 if idx < GOLIATH_FACE_START else 1
+        radius = dot_radius if idx < GOLIATH_FACE_START else face_radius
         cv2.circle(frame, pt, radius, color, -1, cv2.LINE_AA)
 
     # Angles (reuse COCO-style joint map via Goliath indices)
@@ -291,6 +310,9 @@ def render_skeleton_video(
     codec: str = "mp4v",
     use_goliath: bool = False,
     min_confidence: float = 0.0,
+    line_thickness: int = 2,
+    dot_radius: int = 4,
+    darken: float = 1.0,
 ) -> str:
     """Overlay skeleton on every frame of a source video.
 
@@ -321,6 +343,15 @@ def render_skeleton_video(
     min_confidence : float
         Skip overlay on frames whose ``confidence`` is below this
         threshold (the raw video frame is still written).
+    line_thickness : int
+        Skeleton line thickness in pixels (default 2). Bump this on high-
+        resolution videos so the skeleton stays visible after downscaling.
+    dot_radius : int
+        Joint dot radius in pixels (default 4).
+    darken : float
+        Multiply source frame brightness by this factor before drawing the
+        skeleton on top (default 1.0 = no darkening). Try 0.5 to make the
+        skeleton stand out on bright backgrounds.
 
     Returns
     -------
@@ -367,8 +398,27 @@ def render_skeleton_video(
         )
 
     frames_data = data.get("frames", [])
+    # Map source frame index -> frame_data so an auto-cropped extraction
+    # (where ``frames_data[0]`` corresponds to source frame N, not 0) lines
+    # up correctly. Falls back to positional indexing if frame_idx is
+    # missing on every entry.
+    frames_by_source_idx: Dict[int, dict] = {}
+    use_frame_idx_lookup = any("frame_idx" in fd for fd in frames_data)
+    if use_frame_idx_lookup:
+        for fd in frames_data:
+            fidx = fd.get("frame_idx")
+            if fidx is not None:
+                frames_by_source_idx[fidx] = fd
+
     angles_data = data.get("angles", {})
     angle_frames = angles_data.get("frames", []) if angles_data else []
+    # Same alignment trick for angles, when present.
+    angles_by_source_idx: Dict[int, dict] = {}
+    if angle_frames and use_frame_idx_lookup:
+        for af, fd in zip(angle_frames, frames_data):
+            fidx = fd.get("frame_idx")
+            if fidx is not None:
+                angles_by_source_idx[fidx] = af
 
     # If landmarks were flipped during extraction (flip_if_right), un-flip
     # x coordinates so the skeleton aligns with the original video.
@@ -394,9 +444,13 @@ def render_skeleton_video(
         if not ret:
             break
 
-        if frame_idx < len(frames_data):
-            fd = frames_data[frame_idx]
+        # Look up the frame data corresponding to this source frame.
+        if use_frame_idx_lookup:
+            fd = frames_by_source_idx.get(frame_idx)
+        else:
+            fd = frames_data[frame_idx] if frame_idx < len(frames_data) else None
 
+        if fd is not None:
             # Skip low-confidence frames (write raw frame without overlay)
             if fd.get("confidence", 0.0) < min_confidence:
                 writer.write(frame)
@@ -415,8 +469,11 @@ def render_skeleton_video(
 
             # Angles for this frame
             frame_angles = None
-            if show_angles and frame_idx < len(angle_frames):
-                frame_angles = angle_frames[frame_idx]
+            if show_angles:
+                if use_frame_idx_lookup:
+                    frame_angles = angles_by_source_idx.get(frame_idx)
+                elif frame_idx < len(angle_frames):
+                    frame_angles = angle_frames[frame_idx]
 
             # Events for this frame
             frame_events = event_lookup.get(frame_idx) if show_events else None
@@ -438,7 +495,16 @@ def render_skeleton_video(
                 events=frame_events,
                 skeleton_color=skeleton_color,
                 goliath308=goliath_data,
+                line_thickness=line_thickness,
+                dot_radius=dot_radius,
+                darken=darken,
             )
+        elif darken != 1.0:
+            # No skeleton on this frame, but still apply the darken so the
+            # whole video has a uniform tone.
+            frame = np.clip(
+                frame.astype(np.float32) * darken, 0, 255
+            ).astype(np.uint8)
 
         writer.write(frame)
         frame_idx += 1

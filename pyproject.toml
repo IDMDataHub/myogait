@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "myogait"
-version = "0.5.32"
+version = "0.6.0"
 description = "Markerless video-based gait analysis toolkit"
 readme = "README.md"
 license = "MIT"
@@ -41,6 +41,10 @@ dependencies = [
 mediapipe = ["mediapipe>=0.10"]
 yolo = ["ultralytics>=8.0"]
 sapiens = ["torch", "huggingface-hub"]
+# Light extras compatible with PyPI (no direct git URLs allowed there).
+# Loading SafeTensors weights additionally needs the Meta ``sapiens`` package,
+# which lives on GitHub only — install it with the second command in the
+# Sapiens 2 section of the README, or run ``myogait setup-sapiens2``.
 sapiens2 = ["torch>=2.7", "safetensors>=0.4", "huggingface-hub"]
 vitpose = ["transformers>=4.45", "torch", "accelerate"]
 intel = ["intel-extension-for-pytorch"]

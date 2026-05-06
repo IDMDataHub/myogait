@@ -203,7 +203,7 @@ class TestSapiens2LoadModel:
 
         monkeypatch.setattr(builtins, "__import__", _block_sapiens)
 
-        with pytest.raises(ImportError, match="sapiens2 package"):
+        with pytest.raises(ImportError, match="sapiens"):
             mod._load_model(str(tmp_path / "model.safetensors"), "cpu")
 
 

@@ -47,7 +47,7 @@ Install with a specific pose estimation backend:
 pip install myogait[mediapipe]   # MediaPipe (lightweight, CPU)
 pip install myogait[yolo]        # YOLO via Ultralytics
 pip install myogait[sapiens]     # Sapiens v1 (Meta AI) + Intel Arc GPU support
-pip install myogait[sapiens2]    # Sapiens 2 (Meta AI, ICLR 2026) — requires torch>=2.7
+pip install myogait[sapiens2]    # Sapiens 2 (Meta AI, ICLR 2026) — see "Sapiens 2" section below for one-shot setup
 pip install myogait[vitpose]     # ViTPose via HuggingFace Transformers
 pip install myogait[rtmw]        # RTMW 133-keypoint whole-body
 pip install myogait[mmpose]      # HRNet / RTMPose via MMPose
@@ -156,8 +156,32 @@ Requires `torch>=2.7` and `safetensors`.
 
 Sapiens 2 segmentation uses **29 classes** (adds `Eyeglass` at index 2).
 
-SafeTensors checkpoints require the `sapiens2` package for model architecture.
-TorchScript (`.pt2`) checkpoints load without extra dependencies.
+### Plug-and-play setup
+
+Meta ships Sapiens 2 weights as `.safetensors` and the Python package that
+rebuilds the model architecture lives only on GitHub (not PyPI).
+`myogait` ships a one-shot helper that handles the bridge:
+
+```bash
+# 1) myogait + Sapiens 2 runtime deps
+pip install myogait[sapiens2]
+
+# 2) one-shot setup: installs Meta `sapiens` from GitHub, downloads the
+#    weights, traces a TorchScript .pt2 cached in ~/.myogait/models/.
+#    From now on inference no longer needs the Meta package.
+myogait setup-sapiens2 --size 0.4b --cleanup-safetensors
+```
+
+Once that command finishes, `mg.extract(..., model="sapiens2-quick")`
+loads the cached `.pt2` directly — no Meta package required, no internet
+on subsequent runs.  Repeat for `--size 0.8b`, `1b`, `5b` if you want
+the larger variants.  The `.pt2` is **device-specific** (constants get
+baked at trace time), so the helper traces on the device myogait will
+use at inference (CUDA > XPU > CPU, in that order).
+
+If you prefer to keep the Meta `sapiens` package around (e.g. for
+research code that imports it directly), drop the `--uninstall-sapiens`
+flag — it stays installed but is not on the inference path anymore.
 
 ### Usage
 
@@ -172,6 +196,26 @@ myogait extract video.mp4 -m sapiens2-top --with-depth --with-seg
 from myogait import extract
 data = extract("video.mp4", model="sapiens2-top", with_depth=True, with_seg=True)
 ```
+
+### End-to-end demo (extract + overlay + side-by-side + angle plots)
+
+```bash
+python examples/sapiens2_compare_pipeline.py path/to/video.mp4 --out-dir out
+```
+
+Produces in `out/`:
+
+  * `<stem>_<model>.json` — pivot data per model (mediapipe, sapiens-quick,
+    sapiens2-quick), reused on subsequent runs
+  * `<stem>_<model>.mp4` — skeleton overlay per model
+  * `compare_3way_slow.mp4` — three panels side-by-side at half-speed with
+    legends and a darkened background so the skeleton stands out
+  * `compare_angles.png` — per-cycle hip / knee / ankle curves on left and
+    right side, every cycle thin + each model's mean thick
+
+The skeleton-on-video alignment honours `data["frames"][i]["frame_idx"]`,
+so the auto-cropped intro of long recordings is rendered correctly across
+all models.
 
 ### Experimental AIM Benchmark Input Degradation
 

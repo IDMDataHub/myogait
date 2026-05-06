@@ -12,6 +12,7 @@ Provides subcommands for video-based gait analysis:
 
 import argparse
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -381,6 +382,85 @@ def cmd_download(args):
     print(f"Model downloaded to: {path}")
 
 
+def cmd_setup_sapiens2(args):
+    """Make ``mg.extract(..., model="sapiens2-*")`` plug-and-play.
+
+    Sapiens 2 weights ship as ``.safetensors`` and require Meta's
+    ``sapiens`` package to rebuild the architecture. That package is on
+    GitHub only (not PyPI), so myogait cannot pull it in via extras.
+    This command bridges the gap:
+
+    1. ``pip install`` the Meta package from GitHub (if missing)
+    2. download the requested weights from HuggingFace
+    3. trace the model on the user's device and cache the resulting
+       ``.pt2``, so subsequent runs no longer need ``sapiens`` at all
+    """
+    import importlib
+    import importlib.util
+    import subprocess
+
+    size = args.size
+    repo_url = "git+https://github.com/facebookresearch/sapiens2.git"
+
+    # 1) Make sure the Meta `sapiens` package is importable.
+    if importlib.util.find_spec("sapiens") is None:
+        if args.no_install:
+            print(
+                "The `sapiens` package is missing. Re-run without "
+                "`--no-install`, or install it manually:\n"
+                f"  pip install {repo_url}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"Installing Meta sapiens from GitHub: {repo_url}")
+        cmd = [sys.executable, "-m", "pip", "install", repo_url]
+        subprocess.check_call(cmd)
+        importlib.invalidate_caches()
+
+    # 2) Download weights + trace + cache .pt2.
+    from .models.sapiens2 import (
+        _MODELS, _find_model, _load_model, _get_device,
+    )
+    if size not in _MODELS:
+        print(
+            f"Unknown size '{size}'. Available: {', '.join(_MODELS)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"Resolving Sapiens 2 {size} weights...")
+    weights_path = _find_model(size)  # downloads safetensors if missing
+    print(f"  weights : {weights_path}")
+
+    device = _get_device()
+    print(f"  device  : {device}")
+    print("Loading model + auto-caching TorchScript (this can take 1-3 min)...")
+    model = _load_model(weights_path, device)
+    del model
+
+    # 3) Optional cleanup: drop the .safetensors now that the .pt2 is cached.
+    pt2_path = weights_path.replace(".safetensors", ".pt2")
+    if args.cleanup_safetensors and weights_path.endswith(".safetensors") and \
+            os.path.exists(pt2_path):
+        try:
+            os.remove(weights_path)
+            print(f"Removed redundant SafeTensors: {weights_path}")
+        except OSError as exc:
+            print(f"Could not remove SafeTensors: {exc}", file=sys.stderr)
+
+    # 4) Optionally drop the heavy `sapiens` package now that the .pt2 is
+    # cached — myogait will load the .pt2 directly from now on.
+    if args.uninstall_sapiens:
+        print("Removing Meta sapiens package (no longer needed at runtime)...")
+        subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "sapiens"])
+
+    alias_for_size = {"0.4b": "quick", "0.8b": "mid", "1b": "top", "5b": "ultra"}
+    alias = alias_for_size.get(size, "quick")
+    print("\nDone. From now on:")
+    print("  >>> import myogait as mg")
+    print(f"  >>> mg.extract('video.mp4', model='sapiens2-{alias}')")
+
+
 def cmd_info(args):
     """Display info about a myogait JSON file."""
     from . import load_json
@@ -508,6 +588,33 @@ def main():
     p_info = sub.add_parser("info", help="Show info about a myogait JSON file")
     p_info.add_argument("json_file", help="Path to myogait JSON file")
     p_info.set_defaults(func=cmd_info)
+
+    # setup-sapiens2
+    p_setup = sub.add_parser(
+        "setup-sapiens2",
+        help=("One-shot setup for Sapiens 2: install Meta `sapiens` from "
+              "GitHub, download weights, trace and cache .pt2."),
+    )
+    p_setup.add_argument(
+        "--size", default="0.4b",
+        choices=("0.4b", "0.8b", "1b", "5b"),
+        help="Model size to set up (default: 0.4b — smallest, fastest).",
+    )
+    p_setup.add_argument(
+        "--no-install", action="store_true",
+        help="Do not pip-install the Meta sapiens package; fail if missing.",
+    )
+    p_setup.add_argument(
+        "--cleanup-safetensors", action="store_true",
+        help="Remove the .safetensors file after the .pt2 has been cached "
+             "(saves 1.6-20 GB).",
+    )
+    p_setup.add_argument(
+        "--uninstall-sapiens", action="store_true",
+        help="Pip-uninstall the Meta sapiens package after caching — useful "
+             "for thin runtimes (the .pt2 alone is enough).",
+    )
+    p_setup.set_defaults(func=cmd_setup_sapiens2)
 
     args = parser.parse_args()
     _setup_logging(args.verbose)
