@@ -39,6 +39,21 @@ _SYNC_CANDIDATE_JOINTS = ("knee_L", "knee_R", "hip_L", "hip_R")
 # cross-correlation lag estimate (10 samples at 30 fps ~= 0.33 s of motion).
 _MIN_SYNC_SAMPLES = 10
 
+
+class SyncError(ValueError):
+    """Video<->VICON temporal synchronization failed.
+
+    Carries a structured diagnostic (per-candidate sample counts) so
+    callers such as the benchmark orchestrator can report WHY the sync
+    failed instead of a bare message.  Inherits ValueError for
+    backward compatibility with existing ``except ValueError`` handlers.
+    """
+
+    def __init__(self, message: str, candidates: dict, required: int):
+        super().__init__(message)
+        self.candidates = dict(candidates)
+        self.required = int(required)
+
 _LANDMARK_TO_VICON_MARKERS = {
     "LEFT_HIP": ("LHJC",),
     "RIGHT_HIP": ("RHJC",),
@@ -234,7 +249,20 @@ def estimate_vicon_offset_seconds(
     vc_angles = vicon_data.get("angles", {})
     signal_name, mg_sig, vc_sig = _best_sync_signal(mg_angles, vc_angles)
     if len(mg_sig) < _MIN_SYNC_SAMPLES or len(vc_sig) < _MIN_SYNC_SAMPLES:
-        raise ValueError("Not enough angle samples for synchronization")
+        counts = {}
+        for name in _SYNC_CANDIDATE_JOINTS:
+            a = _interp_nan(mg_angles.get(name, np.array([])))
+            b = _interp_nan(vc_angles.get(name, np.array([])))
+            counts[name] = int(min(len(a), len(b)))
+        detail = ", ".join(f"{name}={counts[name]}" for name in _SYNC_CANDIDATE_JOINTS)
+        raise SyncError(
+            "Not enough angle samples for synchronization "
+            f"({detail}; need >= {_MIN_SYNC_SAMPLES} on the best candidate). "
+            "Try a longer recording or check that compute_angles() ran on "
+            "the video side.",
+            candidates=counts,
+            required=_MIN_SYNC_SAMPLES,
+        )
 
     # Resample both to common frequency for stable lag estimate.
     common_fps = min(fps_mg, fps_vc)
