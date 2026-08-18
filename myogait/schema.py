@@ -9,12 +9,15 @@ create_empty
     Create an empty pivot JSON structure.
 save_json
     Save pivot JSON to file with numpy type conversion.
+dumps_json_safe
+    Serialize any JSON-safe structure (numpy/Path/Enum aware) to a string.
 load_json
     Load and validate a pivot JSON file.
 set_subject
     Set subject metadata in the pivot JSON.
 """
 
+import enum
 import json
 import numpy as np
 from pathlib import Path
@@ -36,6 +39,52 @@ def _convert_numpy(obj: Any) -> Any:
     if isinstance(obj, np.bool_):
         return bool(obj)
     return obj
+
+
+def _convert_json(obj: Any) -> Any:
+    """Recursively convert *obj* to JSON-serializable Python types.
+
+    Handles pathlib.Path (as str) and enum.Enum (as .value), then
+    delegates to :func:`_convert_numpy` for numpy scalars/arrays and
+    nested dict/list/tuple containers.
+    """
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, enum.Enum):
+        return obj.value
+    if isinstance(obj, dict):
+        return {k: _convert_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_convert_json(v) for v in obj]
+    return _convert_numpy(obj)
+
+
+def dumps_json_safe(data: Any, indent: int = 2) -> str:
+    """Serialize *data* to a JSON string, tolerating numpy/Path/Enum values.
+
+    This is the single JSON serialization entry point for the package:
+    all code paths that write JSON should go through this function (or
+    :func:`save_json`, which delegates to it) so numpy scalars/arrays,
+    ``pathlib.Path`` and ``enum.Enum`` values never crash serialization.
+
+    Parameters
+    ----------
+    data : Any
+        Data structure to serialize.
+    indent : int, optional
+        JSON indentation level (default 2).
+
+    Returns
+    -------
+    str
+        JSON-encoded text with ``ensure_ascii=False``.
+
+    Raises
+    ------
+    TypeError
+        If *data* contains objects that are not JSON serializable.
+    """
+    return json.dumps(_convert_json(data), indent=indent, ensure_ascii=False)
 
 
 def create_empty(
@@ -146,7 +195,7 @@ def save_json(data: dict, path: Union[str, Path], indent: int = 2) -> None:
     """Save pivot JSON to file.
 
     Automatically converts numpy types to Python builtins before
-    serialization.
+    serialization (via :func:`dumps_json_safe`).
 
     Parameters
     ----------
@@ -159,9 +208,8 @@ def save_json(data: dict, path: Union[str, Path], indent: int = 2) -> None:
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    converted = _convert_numpy(data)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(converted, f, indent=indent, ensure_ascii=False)
+        f.write(dumps_json_safe(data, indent=indent))
 
 
 def load_json(path: Union[str, Path]) -> dict:
