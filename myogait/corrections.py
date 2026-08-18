@@ -78,6 +78,7 @@ list.  Calling either function twice is a no-op: a marker is set in
 from __future__ import annotations
 
 import logging
+from typing import List, Optional
 
 import numpy as np
 
