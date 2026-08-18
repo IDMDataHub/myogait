@@ -28,6 +28,17 @@ _ANGLE_CANDIDATES = {
     "ankle_R": ("Rankle", "r_ankle"),
 }
 
+# Joints considered for video<->VICON temporal synchronization, in priority
+# order.  Knees first: they have the largest sagittal range of motion during
+# gait, which gives the strongest cross-correlation signal.  Hips are kept as
+# a fallback for recordings where knee tracking is partial or missing (common
+# in slow pathological gait, e.g. DMD/SMA).
+_SYNC_CANDIDATE_JOINTS = ("knee_L", "knee_R", "hip_L", "hip_R")
+
+# Minimum number of samples on the best candidate signal for a meaningful
+# cross-correlation lag estimate (10 samples at 30 fps ~= 0.33 s of motion).
+_MIN_SYNC_SAMPLES = 10
+
 _LANDMARK_TO_VICON_MARKERS = {
     "LEFT_HIP": ("LHJC",),
     "RIGHT_HIP": ("RHJC",),
@@ -189,11 +200,10 @@ def _myogait_angle_arrays(data: dict) -> Dict[str, np.ndarray]:
 
 
 def _best_sync_signal(mg_angles: Dict[str, np.ndarray], vc_angles: Dict[str, np.ndarray]) -> Tuple[str, np.ndarray, np.ndarray]:
-    candidates = ("knee_L", "knee_R")
     best_name = None
     best_len = -1
     best_pair = (np.array([]), np.array([]))
-    for name in candidates:
+    for name in _SYNC_CANDIDATE_JOINTS:
         a = _interp_nan(mg_angles.get(name, np.array([])))
         b = _interp_nan(vc_angles.get(name, np.array([])))
         valid = min(len(a), len(b))
@@ -223,7 +233,7 @@ def estimate_vicon_offset_seconds(
     mg_angles = _myogait_angle_arrays(myogait_data)
     vc_angles = vicon_data.get("angles", {})
     signal_name, mg_sig, vc_sig = _best_sync_signal(mg_angles, vc_angles)
-    if len(mg_sig) < 10 or len(vc_sig) < 10:
+    if len(mg_sig) < _MIN_SYNC_SAMPLES or len(vc_sig) < _MIN_SYNC_SAMPLES:
         raise ValueError("Not enough angle samples for synchronization")
 
     # Resample both to common frequency for stable lag estimate.

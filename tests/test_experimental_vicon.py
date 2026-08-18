@@ -103,3 +103,19 @@ def test_attach_experimental_block():
     assert "experimental" in out
     assert "vicon_benchmark" in out["experimental"]
     assert out["experimental"]["vicon_benchmark"]["status"] == "experimental"
+
+
+def test_sync_candidates_constant_includes_hips():
+    from myogait.experimental_vicon import _SYNC_CANDIDATE_JOINTS, _MIN_SYNC_SAMPLES
+    assert _SYNC_CANDIDATE_JOINTS[:2] == ("knee_L", "knee_R")  # knees first (best signal)
+    assert "hip_L" in _SYNC_CANDIDATE_JOINTS and "hip_R" in _SYNC_CANDIDATE_JOINTS
+    assert isinstance(_MIN_SYNC_SAMPLES, int) and _MIN_SYNC_SAMPLES >= 10
+
+
+def test_best_sync_falls_back_to_hip_when_knees_missing():
+    from myogait.experimental_vicon import _best_sync_signal
+    mg = {"hip_L": np.zeros(50)}
+    vc = {"hip_L": np.zeros(50), "knee_L": np.zeros(60)}
+    name, a, b = _best_sync_signal(mg, vc)
+    assert name == "hip_L"
+    assert len(a) == 50
