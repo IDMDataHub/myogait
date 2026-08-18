@@ -21,7 +21,7 @@ from .angles import compute_angles
 from .events import detect_events, list_event_methods
 from .schema import save_json
 from .models import list_models
-from .experimental_vicon import run_single_trial_vicon_benchmark
+from .experimental_vicon import SyncError, run_single_trial_vicon_benchmark
 
 
 DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG: Dict[str, Any] = {
@@ -221,8 +221,18 @@ def run_single_pair_benchmark(
             save_json(data, run_json)
             row = _flatten_row_metrics(row, data)
 
+        except SyncError as exc:
+            row["status"] = "error"
+            row["error_kind"] = "SyncError"
+            row["error"] = str(exc)
+            if not continue_on_error:
+                rows.append(row)
+                summary_path = out_dir / "benchmark_summary.csv"
+                pd.DataFrame(rows).to_csv(summary_path, index=False)
+                raise
         except Exception as exc:  # noqa: BLE001
             row["status"] = "error"
+            row["error_kind"] = type(exc).__name__
             row["error"] = str(exc)
             if not continue_on_error:
                 rows.append(row)
