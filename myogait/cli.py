@@ -143,6 +143,17 @@ def cmd_analyze(args):
         print("Error: JSON has no angles. Run the full pipeline first.")
         sys.exit(1)
 
+    # Opt-in sagittal drift correction (must stay off by default: the
+    # correction family is validated on healthy adults only — see the
+    # warnings at the top of myogait/corrections.py).
+    if getattr(args, "detrend", False):
+        from .corrections import apply_linear_detrend
+
+        data = apply_linear_detrend(data)
+        save_json(data, args.json_file)
+        print("Detrend: removed linear drift from joint angles "
+              "(see corrections module caveats).")
+
     # Detect events if not present
     if not data.get("events"):
         print("Detecting gait events (Zeni)...")
@@ -565,6 +576,13 @@ def main():
     p_analyze.add_argument("--mot", action="store_true", help="Export OpenSim .mot file")
     p_analyze.add_argument("--trc", action="store_true", help="Export OpenSim .trc file")
     p_analyze.add_argument("--excel", action="store_true", help="Export Excel workbook")
+    p_analyze.add_argument(
+        "--detrend",
+        action="store_true",
+        help="Remove slow sagittal drift from joint angles before analysis "
+             "(opt-in; validated on healthy-adult data only — see "
+             "myogait.corrections caveats)",
+    )
     p_analyze.set_defaults(func=cmd_analyze)
 
     # batch
