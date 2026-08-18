@@ -478,6 +478,27 @@ print(f"Mean coherence: {data['coherence_summary']['mean']:.3f}")
 print(f"Low frames: {data['coherence_summary']['low_coherence_frames']}")
 ```
 
+### Sagittal drift correction (opt-in)
+
+Long recordings with a fixed camera show a slow angular drift (projection
+artifact as the subject's distance to the camera changes): hip angles can
+slide by 10–30° from the first to the last cycle. `apply_linear_detrend()`
+(myogait.corrections) fits and removes that linear drift per joint while
+preserving the anatomical mean and per-cycle ROM.
+
+```python
+from myogait.corrections import apply_linear_detrend
+data = apply_linear_detrend(data)   # after compute_angles()
+```
+
+or via the CLI: `myogait analyze video.json --detrend`.
+
+**Caveat:** the correction family in this module was calibrated on healthy
+adults; on pathological gait a real kinematic drift can be part of the
+clinical picture. Keep the flag off by default and compare with/without
+before drawing clinical conclusions (see the warnings at the top of
+`myogait/corrections.py`).
+
 ### Normative Comparison
 
 Compare patient kinematics against published normative reference bands
