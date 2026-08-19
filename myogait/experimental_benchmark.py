@@ -7,7 +7,6 @@ compares each run against one VICON trial.
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from itertools import product
 from pathlib import Path
@@ -19,7 +18,7 @@ from .extract import extract
 from .normalize import normalize
 from .angles import compute_angles
 from .events import detect_events, list_event_methods
-from .schema import save_json
+from .schema import dumps_json_safe, save_json
 from .models import list_models
 from .experimental_vicon import run_single_trial_vicon_benchmark
 
@@ -249,6 +248,6 @@ def run_single_pair_benchmark(
         "config": cfg,
     }
     with open(out_dir / "benchmark_manifest.json", "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, ensure_ascii=False)
+        f.write(dumps_json_safe(manifest))
 
     return manifest
