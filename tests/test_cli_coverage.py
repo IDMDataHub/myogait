@@ -160,3 +160,144 @@ def test_cmd_batch_no_match_exits():
     args = argparse.Namespace(inputs=["/no/match/*.mp4"], output_dir="out", config=None, model="mediapipe", csv=False, pdf=False)
     with pytest.raises(SystemExit):
         cli.cmd_batch(args)
+
+
+# ── analyze --detrend (opt-in sagittal drift correction) ─────────────
+
+# Injected drift (deg/frame) for the CLI detrend tests: 0.2 deg/frame
+# over 40 frames is an 8 deg slide, within the 10-30 deg range quoted
+# in the apply_linear_detrend docstring for real recordings.
+_DETREND_DRIFT = 0.2
+_DETREND_BASE = 10.0
+_DETREND_N_FRAMES = 40  # >= 20 valid samples required by the OLS fit
+
+
+def _write_detrend_fixture(tmp_path):
+    """Write a pivot JSON with a linear ramp on hip_L and events present.
+
+    Events are pre-populated (shape copied from the benchmark fakes) so
+    cmd_analyze takes the "events already present" branch and does not
+    re-run detection.
+    """
+    from myogait.schema import create_empty, save_json
+
+    data = create_empty(video_path="x.mp4", fps=30.0, n_frames=_DETREND_N_FRAMES)
+    frames = []
+    for i in range(_DETREND_N_FRAMES):
+        frames.append({
+            "frame_idx": i,
+            "hip_L": float(_DETREND_BASE + _DETREND_DRIFT * i),
+        })
+    data["angles"] = {"frames": frames}
+    data["events"] = {
+        "method": "test",
+        "left_hs": [{"frame": 1}],
+        "right_hs": [{"frame": 2}],
+        "left_to": [{"frame": 1}],
+        "right_to": [{"frame": 2}],
+    }
+    path = tmp_path / "detrend.json"
+    save_json(data, str(path))
+    return str(path)
+
+
+def _analyze_args(json_file, detrend):
+    return argparse.Namespace(
+        json_file=json_file,
+        output_dir=".",
+        no_plots=True,
+        pdf=False,
+        csv=False,
+        mot=False,
+        trc=False,
+        excel=False,
+        detrend=detrend,
+    )
+
+
+def _stub_analyze_pipeline(monkeypatch):
+    """Stub the heavy steps cmd_analyze runs after detrending."""
+    monkeypatch.setattr("myogait.segment_cycles", lambda data: {"cycles": []})
+    monkeypatch.setattr(
+        "myogait.analyze_gait", lambda data, cycles: {"spatiotemporal": {}}
+    )
+
+
+def test_analyze_detrend_flag_registered(monkeypatch):
+    """The analyze subparser exposes --detrend, defaulting to False.
+
+    Detrending must stay opt-in (validations exist only for healthy
+    adults), so the flag must be absent-by-default and store_true.
+    """
+    from myogait import cli
+
+    captured = {}
+
+    def _fake(args):
+        captured["args"] = args
+
+    monkeypatch.setattr(cli, "cmd_analyze", _fake)
+
+    monkeypatch.setattr(
+        "sys.argv", ["myogait", "analyze", "x.json", "--detrend", "--no-plots"]
+    )
+    cli.main()
+    assert captured["args"].detrend is True
+
+    monkeypatch.setattr("sys.argv", ["myogait", "analyze", "x.json", "--no-plots"])
+    cli.main()
+    assert captured["args"].detrend is False
+
+
+def test_cmd_analyze_detrend_applies_and_persists(monkeypatch, tmp_path, capsys):
+    """--detrend removes the drift AND saves the corrected JSON back."""
+    import numpy as np
+
+    from myogait import cli
+    from myogait.schema import load_json
+
+    path = _write_detrend_fixture(tmp_path)
+    before = load_json(path)
+    before_vals = np.array(
+        [f["hip_L"] for f in before["angles"]["frames"]], dtype=float
+    )
+    before_mean = float(np.mean(before_vals))
+    idx = np.arange(len(before_vals))
+    before_slope = float(np.polyfit(idx, before_vals, 1)[0])
+    assert abs(before_slope - _DETREND_DRIFT) < 1e-9  # drift present
+
+    _stub_analyze_pipeline(monkeypatch)
+    cli.cmd_analyze(_analyze_args(path, detrend=True))
+
+    out = capsys.readouterr().out
+    assert "Detrend" in out
+
+    # Persisted to disk, not just in memory.
+    saved = load_json(path)
+    assert saved["angles"].get("linear_detrended") is True
+    saved_vals = np.array(
+        [f["hip_L"] for f in saved["angles"]["frames"]], dtype=float
+    )
+    assert abs(float(np.polyfit(idx, saved_vals, 1)[0])) < 1e-9  # drift gone
+    assert abs(float(np.mean(saved_vals)) - before_mean) < 1e-9  # mean kept
+
+
+def test_cmd_analyze_without_detrend_flag_leaves_angles_untouched(
+    monkeypatch, tmp_path
+):
+    """Without --detrend the angles on disk keep their drift."""
+    import numpy as np
+
+    from myogait import cli
+    from myogait.schema import load_json
+
+    path = _write_detrend_fixture(tmp_path)
+
+    _stub_analyze_pipeline(monkeypatch)
+    cli.cmd_analyze(_analyze_args(path, detrend=False))
+
+    saved = load_json(path)
+    assert "linear_detrended" not in saved["angles"]
+    vals = np.array([f["hip_L"] for f in saved["angles"]["frames"]], dtype=float)
+    idx = np.arange(len(vals))
+    assert abs(float(np.polyfit(idx, vals, 1)[0]) - _DETREND_DRIFT) < 1e-9

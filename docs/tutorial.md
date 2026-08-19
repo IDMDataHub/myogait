@@ -1074,6 +1074,10 @@ myogait extract walk.mp4 -m sapiens2-top --with-depth --with-seg
 myogait analyze result.json --csv --pdf --language fr
 ```
 
+If long recordings show a slow angular drift (hip angles sliding over the
+video), add the opt-in `--detrend` flag to remove it before analysis — see
+the "Sagittal drift correction" section of the README for the caveats.
+
 ### Batch Processing
 
 ```bash
