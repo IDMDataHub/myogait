@@ -40,6 +40,7 @@ from .normalize import (
 )
 from .angles import (
     compute_angles,
+    canonicalize_angle_signs,
     compute_extended_angles,
     compute_frontal_angles,
     foot_progression_angle,
@@ -177,6 +178,7 @@ __all__ = [
     "extract",
     "normalize",
     "compute_angles",
+    "canonicalize_angle_signs",
     "compute_extended_angles",
     "compute_frontal_angles",
     "foot_progression_angle",

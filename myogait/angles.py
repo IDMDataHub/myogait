@@ -1089,6 +1089,50 @@ def compute_angles(
     return data
 
 
+def canonicalize_angle_signs(data: dict) -> dict:
+    """Force a flexion-positive sagittal convention, direction-independent.
+
+    The sign of the 2-D hip and knee flexion angles produced by
+    :func:`compute_angles` depends on the detected walking direction:
+    a subject walking left-to-right and the same subject walking
+    right-to-left come out with opposite signs, and a Vicon C3D (whose
+    direction is inferred from marker geometry) can disagree in sign
+    with a video of the same gait.  This is harmless for a single
+    recording but breaks any comparison — video vs Vicon, left vs
+    right pass, or two sessions of one patient.
+
+    This helper re-anchors the convention on physiology: **knee
+    flexion is always positive and large in swing** (mean sagittal
+    knee angle over a walking trial is reliably positive, ~+15-25°).
+    For each side, if the mean knee angle is negative the whole
+    recording's hip and knee signs for that side are flipped so that
+    knee flexion becomes positive.  The ankle is left untouched — it
+    carries its own dual-method calibration and its sign is already
+    physiologically anchored.
+
+    Operates in place on ``data["angles"]["frames"]`` and returns
+    ``data``.  Safe to call more than once (idempotent once the sign
+    is already positive).  Recommended as the last step of the angle
+    pipeline for any comparison or longitudinal use.
+    """
+    af = data.get("angles", {}).get("frames")
+    if not af:
+        return data
+    for side in ("L", "R"):
+        knee_key = f"knee_{side}"
+        vals = [f[knee_key] for f in af
+                if f.get(knee_key) is not None
+                and not (isinstance(f[knee_key], float) and np.isnan(f[knee_key]))]
+        if not vals or np.mean(vals) >= 0:
+            continue
+        for key in (f"knee_{side}", f"hip_{side}"):
+            for f in af:
+                v = f.get(key)
+                if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                    f[key] = -v
+    return data
+
+
 # ── Ankle swap detection (dual-method) ───────────────────────────────
 #
 # Sapiens can swap LEFT_ANKLE / RIGHT_ANKLE labels between frames while
