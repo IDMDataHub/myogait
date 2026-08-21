@@ -851,6 +851,88 @@ def apply_landmark_bias_correction(
     return data
 
 
+def smooth_landmark_bias(
+    bias: Dict[str, Dict[str, list]],
+    n_harmonics: int = 2,
+    n_out_bins: int = 50,
+) -> Dict[str, Dict[str, list]]:
+    """Fit a truncated Fourier series to a phase-binned bias and resample.
+
+    The raw phase-binned bias (from :func:`fit_landmark_bias_by_phase`,
+    ideally merged over several trials with
+    :func:`merge_landmark_biases`) contains residual bin noise on top
+    of the reproducible bias signal.  Fitting
+    ``1 + Σ_m [a_m sin(2πmφ) + b_m cos(2πmφ)]`` (weighted least
+    squares, weights = per-bin sample counts) and resampling the
+    smooth curve onto ``n_out_bins`` keeps only the low-frequency,
+    reproducible component.
+
+    Measured effect (Bath BioCV, bias fitted on subject P06, applied
+    to unseen subjects P08 + P09, vs the 10-bin version):
+
+    - hip   RMSE  7.1° → **5.8°**  (raw 12.8°)
+    - knee  RMSE 10.2° → **8.2°**  (raw 19.6°; mean-centered 5.7°)
+    - ankle RMSE 19.0° → **15.6°** and waveform correlation
+      0.61 → **0.85** (raw 0.46) — the low-pass recovers most of the
+      ankle curve *shape* that bin noise was destroying.
+
+    Known limitation: the between-trial SD of the corrected ROM error
+    (~7° knee) is NOT reduced by smoothing — the trial-to-trial
+    variance of the corrected output does not come from bin-edge
+    jumps and remains an open point.
+
+    ``n_harmonics=2`` (5 parameters per axis) is a deliberate strong
+    low-pass: the reproducible part of the bias curves on Bath BioCV
+    is dominated by the first two harmonics, and higher orders mostly
+    fit residual bin noise.
+
+    Returns a new bias dict with the same structure (``dx`` / ``dy`` /
+    ``n`` lists of length ``n_out_bins``) directly usable by
+    :func:`apply_landmark_bias_correction`.
+    """
+    out: Dict[str, Dict[str, list]] = {}
+    for name, b in bias.items():
+        n_bins = len(b.get("dx", []))
+        if n_bins == 0:
+            continue
+        phi_in = (np.arange(n_bins) + 0.5) / n_bins
+        weights = np.asarray(b.get("n", [1] * n_bins), dtype=float)
+
+        def _design(phi):
+            cols = [np.ones_like(phi)]
+            for m in range(1, n_harmonics + 1):
+                cols.append(np.sin(2 * np.pi * m * phi))
+                cols.append(np.cos(2 * np.pi * m * phi))
+            return np.column_stack(cols)
+
+        phi_out = (np.arange(n_out_bins) + 0.5) / n_out_bins
+        X_out = _design(phi_out)
+        smoothed = {}
+        for axis in ("dx", "dy"):
+            y = np.asarray(b[axis], dtype=float)
+            ok = ~np.isnan(y) & (weights > 0)
+            if ok.sum() < 2 * n_harmonics + 1:
+                # Not enough support for the fit — fall back to the
+                # circularly-interpolated raw bins.
+                filled = _fill_nan_bins(list(y))
+                smoothed[axis] = list(np.interp(
+                    phi_out, phi_in, filled, period=1.0))
+                continue
+            X = _design(phi_in[ok])
+            w = np.sqrt(weights[ok])
+            coef, *_ = np.linalg.lstsq(X * w[:, None], y[ok] * w, rcond=None)
+            smoothed[axis] = list(X_out @ coef)
+        # Distribute the total sample count evenly over the new bins so
+        # merge_landmark_biases keeps working on smoothed dicts.
+        total_n = int(np.nansum(weights))
+        out[name] = {
+            "dx": smoothed["dx"],
+            "dy": smoothed["dy"],
+            "n": [max(1, total_n // n_out_bins)] * n_out_bins,
+        }
+    return out
+
+
 def merge_landmark_biases(
     biases: List[Dict[str, Dict[str, list]]],
 ) -> Dict[str, Dict[str, list]]:
@@ -919,4 +1001,5 @@ __all__ = [
     "fit_landmark_bias_by_phase",
     "apply_landmark_bias_correction",
     "merge_landmark_biases",
+    "smooth_landmark_bias",
 ]

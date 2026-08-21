@@ -367,6 +367,70 @@ from myogait import foot_progression_angle
 data = foot_progression_angle(data)
 ```
 
+### Landmark Bias Correction (Vicon-Calibrated, Experimental)
+
+Pose estimators place landmarks with a *systematic, gait-phase-dependent*
+offset relative to marker-based joint centres. On the Bath BioCV dataset
+(Sapiens 2 vs Vicon), this bias — expressed in the direction-of-progression
+frame — is reproducible across trials at r ≈ 0.99. Once measured on a
+reference session, it can be subtracted:
+
+```python
+import myogait as mg
+
+# ── One-time calibration against a Vicon reference session ──
+# (repeat over several trials and merge for robustness)
+fits = []
+for json_path, c3d_path, offset_s in reference_pairs:
+    src = mg.load_json(json_path)
+    src = mg.normalize(src, filters=["butterworth"])
+    src = mg.compute_angles(src)
+    src = mg.detect_events(src, method="zeni")
+    cyc = mg.segment_cycles(src)
+    vic = mg.load_c3d(c3d_path)          # convention autodetected
+    vic = mg.normalize(vic, filters=["butterworth"])
+    vic = mg.compute_angles(vic)
+    fits.append(mg.fit_landmark_bias_by_phase(
+        src, vic, cyc, offset_s=offset_s,
+        landmarks=("LEFT_KNEE", "RIGHT_KNEE", "LEFT_ANKLE", "RIGHT_ANKLE")))
+
+bias = mg.merge_landmark_biases(fits)             # weighted average
+bias = mg.smooth_landmark_bias(bias)              # Fourier low-pass (recommended)
+
+# ── Apply to any new recording (same model + camera view) ──
+data = mg.load_json("new_patient.myogait.json")
+data = mg.normalize(data, filters=["butterworth"])
+data = mg.compute_angles(data)
+data = mg.detect_events(data, method="zeni")
+cycles = mg.segment_cycles(data)
+data = mg.apply_landmark_bias_correction(data, bias, cycles)
+data = mg.compute_angles(data)   # re-run: correction invalidates angles
+# do NOT re-run normalize() after the correction — it would smooth it away
+```
+
+Measured on Bath BioCV (fit on one subject, applied to two unseen subjects,
+lateral view, Sapiens 2 quick):
+
+| Joint | RMSE raw | RMSE corrected | Waveform r |
+|-------|---------:|---------------:|-----------:|
+| Hip   | 12.8°    | **5.8°**       | 0.94       |
+| Knee  | 19.6°    | **8.2°**       | 0.90       |
+| Ankle | 22.6°    | 15.6°          | 0.85       |
+
+Within-subject calibration (fit and apply on the same person, different
+trials) is roughly twice as accurate again (hip 2.4–3.5°, knee 6.6–9.7°).
+
+**Caveats** (see the `apply_landmark_bias_correction` docstring):
+- Correct knee + ankle **together**; correcting a subset breaks the
+  hip–knee–ankle geometry.
+- Do **not** include heel / foot_index — their "bias" is an anatomical
+  definition mismatch (pose-estimator foot centre vs Vicon MTP marker),
+  and correcting it degrades the ankle angle severely.
+- The bias is specific to (pose model, camera view). Re-calibrate when
+  either changes.
+- Like the LASSO angle corrections, this encodes a healthy-reference
+  prior — prefer per-patient calibration for pathological gait.
+
 ---
 
 ## 6. Gait Event Detection
