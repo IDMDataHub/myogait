@@ -78,7 +78,7 @@ list.  Calling either function twice is a no-op: a marker is set in
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -550,12 +550,275 @@ def apply_knee_bias_correction(
     )
 
 
+_DEFAULT_CORRECTABLE_LANDMARKS = (
+    "LEFT_KNEE", "RIGHT_KNEE",
+    "LEFT_ANKLE", "RIGHT_ANKLE",
+    "LEFT_HEEL", "RIGHT_HEEL",
+    "LEFT_FOOT_INDEX", "RIGHT_FOOT_INDEX",
+)
+
+
+def _landmark_xy(landmarks: dict, name: str):
+    """Extract (x, y) as np.ndarray for a landmark, or None if unusable."""
+    lm = landmarks.get(name)
+    if lm is None: return None
+    if isinstance(lm, dict):
+        x, y = lm.get("x"), lm.get("y")
+    elif isinstance(lm, (list, tuple)) and len(lm) >= 2:
+        x, y = lm[0], lm[1]
+    else:
+        return None
+    if x is None or y is None: return None
+    try:
+        xf, yf = float(x), float(y)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(xf) or np.isnan(yf): return None
+    return np.array([xf, yf])
+
+
+def _pose_anchor(landmarks: dict):
+    """Return (mid_hip_xy, thigh_scale) for a landmark dict or None.
+
+    Anchoring on mid-hip and rescaling by the hip↔knee segment length
+    makes landmark comparisons camera-independent (kills translation
+    and depth-dependent scale).  Falls back to None when any of the
+    four required landmarks (LEFT/RIGHT × HIP/KNEE) is missing.
+    """
+    lh = _landmark_xy(landmarks, "LEFT_HIP")
+    rh = _landmark_xy(landmarks, "RIGHT_HIP")
+    lk = _landmark_xy(landmarks, "LEFT_KNEE")
+    rk = _landmark_xy(landmarks, "RIGHT_KNEE")
+    if any(v is None for v in (lh, rh, lk, rk)): return None
+    mid_hip = (lh + rh) / 2.0
+    mid_knee = (lk + rk) / 2.0
+    scale = float(np.linalg.norm(mid_knee - mid_hip))
+    if scale < 1e-6: return None
+    return mid_hip, scale
+
+
+def fit_landmark_bias_by_phase(
+    sapiens_data: dict,
+    vicon_data: dict,
+    cycles_sapiens: dict,
+    offset_s: float,
+    n_bins: int = 10,
+    landmarks: Optional[Tuple[str, ...]] = None,
+) -> Dict[str, Dict[str, list]]:
+    """Fit a per-phase 2D bias between Sapiens landmarks and a Vicon C3D.
+
+    Both dicts must already be aligned by ``offset_s`` such that
+    ``vicon_time = sapiens_time + offset_s``.  The video-side
+    ``cycles_sapiens`` (as returned by :func:`segment_cycles`) provides
+    the phase 0-1 assignment per frame per side.
+
+    Left-side landmarks are binned on the left cycle phase, right-side
+    on the right cycle phase — the two feet are 50 % out of phase, so
+    binning them on a single side would smear the swing/stance
+    contrast that motivates the correction.
+
+    Returns a dict::
+
+        {landmark_name: {"dx": [b_0, ..., b_{n-1}],
+                          "dy": [b_0, ..., b_{n-1}],
+                          "n":  [count_0, ..., count_{n-1}]}}
+
+    where (dx, dy) is expressed in *thigh-length units* in a mid-hip
+    anchored frame (so ``apply_landmark_bias_correction`` can rescale
+    it back to normalised image coordinates using the current frame's
+    thigh length).
+    """
+    if landmarks is None:
+        landmarks = _DEFAULT_CORRECTABLE_LANDMARKS
+
+    mg_fps = float(sapiens_data.get("meta", {}).get("fps", 30.0))
+    vc_fps = float(vicon_data.get("meta", {}).get("fps", 200.0))
+    if mg_fps <= 0 or vc_fps <= 0:
+        raise ValueError("Invalid fps on sapiens_data or vicon_data")
+
+    phase = _phase_per_frame(sapiens_data, cycles_sapiens)  # {"L","R"} in [0,1]
+
+    accum = {name: {"dx": [[] for _ in range(n_bins)],
+                     "dy": [[] for _ in range(n_bins)]}
+             for name in landmarks}
+
+    for i, frame in enumerate(sapiens_data.get("frames", [])):
+        t = frame.get("time_s")
+        if t is None:
+            t = frame.get("frame_idx", i) / mg_fps
+        vc_i = int(round((float(t) + float(offset_s)) * vc_fps))
+        if vc_i < 0 or vc_i >= len(vicon_data.get("frames", [])):
+            continue
+
+        mg_anchor = _pose_anchor(frame.get("landmarks", {}))
+        vc_anchor = _pose_anchor(vicon_data["frames"][vc_i].get("landmarks", {}))
+        if mg_anchor is None or vc_anchor is None:
+            continue
+        mg_mh, mg_s = mg_anchor
+        vc_mh, vc_s = vc_anchor
+
+        for name in landmarks:
+            mg_p = _landmark_xy(frame.get("landmarks", {}), name)
+            vc_p = _landmark_xy(vicon_data["frames"][vc_i].get("landmarks", {}), name)
+            if mg_p is None or vc_p is None:
+                continue
+            mg_rel = (mg_p - mg_mh) / mg_s
+            vc_rel = (vc_p - vc_mh) / vc_s
+            d = mg_rel - vc_rel  # bias to subtract from sapiens
+
+            side_key = "L" if name.startswith("LEFT_") else "R"
+            phi = phase[side_key][i] if i < len(phase[side_key]) else np.nan
+            if np.isnan(phi): continue
+            b = min(int(phi * n_bins), n_bins - 1)
+            accum[name]["dx"][b].append(float(d[0]))
+            accum[name]["dy"][b].append(float(d[1]))
+
+    out = {}
+    for name in landmarks:
+        dx_bins = [float(np.mean(v)) if v else np.nan
+                   for v in accum[name]["dx"]]
+        dy_bins = [float(np.mean(v)) if v else np.nan
+                   for v in accum[name]["dy"]]
+        n_bins_count = [len(v) for v in accum[name]["dx"]]
+        out[name] = {"dx": dx_bins, "dy": dy_bins, "n": n_bins_count}
+    return out
+
+
+def _fill_nan_bins(arr: list) -> np.ndarray:
+    """Fill NaN phase-bins by nearest-neighbour on the cycle circle."""
+    a = np.array(arr, dtype=float)
+    n = a.size
+    ok = ~np.isnan(a)
+    if ok.sum() == 0:
+        return np.zeros(n)
+    if ok.sum() == n:
+        return a
+    idx = np.arange(n)
+    # Circular interp: duplicate the good values three times and pick middle
+    idx_ext = np.concatenate([idx - n, idx[ok], idx + n * 2]) if False else None
+    # Simpler: linear interp on the good ones, treating cycle as circular
+    good_i = idx[ok]
+    good_v = a[ok]
+    # Add wrap-around anchors
+    good_i_wrap = np.concatenate([good_i - n, good_i, good_i + n])
+    good_v_wrap = np.concatenate([good_v, good_v, good_v])
+    a[~ok] = np.interp(idx[~ok], good_i_wrap, good_v_wrap)
+    return a
+
+
+def apply_landmark_bias_correction(
+    data: dict,
+    bias: Dict[str, Dict[str, list]],
+    cycles: dict,
+    *,
+    in_place: bool = False,
+) -> dict:
+    """Subtract a phase-binned landmark bias from a Sapiens myogait dict.
+
+    For each frame that belongs to a detected cycle, looks up the
+    left- or right-cycle phase, interpolates the bias linearly (with
+    circular wrap) between the two nearest phase bins, rescales by
+    the frame's current thigh length, and subtracts it from the
+    landmark xy in normalised image coordinates.
+
+    Frames outside any cycle, or where the mid-hip / thigh scale
+    cannot be computed, are left unchanged.  Landmarks not present
+    in ``bias`` are also untouched.  Compute-angles output already
+    stored in ``data['angles']`` becomes stale after this call —
+    re-run :func:`compute_angles` if you need updated joint angles.
+
+    .. warning::
+       Do **not** re-run :func:`normalize` after this correction — the
+       Butterworth filter would smooth away the phase-binned offsets
+       and cancel the fix.  Apply the correction *after* normalize,
+       then recompute angles directly.
+
+    .. warning::
+       Correcting a **subset** of landmarks (e.g. knee only, or heel
+       only) breaks the geometric coherence of the hip-knee-ankle
+       triangle: the pose estimator's per-landmark biases are not
+       independent errors — correcting one without the others pushes
+       the joint angle in an unpredictable direction.  In practice:
+
+       - ``(LEFT_KNEE, RIGHT_KNEE, LEFT_ANKLE, RIGHT_ANKLE)`` is the
+         recommended conservative set.  Empirically reduces knee RMSE
+         by ~4° and hip RMSE by ~7° on Bath BioCV vs a Vicon C3D
+         reference, at the cost of a temporary ~8° ankle degradation.
+       - Adding heel / foot_index makes the ankle angle worse because
+         the Sapiens "foot centre" landmark is not the anatomical
+         equivalent of the Vicon MTP marker — the measured bias
+         encodes marker-placement disagreement, not a fixable error.
+    """
+    if not in_place:
+        data = _shallow_copy_with_frames(data)
+
+    frames = data.get("frames", [])
+    phase = _phase_per_frame(data, cycles)
+    # Prefilled bins per landmark
+    bias_arr = {}
+    for name, b in bias.items():
+        dx = _fill_nan_bins(b.get("dx", []))
+        dy = _fill_nan_bins(b.get("dy", []))
+        bias_arr[name] = (dx, dy)
+    n_bins_for = {name: len(dx) for name, (dx, _) in bias_arr.items()}
+
+    def _interp_bias(name: str, phi: float) -> Tuple[float, float]:
+        dx, dy = bias_arr[name]
+        n = len(dx)
+        pos = phi * n  # [0, n)
+        i0 = int(np.floor(pos)) % n
+        i1 = (i0 + 1) % n
+        w = pos - np.floor(pos)
+        return (float((1 - w) * dx[i0] + w * dx[i1]),
+                float((1 - w) * dy[i0] + w * dy[i1]))
+
+    for i, frame in enumerate(frames):
+        anchor = _pose_anchor(frame.get("landmarks", {}))
+        if anchor is None: continue
+        _, thigh_scale = anchor
+        lm_dict = frame["landmarks"]
+        for name in list(lm_dict.keys()):
+            if name not in bias_arr: continue
+            side_key = "L" if name.startswith("LEFT_") else "R"
+            phi = phase[side_key][i] if i < len(phase[side_key]) else np.nan
+            if np.isnan(phi): continue
+            bx, by = _interp_bias(name, float(phi))
+            corr_x = bx * thigh_scale
+            corr_y = by * thigh_scale
+            lm = lm_dict[name]
+            if isinstance(lm, dict):
+                if lm.get("x") is not None: lm["x"] = float(lm["x"]) - corr_x
+                if lm.get("y") is not None: lm["y"] = float(lm["y"]) - corr_y
+            elif isinstance(lm, list) and len(lm) >= 2:
+                lm[0] = float(lm[0]) - corr_x
+                lm[1] = float(lm[1]) - corr_y
+    # Angles are now stale — drop them so callers must re-run compute_angles
+    data.pop("angles", None)
+    return data
+
+
+def _shallow_copy_with_frames(data: dict) -> dict:
+    """Shallow-copy the top-level dict but deep-copy every frame's landmark
+    dict so the caller's original stays intact.
+    """
+    import copy
+    out = dict(data)
+    out["frames"] = [
+        {**f, "landmarks": copy.deepcopy(f.get("landmarks", {}))}
+        for f in data.get("frames", [])
+    ]
+    return out
+
+
 __all__ = [
     "ANKLE_BIAS_V1",
     "HIP_BIAS_V1",
     "KNEE_BIAS_V1",
     "apply_perspective_correction",
+    "apply_linear_detrend",
     "apply_ankle_bias_correction",
     "apply_hip_bias_correction",
     "apply_knee_bias_correction",
+    "fit_landmark_bias_by_phase",
+    "apply_landmark_bias_correction",
 ]
