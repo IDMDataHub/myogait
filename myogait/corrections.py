@@ -646,8 +646,7 @@ def fit_landmark_bias_by_phase(
     return passes whose image-space dx biases have opposite signs and
     partially cancel — that smearing is what made naive per-trial
     fits fail to generalise.  Frames near the turnaround (ambiguous
-    direction) are skipped.  On Bath BioCV P06, the direction-aware
-    dx bias curves are reproducible across 10 trials at r ≈ 0.99.
+    direction) are skipped.
 
     Returns a dict::
 
@@ -782,18 +781,26 @@ def apply_landmark_bias_correction(
        the joint angle in an unpredictable direction.  In practice:
 
        - ``(LEFT_KNEE, RIGHT_KNEE, LEFT_ANKLE, RIGHT_ANKLE)`` is the
-         recommended set.  Held-out validation on Bath BioCV P06
-         (bias merged from 5 trials, applied to 5 unseen trials,
-         Sapiens 2 quick, lateral view): hip RMSE 9-10° → **2.4-3.5°**
-         (-6.7° mean, improved 10/10), knee RMSE 17-21° → **6.6-9.7°**
-         (-11.0° mean, improved 10/10), ankle unchanged (+1.0°).
-       - Adding heel / foot_index degrades the ankle angle severely
-         (+23° RMSE, worse 10/10) because the Sapiens "foot centre"
-         landmark is not the anatomical equivalent of the Vicon MTP
-         marker — the measured bias encodes marker-placement
-         disagreement, not a fixable error — and on the short foot
-         segment any residual position error explodes into angle
-         error.
+         recommended set if you use this at all.
+       - Never include heel / foot_index: the pose-estimator "foot
+         centre" landmark is not the anatomical equivalent of the
+         Vicon MTP marker, so its measured "bias" encodes marker-
+         placement disagreement, not a fixable error, and on the
+         short foot segment any residual position error explodes
+         into angle error.
+
+    .. note::
+       **When is this worth using?**  On Bath BioCV with Sapiens 2
+       (quick) and a correctly-loaded C3D reference (isotropic
+       normalisation — see :func:`load_c3d`), the *uncorrected*
+       myogait pipeline already matches the projected Vicon
+       kinematics at 3.7–6.1° RMSE (2.4–3.2° after mean-centering)
+       with waveform correlations of 0.92–0.99 — and this correction
+       does **not** improve on that: the residual landmark bias is
+       small and subject-specific, so a correction fitted on other
+       subjects adds more noise than it removes.  Reserve this tool
+       for weaker pose backbones or setups where a per-patient
+       reference session is available.
     """
     if not in_place:
         data = _shallow_copy_with_frames(data)
@@ -886,24 +893,11 @@ def smooth_landmark_bias(
     smooth curve onto ``n_out_bins`` keeps only the low-frequency,
     reproducible component.
 
-    Measured effect (Bath BioCV, bias fitted on subject P06, applied
-    to unseen subjects P08 + P09, vs the 10-bin version):
-
-    - hip   RMSE  7.1° → **5.8°**  (raw 12.8°)
-    - knee  RMSE 10.2° → **8.2°**  (raw 19.6°; mean-centered 5.7°)
-    - ankle RMSE 19.0° → **15.6°** and waveform correlation
-      0.61 → **0.85** (raw 0.46) — the low-pass recovers most of the
-      ankle curve *shape* that bin noise was destroying.
-
-    Known limitation: the between-trial SD of the corrected ROM error
-    (~7° knee) is NOT reduced by smoothing — the trial-to-trial
-    variance of the corrected output does not come from bin-edge
-    jumps and remains an open point.
-
     ``n_harmonics=2`` (5 parameters per axis) is a deliberate strong
-    low-pass: the reproducible part of the bias curves on Bath BioCV
-    is dominated by the first two harmonics, and higher orders mostly
-    fit residual bin noise.
+    low-pass: the reproducible part of the bias curves is dominated
+    by the first two harmonics, and higher orders mostly fit residual
+    bin noise.  See the note on :func:`apply_landmark_bias_correction`
+    for when this correction family is worth using at all.
 
     Returns a new bias dict with the same structure (``dx`` / ``dy`` /
     ``n`` lists of length ``n_out_bins``) directly usable by

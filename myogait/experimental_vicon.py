@@ -803,11 +803,19 @@ def load_c3d(
         )
 
     # ── Normalise to [0, 1] using global bounds ──
+    # CRITICAL: use ONE isotropic scale for both axes.  A walkway
+    # recording spans ~6 m antero-posteriorly but only ~2 m
+    # vertically; normalising each axis by its own range squashes the
+    # walking axis ~3:1 and every joint angle computed downstream is
+    # geometrically wrong (hip ROM collapses to a few degrees, ankle
+    # ROM explodes).  Dividing both axes by the same (largest) range
+    # preserves the physical aspect ratio.
     all_xy = np.vstack(list(raw.values()))  # (total_pts, 2)
     x_min, y_min = np.nanmin(all_xy, axis=0)
     x_max, y_max = np.nanmax(all_xy, axis=0)
     x_range = x_max - x_min if (x_max - x_min) > 0 else 1.0
     y_range = y_max - y_min if (y_max - y_min) > 0 else 1.0
+    scale = max(x_range, y_range)
 
     virtual_w = 1000
     virtual_h = 1000
@@ -818,9 +826,9 @@ def load_c3d(
         landmarks = {}
         conf_sum = 0.0
         for lm_name, xy in raw.items():
-            nx = float((xy[fi, 0] - x_min) / x_range)
+            nx = float((xy[fi, 0] - x_min) / scale)
             # Invert vertical so that up in world = small y in image space
-            ny = 1.0 - float((xy[fi, 1] - y_min) / y_range)
+            ny = 1.0 - float((xy[fi, 1] - y_min) / scale)
             vis = 0.0 if np.isnan(xy[fi, 0]) or np.isnan(xy[fi, 1]) else 1.0
             landmarks[lm_name] = {"x": nx, "y": ny, "visibility": vis}
             conf_sum += vis

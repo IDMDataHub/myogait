@@ -369,10 +369,20 @@ data = foot_progression_angle(data)
 
 ### Landmark Bias Correction (Vicon-Calibrated, Experimental)
 
-Pose estimators place landmarks with a *systematic, gait-phase-dependent*
-offset relative to marker-based joint centres. On the Bath BioCV dataset
-(Sapiens 2 vs Vicon), this bias — expressed in the direction-of-progression
-frame — is reproducible across trials at r ≈ 0.99. Once measured on a
+> **Do you need this?** Probably not with a strong pose backbone.
+> On the Bath BioCV dataset (lateral view, Sapiens 2 quick vs a
+> correctly-loaded Vicon C3D reference), the *uncorrected* myogait
+> pipeline already matches the projected Vicon kinematics at
+> 3.7–6.1° RMSE (2.4–3.2° after mean-centering) with waveform
+> correlations of 0.92–0.99 for hip, knee **and** ankle, and peak
+> timings within 1–4 % of the cycle. The residual landmark bias is
+> small and subject-specific, so a correction calibrated on other
+> people tends to add noise rather than remove it. Reserve this tool
+> for weaker backbones (e.g. MediaPipe on difficult footage) or for
+> setups where a per-patient reference session is available.
+
+Pose estimators place landmarks with a gait-phase-dependent offset
+relative to marker-based joint centres. Once measured against a
 reference session, it can be subtracted:
 
 ```python
@@ -407,18 +417,6 @@ data = mg.apply_landmark_bias_correction(data, bias, cycles)
 data = mg.compute_angles(data)   # re-run: correction invalidates angles
 # do NOT re-run normalize() after the correction — it would smooth it away
 ```
-
-Measured on Bath BioCV (fit on one subject, applied to two unseen subjects,
-lateral view, Sapiens 2 quick):
-
-| Joint | RMSE raw | RMSE corrected | Waveform r |
-|-------|---------:|---------------:|-----------:|
-| Hip   | 12.8°    | **5.8°**       | 0.94       |
-| Knee  | 19.6°    | **8.2°**       | 0.90       |
-| Ankle | 22.6°    | 15.6°          | 0.85       |
-
-Within-subject calibration (fit and apply on the same person, different
-trials) is roughly twice as accurate again (hip 2.4–3.5°, knee 6.6–9.7°).
 
 **Caveats** (see the `apply_landmark_bias_correction` docstring):
 - Correct knee + ankle **together**; correcting a subset breaks the
