@@ -502,6 +502,176 @@ DEFAULT_C3D_MARKER_MAP: Dict[str, List[str]] = {
 }
 
 
+# ── Registered C3D marker conventions ─────────────────────────────────
+# Registry of the marker-naming conventions we see most in the wild.
+# Autodetection scores each convention by how many of the required
+# lower-limb markers it can resolve in the C3D file; the best match
+# is picked automatically by ``load_c3d`` when *marker_mapping* is
+# omitted.  Add new conventions here — one flat dict per convention,
+# keyed by the myogait landmark name, value = list of accepted C3D
+# labels (first match wins, all found markers are averaged).
+
+C3D_MARKER_CONVENTIONS: Dict[str, Dict[str, List[str]]] = {
+    # Vicon Plug-in Gait — by far the most common in clinical labs.
+    "plug_in_gait": {
+        "LEFT_HIP":         ["LASI", "LPSI", "LHJC"],
+        "RIGHT_HIP":        ["RASI", "RPSI", "RHJC"],
+        "LEFT_KNEE":        ["LKNE", "LTHI"],
+        "RIGHT_KNEE":       ["RKNE", "RTHI"],
+        "LEFT_ANKLE":       ["LANK", "LTIB"],
+        "RIGHT_ANKLE":      ["RANK", "RTIB"],
+        "LEFT_HEEL":        ["LHEE"],
+        "RIGHT_HEEL":       ["RHEE"],
+        "LEFT_FOOT_INDEX":  ["LTOE"],
+        "RIGHT_FOOT_INDEX": ["RTOE"],
+        "LEFT_SHOULDER":    ["LSHO"],
+        "RIGHT_SHOULDER":   ["RSHO"],
+        "NOSE":             ["C7", "CLAV", "STRN"],
+    },
+    # ISB medial+lateral bony landmarks (the default used to be this).
+    "iso_biomechanics": DEFAULT_C3D_MARKER_MAP,
+    # Helen Hayes / Newington modified PIG (foot markers renamed).
+    "helen_hayes": {
+        "LEFT_HIP":         ["LASI", "LPSI"],
+        "RIGHT_HIP":        ["RASI", "RPSI"],
+        "LEFT_KNEE":        ["LKNE"],
+        "RIGHT_KNEE":       ["RKNE"],
+        "LEFT_ANKLE":       ["LANK"],
+        "RIGHT_ANKLE":      ["RANK"],
+        "LEFT_HEEL":        ["LHEEL", "LHEE"],
+        "RIGHT_HEEL":       ["RHEEL", "RHEE"],
+        "LEFT_FOOT_INDEX":  ["LFT2", "LMT2", "LTOE"],
+        "RIGHT_FOOT_INDEX": ["RFT2", "RMT2", "RTOE"],
+        "LEFT_SHOULDER":    ["LSHO"],
+        "RIGHT_SHOULDER":   ["RSHO"],
+        "NOSE":             ["C7", "CLAV"],
+    },
+    # Underscore-prefixed variant (some lab exports).
+    "iso_biomechanics_underscore": {
+        "LEFT_HIP":         ["L_ASIS", "L_HJC"],
+        "RIGHT_HIP":        ["R_ASIS", "R_HJC"],
+        "LEFT_KNEE":        ["L_LFE",  "L_MFE"],
+        "RIGHT_KNEE":       ["R_LFE",  "R_MFE"],
+        "LEFT_ANKLE":       ["L_LM",   "L_MM"],
+        "RIGHT_ANKLE":      ["R_LM",   "R_MM"],
+        "LEFT_HEEL":        ["L_CAL"],
+        "RIGHT_HEEL":       ["R_CAL"],
+        "LEFT_FOOT_INDEX":  ["L_TT2"],
+        "RIGHT_FOOT_INDEX": ["R_TT2"],
+        "LEFT_SHOULDER":    ["L_SHO"],
+        "RIGHT_SHOULDER":   ["R_SHO"],
+        "NOSE":             ["L_ASIS", "R_ASIS"],
+    },
+}
+
+
+# Regex families used as the last-resort fuzzy fallback when no
+# registered convention matches enough markers.  Anchored on the
+# side prefix (L / R / LEFT_ / RIGHT_ / L_ / R_) and the anatomical
+# keyword (ASI, HIP, HJC → hip ; KNE, LFE, MFE, KJC → knee ; ...).
+_C3D_FUZZY_PATTERNS: Dict[str, Tuple[str, ...]] = {
+    "LEFT_HIP":         ("ASIS?", "HJC", "HIP", "ILIAC", "PELV"),
+    "RIGHT_HIP":        ("ASIS?", "HJC", "HIP", "ILIAC", "PELV"),
+    "LEFT_KNEE":        ("KNE", "KJC", "LFE", "MFE", "FEP"),
+    "RIGHT_KNEE":       ("KNE", "KJC", "LFE", "MFE", "FEP"),
+    "LEFT_ANKLE":       ("ANK", "AJC", "LM$", "MM$", "MALL"),
+    "RIGHT_ANKLE":      ("ANK", "AJC", "LM$", "MM$", "MALL"),
+    "LEFT_HEEL":        ("HEE", "HEEL", "CAL"),
+    "RIGHT_HEEL":       ("HEE", "HEEL", "CAL"),
+    "LEFT_FOOT_INDEX":  ("TOE", "TT2", "MT2", "MTP", "FT2"),
+    "RIGHT_FOOT_INDEX": ("TOE", "TT2", "MT2", "MTP", "FT2"),
+    "LEFT_SHOULDER":    ("SHO", "AC$", "ACR"),
+    "RIGHT_SHOULDER":   ("SHO", "AC$", "ACR"),
+    "NOSE":             ("CLAV", "C7", "STRN", "NOSE"),
+}
+
+_REQUIRED_LANDMARKS = (
+    "LEFT_HIP", "RIGHT_HIP",
+    "LEFT_KNEE", "RIGHT_KNEE",
+    "LEFT_ANKLE", "RIGHT_ANKLE",
+)
+
+
+def _side_prefix(landmark: str) -> str:
+    """Return the side prefix regex for a landmark name (LEFT_/RIGHT_)."""
+    if landmark.startswith("LEFT_"):
+        return r"^(L(?![A-Z])|LEFT[_ ]?|L_)"
+    if landmark.startswith("RIGHT_"):
+        return r"^(R(?![A-Z])|RIGHT[_ ]?|R_)"
+    return r"^"
+
+
+def _fuzzy_marker_map(labels: List[str]) -> Dict[str, List[str]]:
+    """Build a mapping by regex-matching each landmark to available labels."""
+    import re
+    mapping: Dict[str, List[str]] = {}
+    for lm, keywords in _C3D_FUZZY_PATTERNS.items():
+        side_re = _side_prefix(lm)
+        candidates: List[str] = []
+        for lbl in labels:
+            up = lbl.upper()
+            if not re.search(side_re, up):
+                continue
+            if any(re.search(kw, up) for kw in keywords):
+                candidates.append(lbl)
+        if candidates:
+            mapping[lm] = candidates
+    return mapping
+
+
+def detect_c3d_convention(
+    labels: List[str],
+) -> Tuple[str, Dict[str, List[str]], Dict[str, int]]:
+    """Autodetect the marker convention used in a C3D label list.
+
+    Scores each registered convention (:data:`C3D_MARKER_CONVENTIONS`)
+    by how many *required* lower-limb landmarks (hip, knee, ankle,
+    both sides) it can resolve.  Falls back to a regex-based fuzzy
+    match when no registered convention resolves enough landmarks.
+
+    Parameters
+    ----------
+    labels : list of str
+        Marker labels from the C3D ``POINT/LABELS`` section.
+
+    Returns
+    -------
+    (name, mapping, scores)
+        - ``name``: the picked convention name (``"fuzzy_fallback"`` if
+          no registered convention was good enough).
+        - ``mapping``: the marker mapping actually used
+          ({landmark: [C3D labels]}).
+        - ``scores``: per-convention count of required landmarks
+          resolved, for diagnostics.
+    """
+    upper_labels = [lbl.upper() for lbl in labels]
+    label_set = set(upper_labels)
+
+    scores: Dict[str, int] = {}
+    resolved: Dict[str, Dict[str, List[str]]] = {}
+    for name, mapping in C3D_MARKER_CONVENTIONS.items():
+        found = {}
+        for lm, candidates in mapping.items():
+            matched = [c for c in candidates if c.upper() in label_set]
+            if matched:
+                # Return the original-case labels
+                found[lm] = [
+                    labels[upper_labels.index(m.upper())] for m in matched
+                ]
+        scores[name] = sum(1 for lm in _REQUIRED_LANDMARKS if lm in found)
+        resolved[name] = found
+
+    # Pick the best convention that resolves at least 4/6 required landmarks
+    best_name = max(scores, key=lambda k: scores[k])
+    if scores[best_name] >= 4:
+        return best_name, resolved[best_name], scores
+
+    # Fallback: fuzzy regex match on the raw labels
+    fuzzy = _fuzzy_marker_map(labels)
+    scores["fuzzy_fallback"] = sum(1 for lm in _REQUIRED_LANDMARKS if lm in fuzzy)
+    return "fuzzy_fallback", fuzzy, scores
+
+
 def load_c3d(
     c3d_path: str | Path,
     marker_mapping: dict | None = None,
@@ -546,7 +716,6 @@ def load_c3d(
         )
 
     c3d = ezc3d.c3d(str(c3d_path))
-    mapping = marker_mapping or DEFAULT_C3D_MARKER_MAP
 
     # ── Extract marker labels and point data ──
     labels = [lbl.strip() for lbl in c3d["parameters"]["POINT"]["LABELS"]["value"]]
@@ -555,6 +724,33 @@ def load_c3d(
     n_frames = points.shape[2]
 
     label_idx = {lbl: i for i, lbl in enumerate(labels)}
+
+    # ── Resolve which marker convention to use ──
+    if marker_mapping is not None:
+        mapping = marker_mapping
+        convention_name = "user_supplied"
+        conv_scores: Dict[str, int] = {}
+    else:
+        convention_name, mapping, conv_scores = detect_c3d_convention(labels)
+        n_resolved = sum(1 for lm in _REQUIRED_LANDMARKS if lm in mapping)
+        logger.info(
+            "C3D %s: detected convention '%s' — %d/6 required lower-limb "
+            "landmarks resolved  (scores: %s)",
+            c3d_path.name, convention_name, n_resolved,
+            {k: v for k, v in sorted(conv_scores.items(), key=lambda x: -x[1])},
+        )
+        if n_resolved < 4:
+            raise ValueError(
+                f"Could not resolve enough lower-limb markers in "
+                f"{c3d_path.name}.\n"
+                f"  Best convention '{convention_name}' resolved "
+                f"{n_resolved}/6 required landmarks.\n"
+                f"  Convention scores: {conv_scores}\n"
+                f"  Available labels: {labels}\n"
+                f"  Pass an explicit marker_mapping={{'LEFT_HIP': [...], ...}} "
+                f"or add your convention to myogait.experimental_vicon."
+                f"C3D_MARKER_CONVENTIONS."
+            )
 
     # ── Resolve landmarks → 2-D sagittal coords per frame ──
     # For each landmark: pick the first available marker or average all found.
@@ -627,6 +823,10 @@ def load_c3d(
             "keypoint_format": "mediapipe33",
             "n_landmarks": len(raw),
             "source_file": str(c3d_path),
+            "c3d_convention": convention_name,
+            "c3d_convention_scores": conv_scores,
+            "c3d_marker_mapping": {lm: mks for lm, mks in mapping.items()
+                                     if lm in raw},
         },
         "frames": frames,
     }

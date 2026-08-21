@@ -19,7 +19,7 @@ Full pipeline with cycle analysis::
 
 from importlib import import_module
 
-__version__ = "0.6.2"
+__version__ = "0.7.0"
 
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
@@ -132,6 +132,8 @@ from .experimental import (
 from .experimental_vicon import (
     load_vicon_trial_mat,
     load_c3d,
+    detect_c3d_convention,
+    C3D_MARKER_CONVENTIONS,
     estimate_vicon_offset_seconds,
     align_vicon_to_myogait,
     compute_single_trial_benchmark_metrics,
@@ -285,6 +287,8 @@ __all__ = [
     "apply_video_degradation",
     "load_vicon_trial_mat",
     "load_c3d",
+    "detect_c3d_convention",
+    "C3D_MARKER_CONVENTIONS",
     "estimate_vicon_offset_seconds",
     "align_vicon_to_myogait",
     "compute_single_trial_benchmark_metrics",

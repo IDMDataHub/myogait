@@ -465,23 +465,31 @@ print(f"Stance %: {stats['stance_pct']:.1f}%")
 print(f"Symmetry index: {stats['symmetry_index']:.2f}")
 ```
 
-### Metric calibration — femur length preferred over height
+### Metric calibration — measured anthropometrics preferred over height
 
 Step length and walking speed rely on a pixel-to-meter reference to
-be reported in cm / m/s.  Two options:
+be reported in cm / m/s.  Four options, in order of preference:
 
 ```python
-# Preferred — measured femur length
+# 1. Best — measured femur AND foot, averaged for a tighter scale
+stats = analyze_gait(data, cycles, femur_mm=442, foot_mm=265)
+
+# 2. Femur alone (routine clinical measurement)
 stats = analyze_gait(data, cycles, femur_mm=442)
 
-# Fallback — anthropometric estimate from body height
+# 3. Foot alone (heel to longest toe)
+stats = analyze_gait(data, cycles, foot_mm=265)
+
+# 4. Fallback — anthropometric estimate from body height
 stats = analyze_gait(data, cycles, height_m=1.68)
 ```
 
-`femur_mm` takes precedence over `height_m` when both are provided.
-When neither is passed, step length and walking speed are reported in
-image-normalised units.  The same two parameters are also accepted by
-`step_length()` and `walking_speed()` when called directly.
+When both `femur_mm` and `foot_mm` are provided, the two independent
+pixel-to-meter scales are averaged.  Individual measurements take
+precedence over `height_m`.  When nothing is passed, step length and
+walking speed are reported in image-normalised units.  The same three
+parameters are also accepted by `step_length()` and `walking_speed()`
+when called directly.
 
 ### Advanced Parameters
 
@@ -990,6 +998,47 @@ from myogait import export_c3d
 
 # Requires: pip install myogait[c3d]
 export_c3d(data, "markers.c3d")
+```
+
+### Loading a C3D file (Vicon / OpenSim / any marker system)
+
+Any C3D file can be read into a myogait-compatible pivot dict with
+`load_c3d()`.  The marker-naming convention is autodetected among the
+registered families (Plug-in Gait, ISB, Helen Hayes, and their
+underscore variants); a regex-based fuzzy match on the raw labels is
+used as fallback when no registered convention matches.
+
+```python
+import myogait as mg
+
+data = mg.load_c3d("trial.c3d")               # autodetect
+print(data["extraction"]["c3d_convention"])   # e.g. 'plug_in_gait'
+print(data["extraction"]["c3d_convention_scores"])
+# → per-convention count of required lower-limb landmarks resolved
+
+# Then feed into the standard pipeline as if it were a video:
+data = mg.compute_angles(data)
+data = mg.detect_events(data)
+cycles = mg.segment_cycles(data)
+stats = mg.analyze_gait(data, cycles)
+```
+
+To inspect / extend the registry:
+
+```python
+list(mg.C3D_MARKER_CONVENTIONS.keys())
+# ['plug_in_gait', 'iso_biomechanics', 'helen_hayes', 'iso_biomechanics_underscore']
+
+# Custom lab convention
+mg.C3D_MARKER_CONVENTIONS["my_lab"] = {
+    "LEFT_HIP":  ["LabelForLeftHip"],
+    "LEFT_KNEE": ["LabelForLeftKnee"],
+    # ...
+}
+
+# Force a specific mapping (skips autodetect)
+data = mg.load_c3d("trial.c3d",
+                   marker_mapping=mg.C3D_MARKER_CONVENTIONS["my_lab"])
 ```
 
 ---

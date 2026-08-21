@@ -541,21 +541,30 @@ require **onnxruntime** (or `onnxruntime-directml` on Windows without
 CUDA).  Install with `pip install onnxruntime` — the other detectors
 work without it and out of the box.
 
-### Metric calibration — femur length preferred over height
+### Metric calibration — measured anthropometrics preferred over height
 
-`analyze_gait()`, `step_length()` and `walking_speed()` accept a
-subject `height_m` and derive femur length as 24.5 % of height.  When
-you have the femur length **measured** on the subject (routine
-clinical measurement), pass it as `femur_mm` for a strictly better
-pixel-to-meter reference:
+`analyze_gait()`, `step_length()` and `walking_speed()` accept
+`femur_mm` (femur length) and `foot_mm` (foot length, heel → longest
+toe) in addition to `height_m`.  The scale hierarchy is:
+
+1. **Femur + foot** together: the two independent scale estimates are
+   averaged for the tightest calibration (recommended for research).
+2. **Femur alone** (`femur_mm`): use the measured femur directly.
+3. **Foot alone** (`foot_mm`): use the measured foot directly.
+4. **Height** (`height_m`): fallback, derives femur as 24.5 % of
+   height.
+5. Nothing → output in image-normalised units.
 
 ```python
-stats = mg.analyze_gait(data, cycles, femur_mm=442)          # measured
-# or
-stats = mg.analyze_gait(data, cycles, height_m=1.68)         # anthropometric fallback
-```
+# Best: both measurements
+stats = mg.analyze_gait(data, cycles, femur_mm=442, foot_mm=265)
 
-`femur_mm` takes precedence over `height_m` when both are provided.
+# Quick-fix: femur only
+stats = mg.analyze_gait(data, cycles, femur_mm=442)
+
+# Fallback: height
+stats = mg.analyze_gait(data, cycles, height_m=1.68)
+```
 
 ### Per-cycle biomarker export (Excel)
 
@@ -570,6 +579,32 @@ Makes per-cycle variability directly visible without post-processing.
 ```python
 mg.export_excel(data, "report.xlsx", cycles=cycles, stats=stats)
 ```
+
+### C3D loading with automatic marker-convention detection
+
+`load_c3d()` reads any C3D file and returns a myogait-compatible pivot
+dict.  When `marker_mapping` is omitted the function autodetects the
+convention among the registered families (Plug-in Gait, ISB, Helen
+Hayes, ...) by scoring how many lower-limb markers each convention can
+resolve, and falls back to a regex-based fuzzy match on the raw labels
+if no registered convention scores high enough.
+
+```python
+data = mg.load_c3d("trial.c3d")          # autodetect
+data["extraction"]["c3d_convention"]     # → 'plug_in_gait' | 'iso_biomechanics' | ...
+data["extraction"]["c3d_convention_scores"]   # per-convention resolution count
+
+# List / inspect / extend
+list(mg.C3D_MARKER_CONVENTIONS.keys())
+mg.C3D_MARKER_CONVENTIONS["plug_in_gait"]["LEFT_HIP"]   # ['LASI', 'LPSI', 'LHJC']
+
+# Autodetect just the convention (without loading the trajectories)
+name, mapping, scores = mg.detect_c3d_convention(labels)
+```
+
+New conventions can be registered by editing
+`myogait.experimental_vicon.C3D_MARKER_CONVENTIONS` (flat dict, keyed
+by myogait landmark name).
 
 ### Export to OpenSim / Pose2Sim
 
