@@ -536,6 +536,41 @@ data = detect_events(data, method="gk_bike")
 data = event_consensus(data, methods=["gk_bike", "gk_zeni", "gk_oconnor"])
 ```
 
+The neural detectors `gk_intellevent` and `gk_deepevent` additionally
+require **onnxruntime** (or `onnxruntime-directml` on Windows without
+CUDA).  Install with `pip install onnxruntime` — the other detectors
+work without it and out of the box.
+
+### Metric calibration — femur length preferred over height
+
+`analyze_gait()`, `step_length()` and `walking_speed()` accept a
+subject `height_m` and derive femur length as 24.5 % of height.  When
+you have the femur length **measured** on the subject (routine
+clinical measurement), pass it as `femur_mm` for a strictly better
+pixel-to-meter reference:
+
+```python
+stats = mg.analyze_gait(data, cycles, femur_mm=442)          # measured
+# or
+stats = mg.analyze_gait(data, cycles, height_m=1.68)         # anthropometric fallback
+```
+
+`femur_mm` takes precedence over `height_m` when both are provided.
+
+### Per-cycle biomarker export (Excel)
+
+`export_excel()` emits a `Biomarkers_per_cycle` sheet with one row per
+detected cycle: ROM, min / max / mean per joint, peak angular velocity
+(deg/s), peak angular acceleration (deg/s²), phase-restricted peaks
+(stance vs swing separately), plus the SCI-relevant clinical markers
+(foot drop = ankle at HS, stiff-knee = peak knee flex in swing,
+toe-clearance = min ankle in swing) and the swing-peak knee timing.
+Makes per-cycle variability directly visible without post-processing.
+
+```python
+mg.export_excel(data, "report.xlsx", cycles=cycles, stats=stats)
+```
+
 ### Export to OpenSim / Pose2Sim
 
 Export landmarks and kinematics in formats compatible with OpenSim

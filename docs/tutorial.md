@@ -465,6 +465,24 @@ print(f"Stance %: {stats['stance_pct']:.1f}%")
 print(f"Symmetry index: {stats['symmetry_index']:.2f}")
 ```
 
+### Metric calibration — femur length preferred over height
+
+Step length and walking speed rely on a pixel-to-meter reference to
+be reported in cm / m/s.  Two options:
+
+```python
+# Preferred — measured femur length
+stats = analyze_gait(data, cycles, femur_mm=442)
+
+# Fallback — anthropometric estimate from body height
+stats = analyze_gait(data, cycles, height_m=1.68)
+```
+
+`femur_mm` takes precedence over `height_m` when both are provided.
+When neither is passed, step length and walking speed are reported in
+image-normalised units.  The same two parameters are also accepted by
+`step_length()` and `walking_speed()` when called directly.
+
 ### Advanced Parameters
 
 ```python
@@ -917,8 +935,26 @@ export_csv(data, "./csv_output/", cycles, stats)
 from myogait import export_excel
 
 export_excel(data, "gait_analysis.xlsx", cycles, stats)
-# One sheet per data type
 ```
+
+Produces a multi-sheet workbook:
+
+- `Landmarks` — raw pose landmarks per frame
+- `Angles` — joint angles per frame
+- `Events` — HS / TO timestamps
+- `Cycles` — one row per cycle: side, start / end frame, duration,
+  stance / swing %
+- **`Biomarkers_per_cycle`** — one row per cycle with the full clinical
+  panel: ROM / min / max / mean per joint, peak angular velocity
+  (°/s), peak angular acceleration (°/s²), stance-only peaks,
+  swing-only peaks, foot drop (ankle at HS), stiff-knee marker (peak
+  knee flexion in swing), toe-clearance proxy (min ankle in swing)
+  and the swing-peak knee timing.  Makes per-cycle variability
+  directly readable, no post-processing needed.
+- `Summary_left` / `Summary_right` — normalised mean ± SD curves per
+  side (hip, knee, ankle, trunk)
+- `Stats` — flat spatiotemporal / symmetry / variability / pathology
+  section
 
 ### Pandas DataFrame
 

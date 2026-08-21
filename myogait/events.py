@@ -968,6 +968,31 @@ def _gaitkit_result_to_myogait(gk_result, fps: float) -> Dict[str, list]:
     return result
 
 
+_ONNX_GAITKIT_METHODS = frozenset({"intellevent", "deepevent"})
+
+
+def _wrap_onnx_import_error(method: str, exc: BaseException) -> BaseException:
+    """Return a friendlier ImportError when a gaitkit ONNX detector
+    fails because onnxruntime is missing (issue #41).
+
+    Leaves other errors untouched.
+    """
+    if (isinstance(exc, ImportError)
+            and method in _ONNX_GAITKIT_METHODS
+            and "onnxruntime" in (str(exc) or "").lower()):
+        return ImportError(
+            f"gaitkit method '{method}' needs onnxruntime, which is not "
+            f"installed.  Install it with:\n"
+            f"    pip install onnxruntime\n"
+            f"or, on Windows / cross-platform:\n"
+            f"    pip install onnxruntime-directml\n"
+            f"then re-run.  Other event detectors (zeni, gk_bike, "
+            f"gk_zeni, gk_oconnor, gk_ensemble) do not need onnxruntime "
+            f"and work out of the box."
+        )
+    return exc
+
+
 def _detect_gaitkit(
     data: dict,
     fps: float,
@@ -997,7 +1022,10 @@ def _detect_gaitkit(
     """
     gaitkit = _import_gaitkit()
     gk_frames = _convert_to_gaitkit_frames(data, femur_length_mm=femur_length_mm)
-    gk_result = gaitkit.detect(gk_frames, method=method, fps=fps, **kwargs)
+    try:
+        gk_result = gaitkit.detect(gk_frames, method=method, fps=fps, **kwargs)
+    except ImportError as e:
+        raise _wrap_onnx_import_error(method, e) from e
     return _gaitkit_result_to_myogait(gk_result, fps)
 
 
