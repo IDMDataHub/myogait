@@ -726,7 +726,6 @@ def export_excel(
             # foot-drop + toe-clearance + phase-timing markers).  This
             # is the sheet clinicians open first: it makes per-cycle
             # variability visible without having to average anything.
-            fps_bm = data.get("meta", {}).get("fps", 30.0)
             rows = []
             for c in cycles["cycles"]:
                 normed = c.get("angles_normalized") or {}

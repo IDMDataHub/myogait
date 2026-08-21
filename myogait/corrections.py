@@ -561,19 +561,22 @@ _DEFAULT_CORRECTABLE_LANDMARKS = (
 def _landmark_xy(landmarks: dict, name: str):
     """Extract (x, y) as np.ndarray for a landmark, or None if unusable."""
     lm = landmarks.get(name)
-    if lm is None: return None
+    if lm is None:
+        return None
     if isinstance(lm, dict):
         x, y = lm.get("x"), lm.get("y")
     elif isinstance(lm, (list, tuple)) and len(lm) >= 2:
         x, y = lm[0], lm[1]
     else:
         return None
-    if x is None or y is None: return None
+    if x is None or y is None:
+        return None
     try:
         xf, yf = float(x), float(y)
     except (TypeError, ValueError):
         return None
-    if np.isnan(xf) or np.isnan(yf): return None
+    if np.isnan(xf) or np.isnan(yf):
+        return None
     return np.array([xf, yf])
 
 
@@ -611,11 +614,13 @@ def _pose_anchor(landmarks: dict):
     rh = _landmark_xy(landmarks, "RIGHT_HIP")
     lk = _landmark_xy(landmarks, "LEFT_KNEE")
     rk = _landmark_xy(landmarks, "RIGHT_KNEE")
-    if any(v is None for v in (lh, rh, lk, rk)): return None
+    if any(v is None for v in (lh, rh, lk, rk)):
+        return None
     mid_hip = (lh + rh) / 2.0
     mid_knee = (lk + rk) / 2.0
     scale = float(np.linalg.norm(mid_knee - mid_hip))
-    if scale < 1e-6: return None
+    if scale < 1e-6:
+        return None
     return mid_hip, scale
 
 
@@ -708,7 +713,8 @@ def fit_landmark_bias_by_phase(
 
             side_key = "L" if name.startswith("LEFT_") else "R"
             phi = phase[side_key][i] if i < len(phase[side_key]) else np.nan
-            if np.isnan(phi): continue
+            if np.isnan(phi):
+                continue
             b = min(int(phi * n_bins), n_bins - 1)
             accum[name]["dx"][b].append(float(d[0]))
             accum[name]["dy"][b].append(float(d[1]))
@@ -734,9 +740,8 @@ def _fill_nan_bins(arr: list) -> np.ndarray:
     if ok.sum() == n:
         return a
     idx = np.arange(n)
-    # Circular interp: duplicate the good values three times and pick middle
-    idx_ext = np.concatenate([idx - n, idx[ok], idx + n * 2]) if False else None
-    # Simpler: linear interp on the good ones, treating cycle as circular
+    # Linear interp on the good bins, treating the cycle as circular by
+    # duplicating the good values on either side.
     good_i = idx[ok]
     good_v = a[ok]
     # Add wrap-around anchors
@@ -813,7 +818,6 @@ def apply_landmark_bias_correction(
         dx = _fill_nan_bins(b.get("dx", []))
         dy = _fill_nan_bins(b.get("dy", []))
         bias_arr[name] = (dx, dy)
-    n_bins_for = {name: len(dx) for name, (dx, _) in bias_arr.items()}
 
     def _interp_bias(name: str, phi: float) -> Tuple[float, float]:
         dx, dy = bias_arr[name]
@@ -858,17 +862,21 @@ def apply_landmark_bias_correction(
             continue
         lm_dict = frame["landmarks"]
         for name in list(lm_dict.keys()):
-            if name not in bias_arr: continue
+            if name not in bias_arr:
+                continue
             side_key = "L" if name.startswith("LEFT_") else "R"
             phi = phase[side_key][i] if i < len(phase[side_key]) else np.nan
-            if np.isnan(phi): continue
+            if np.isnan(phi):
+                continue
             bx, by = _interp_bias(name, float(phi))
             corr_x = bx * direction * thigh_scale
             corr_y = by * thigh_scale
             lm = lm_dict[name]
             if isinstance(lm, dict):
-                if lm.get("x") is not None: lm["x"] = float(lm["x"]) - corr_x
-                if lm.get("y") is not None: lm["y"] = float(lm["y"]) - corr_y
+                if lm.get("x") is not None:
+                    lm["x"] = float(lm["x"]) - corr_x
+                if lm.get("y") is not None:
+                    lm["y"] = float(lm["y"]) - corr_y
             elif isinstance(lm, list) and len(lm) >= 2:
                 lm[0] = float(lm[0]) - corr_x
                 lm[1] = float(lm[1]) - corr_y
