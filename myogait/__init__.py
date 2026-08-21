@@ -137,6 +137,7 @@ from .experimental import (
 from .experimental_vicon import (
     load_vicon_trial_mat,
     load_c3d,
+    compute_c3d_reference_angles,
     detect_c3d_convention,
     C3D_MARKER_CONVENTIONS,
     estimate_vicon_offset_seconds,
@@ -297,6 +298,7 @@ __all__ = [
     "apply_video_degradation",
     "load_vicon_trial_mat",
     "load_c3d",
+    "compute_c3d_reference_angles",
     "detect_c3d_convention",
     "C3D_MARKER_CONVENTIONS",
     "estimate_vicon_offset_seconds",
