@@ -99,6 +99,11 @@ data = normalize(data, filters=["butterworth"])
 data = compute_angles(data)
 print(f"Angles: {list(data['angles']['frames'][0].keys())}")
 
+# Step 3b (recommended for comparison / longitudinal work):
+# force a flexion-positive convention independent of walking direction,
+# so two sessions — or a video vs a Vicon reference — never disagree in sign.
+data = canonicalize_angle_signs(data)
+
 # Step 4: Detect events (heel strike, toe off)
 data = detect_events(data, method="gk_bike")
 n_hs = len(data["events"]["left_hs"]) + len(data["events"]["right_hs"])
