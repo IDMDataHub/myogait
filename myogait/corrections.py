@@ -819,10 +819,29 @@ def apply_landmark_bias_correction(
                 float((1 - w) * dy[i0] + w * dy[i1]))
 
     fps = float(data.get("meta", {}).get("fps", 30.0))
+    # Per-frame thigh scale is noisy (pose jitter); multiplying the
+    # correction by it injects that noise straight into the corrected
+    # landmarks and inflates trial-to-trial ROM variance.  Smooth the
+    # scale with a ~0.5 s rolling median: tracks genuine slow changes
+    # (subject depth in frontal views) while killing frame jitter.
+    raw_scales = np.full(len(frames), np.nan)
     for i, frame in enumerate(frames):
         anchor = _pose_anchor(frame.get("landmarks", {}))
-        if anchor is None: continue
-        _, thigh_scale = anchor
+        if anchor is not None:
+            raw_scales[i] = anchor[1]
+    half_w = max(1, int(0.25 * fps))
+    smooth_scales = np.copy(raw_scales)
+    for i in range(len(frames)):
+        lo, hi = max(0, i - half_w), min(len(frames), i + half_w + 1)
+        window = raw_scales[lo:hi]
+        window = window[~np.isnan(window)]
+        if window.size:
+            smooth_scales[i] = float(np.median(window))
+
+    for i, frame in enumerate(frames):
+        if np.isnan(smooth_scales[i]):
+            continue
+        thigh_scale = float(smooth_scales[i])
         # Bias dx is stored in the progression frame; convert back to
         # image space with the local walking direction.  Skip frames
         # where the direction is ambiguous (turnaround) — applying a
