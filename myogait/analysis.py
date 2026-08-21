@@ -610,6 +610,17 @@ def harmonic_ratio(data: dict, signal_key: str = "LEFT_ANKLE") -> dict:
 
 # ── Step length estimation ───────────────────────────────────────────
 
+# Femur-length-to-stature ratio used when only body height is known.
+# Source: Winter DA, "Biomechanics and Motor Control of Human Movement"
+# (4th ed., 2009), anthropometric segment tables: thigh length ≈ 0.245 ×
+# stature for healthy adults (published range across tables ~0.232-0.255).
+# CAVEAT: this is a healthy-adult average. Flexion contractures, femoral
+# torsion, bone deformity or scoliosis (common in neuromuscular
+# populations) can push the true ratio well outside that range — prefer a
+# measured femur_mm whenever available, or override this module-level
+# constant for a specific population.
+FEMUR_HEIGHT_RATIO: float = 0.245
+
 
 def _estimate_pixel_to_meter_scale(
     frames: list,
@@ -663,7 +674,7 @@ def _estimate_pixel_to_meter_scale(
     if not scales and height_m is not None:
         px = _median_femur_px()
         if px and px > 0:
-            scales.append((height_m * 0.245) / px)
+            scales.append((height_m * FEMUR_HEIGHT_RATIO) / px)
 
     if not scales:
         return 1.0

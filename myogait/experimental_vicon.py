@@ -378,10 +378,34 @@ def _nearest_abs_diff(a: List[int], b: List[int], fps: float) -> List[float]:
     return diffs
 
 
+def _cmc(mg: np.ndarray, vc: np.ndarray) -> Optional[float]:
+    """Coefficient of Multiple Correlation for two waveforms.
+
+    Kadaba MP et al., "Repeatability of kinematic, kinetic, and
+    electromyographic data in normal adult gait", J Orthop Res 1989 —
+    the standard waveform-similarity index in gait analysis.  Two-curve
+    form: CMC = sqrt(1 - within-frame variance around the frame mean
+    over total variance around the grand mean).  Returns None when the
+    total variance is degenerate; the sqrt argument is clamped at 0
+    (CMC is undefined/0 when curves disagree more than they vary).
+    """
+    if mg.size != vc.size or mg.size < 3:
+        return None
+    grand = float(np.mean(np.concatenate([mg, vc])))
+    frame_mean = (mg + vc) / 2.0
+    within = np.sum((mg - frame_mean) ** 2 + (vc - frame_mean) ** 2) / mg.size
+    total = (np.sum((mg - grand) ** 2 + (vc - grand) ** 2)
+             / (2 * mg.size - 1))
+    if total <= 1e-12:
+        return None
+    return float(np.sqrt(max(0.0, 1.0 - within / total)))
+
+
 def _angle_error_metrics(mg: np.ndarray, vc: np.ndarray) -> dict:
     mask = np.isfinite(mg) & np.isfinite(vc)
     if mask.sum() < 3:
-        return {"n": int(mask.sum()), "rmse_deg": None, "mae_deg": None, "bias_deg": None, "rom_diff_deg": None}
+        return {"n": int(mask.sum()), "rmse_deg": None, "mae_deg": None,
+                "bias_deg": None, "rom_diff_deg": None, "cmc": None}
     d = mg[mask] - vc[mask]
     rom_mg = float(np.nanmax(mg[mask]) - np.nanmin(mg[mask]))
     rom_vc = float(np.nanmax(vc[mask]) - np.nanmin(vc[mask]))
@@ -391,6 +415,7 @@ def _angle_error_metrics(mg: np.ndarray, vc: np.ndarray) -> dict:
         "mae_deg": float(np.mean(np.abs(d))),
         "bias_deg": float(np.mean(d)),
         "rom_diff_deg": float(rom_mg - rom_vc),
+        "cmc": _cmc(mg[mask], vc[mask]),
     }
 
 

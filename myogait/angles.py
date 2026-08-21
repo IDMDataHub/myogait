@@ -1030,6 +1030,13 @@ def compute_angles(
     pelvis_unwrapped = _unwrap_angles(pelvis_vals)
     for af, v in zip(angle_frames, pelvis_unwrapped):
         af["pelvis_tilt"] = v
+        # Honest naming: the historical "pelvis_tilt" key actually
+        # measures FRONTAL-plane pelvic obliquity (inter-hip line vs
+        # horizontal), not the antero-posterior sagittal tilt.  Expose
+        # the same value under its correct name; the legacy key is kept
+        # for backward compatibility and slated for redefinition in 1.0.
+        # (True sagittal tilt is available via _pelvis_sagittal_tilt.)
+        af["pelvis_obliquity"] = v
 
     # Neutral calibration
     if calibrate and len(angle_frames) >= calibration_frames:
@@ -1109,7 +1116,7 @@ def compute_angles(
         "ankle_sliding_correction": correct_ankle_sliding,
         "walking_direction": walking_direction,
         "joints": ["hip_L", "hip_R", "knee_L", "knee_R", "ankle_L", "ankle_R"],
-        "extra": ["trunk_angle", "pelvis_tilt"],
+        "extra": ["trunk_angle", "pelvis_tilt", "pelvis_obliquity"],
         "frames": angle_frames,
     }
 
@@ -1128,35 +1135,71 @@ def canonicalize_angle_signs(data: dict) -> dict:
     recording but breaks any comparison — video vs Vicon, left vs
     right pass, or two sessions of one patient.
 
-    This helper re-anchors the convention on physiology: **knee
-    flexion is always positive and large in swing** (mean sagittal
-    knee angle over a walking trial is reliably positive, ~+15-25°).
-    For each side, if the mean knee angle is negative the whole
-    recording's hip and knee signs for that side are flipped so that
-    knee flexion becomes positive.  The ankle is left untouched — it
-    carries its own dual-method calibration and its sign is already
-    physiologically anchored.
+    This helper re-anchors the convention on physiology, per side:
+
+    1. **Knee**: knee flexion is always positive and large in swing
+       (mean sagittal knee angle over a walking trial is reliably
+       positive, ~+15-25°).  If the mean knee angle is negative, the
+       side's hip and knee signs are flipped together.
+    2. **Hip**: independently verified against the knee.  At the
+       knee-flexion peak (swing) the hip is necessarily flexed
+       (positive).  If the mean hip angle over the top-decile
+       knee-flexion frames is negative, the hip alone is flipped.
+       This catches the case where the raw 2-D hip convention comes
+       out extension-positive (measured at signed r = −1.0 against a
+       Vicon 3-D biomechanical model) even when the knee is already
+       correct.
+
+    The ankle is left untouched — it carries its own dual-method
+    calibration and its sign is already physiologically anchored.
 
     Operates in place on ``data["angles"]["frames"]`` and returns
-    ``data``.  Safe to call more than once (idempotent once the sign
-    is already positive).  Recommended as the last step of the angle
-    pipeline for any comparison or longitudinal use.
+    ``data``.  Safe to call more than once (idempotent once the signs
+    are correct).  Recommended as the last step of the angle pipeline
+    for any comparison or longitudinal use.
     """
     af = data.get("angles", {}).get("frames")
     if not af:
         return data
+    # One canonicalisation per compute_angles run.  On there-and-back
+    # recordings the return-pass frames keep an anti-phase hip after the
+    # per-side flip, which can make the hip criterion re-trigger on a
+    # second call; the flag (cleared whenever compute_angles rebuilds
+    # data["angles"]) makes the operation idempotent by construction.
+    if data["angles"].get("sign_canonicalized"):
+        return data
+    data["angles"]["sign_canonicalized"] = True
+
+    def _vals(key):
+        return [(i, f[key]) for i, f in enumerate(af)
+                if f.get(key) is not None
+                and not (isinstance(f[key], float) and np.isnan(f[key]))]
+
+    def _flip(key):
+        for f in af:
+            v = f.get(key)
+            if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                f[key] = -v
+
     for side in ("L", "R"):
-        knee_key = f"knee_{side}"
-        vals = [f[knee_key] for f in af
-                if f.get(knee_key) is not None
-                and not (isinstance(f[knee_key], float) and np.isnan(f[knee_key]))]
-        if not vals or np.mean(vals) >= 0:
+        knee = _vals(f"knee_{side}")
+        if not knee:
             continue
-        for key in (f"knee_{side}", f"hip_{side}"):
-            for f in af:
-                v = f.get(key)
-                if v is not None and not (isinstance(v, float) and np.isnan(v)):
-                    f[key] = -v
+        if np.mean([v for _, v in knee]) < 0:
+            _flip(f"knee_{side}")
+            _flip(f"hip_{side}")
+            knee = [(i, -v) for i, v in knee]
+
+        # Hip orientation anchored on the (now positive) knee: during
+        # the swing knee-flexion peak the hip must be in flexion.
+        hip = dict(_vals(f"hip_{side}"))
+        if not hip:
+            continue
+        knee_sorted = sorted(knee, key=lambda t: -t[1])
+        top = knee_sorted[:max(5, len(knee_sorted) // 10)]
+        hip_at_peak = [hip[i] for i, _ in top if i in hip]
+        if hip_at_peak and np.mean(hip_at_peak) < 0:
+            _flip(f"hip_{side}")
     return data
 
 

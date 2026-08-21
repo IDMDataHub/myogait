@@ -53,29 +53,33 @@ _PEDIATRIC_ROM_FACTOR = 1.05
 _PEDIATRIC_SD_FACTOR = 1.4
 
 
-# ── Digitized reference data (Perry & Burnfield 2010; Winter 2009) ──
+# ── Sagittal reference curves ────────────────────────────────────────
 #
-# Each entry is (percent_gc, mean_deg, sd_deg) digitized from the
-# published figures / tables.  Between key points, values are linearly
-# interpolated to 101 equally-spaced points covering 0-100 %GC.
+# Hip, knee, ankle and sagittal pelvis: empirical mean ± SD waveforms
+# derived from an instrumented optical motion-capture dataset of
+# healthy adults walking overground (marker-based, 200 Hz), resampled
+# to keypoints every 4 %GC and linearly interpolated back to 101
+# points.  The published reference band was treated as a 95 % interval
+# (SD = band width / 4).  These replace curves previously digitised
+# from textbook figures (Perry & Burnfield 2010; Winter 2009), which
+# remain the source for the trunk and frontal-plane entries below.
 
 _HIP_KEYPOINTS = {
-    # %GC    mean   sd
-    "gc":   [  0,   10,   30,   50,   62,   75,   85,  100],
-    "mean": [ 30,   25,   10,  -10,   -5,   25,   32,   30],
-    "sd":   [  5,    5,    4,    5,    6,    6,    5,    5],
+    "gc":   [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 96, 100],
+    "mean": [21.6, 20.1, 18.9, 17.6, 13.6, 8.8, 3.7, -0.9, -5.1, -9.1, -12.7, -15.7, -17.8, -19.3, -18.5, -13.6, -6.2, 1.9, 9.2, 14.9, 19.0, 21.5, 22.2, 21.3, 20.2, 20.4],
+    "sd":   [7.2, 6.6, 6.6, 6.9, 6.6, 6.3, 5.9, 5.4, 4.8, 4.3, 4.1, 4.0, 4.2, 4.5, 5.3, 5.9, 6.0, 5.5, 4.8, 4.6, 4.4, 4.3, 4.2, 4.1, 4.5, 4.7],
 }
 
 _KNEE_KEYPOINTS = {
-    "gc":   [  0,   12,   25,   40,   55,   70,   85,   95,  100],
-    "mean": [  5,   18,    5,    3,   35,   62,   25,    8,    5],
-    "sd":   [  4,    5,    4,    4,    6,    7,    6,    5,    4],
+    "gc":   [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 96, 100],
+    "mean": [5.2, 8.3, 14.3, 19.7, 19.0, 16.4, 13.0, 9.6, 7.0, 5.4, 5.0, 5.8, 8.5, 14.1, 23.6, 37.6, 51.4, 60.7, 63.9, 60.9, 52.8, 40.6, 25.2, 9.3, 4.0, 4.3],
+    "sd":   [5.6, 4.4, 6.1, 7.2, 7.5, 6.7, 5.4, 4.2, 3.4, 3.0, 3.0, 3.4, 4.1, 5.2, 6.5, 6.9, 5.4, 4.2, 3.9, 4.6, 5.8, 6.6, 6.8, 4.6, 2.8, 2.7],
 }
 
 _ANKLE_KEYPOINTS = {
-    "gc":   [  0,    8,   25,   40,   55,   62,   70,   85,  100],
-    "mean": [  0,   -5,    5,   10,    5,  -15,   -5,    0,    0],
-    "sd":   [  3,    3,    3,    4,    4,    5,    4,    3,    3],
+    "gc":   [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 96, 100],
+    "mean": [6.9, -1.0, -4.2, -0.7, 1.9, 3.8, 5.0, 5.9, 7.0, 8.2, 9.9, 11.7, 12.8, 11.6, 4.9, -8.9, -19.2, -14.7, -8.0, -2.8, 0.7, 2.7, 3.4, 3.7, 4.7, 6.3],
+    "sd":   [8.0, 6.3, 5.0, 3.8, 4.0, 4.0, 3.8, 3.4, 3.1, 3.3, 3.8, 4.6, 5.0, 5.7, 8.0, 9.0, 7.2, 5.4, 4.8, 3.8, 3.2, 2.8, 2.8, 3.7, 3.3, 4.3],
 }
 
 _TRUNK_KEYPOINTS = {
@@ -85,9 +89,9 @@ _TRUNK_KEYPOINTS = {
 }
 
 _PELVIS_SAGITTAL_KEYPOINTS = {
-    "gc":   [  0,   30,   50,   75,  100],
-    "mean": [ 10,    8,   12,    9,   10],
-    "sd":   [  3,    3,    3,    3,    3],
+    "gc":   [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 96, 100],
+    "mean": [8.9, 8.3, 8.1, 7.1, 6.6, 7.1, 7.8, 8.6, 9.1, 9.5, 9.9, 10.2, 10.3, 10.2, 10.1, 9.8, 8.9, 8.4, 8.3, 8.4, 8.5, 8.5, 8.6, 8.8, 8.9, 8.8],
+    "sd":   [4.8, 5.3, 5.2, 5.4, 5.2, 5.1, 5.1, 5.3, 5.2, 5.3, 5.2, 5.0, 5.1, 5.4, 5.7, 5.9, 5.8, 5.7, 5.5, 5.5, 5.4, 5.3, 5.2, 5.1, 5.0, 5.1],
 }
 
 # Frontal-plane digitized data (Perry & Burnfield 2010 Ch 14, Kadaba 1990)

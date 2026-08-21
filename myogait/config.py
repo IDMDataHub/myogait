@@ -127,8 +127,12 @@ def load_config(path: Union[str, Path]) -> dict:
     if not isinstance(cfg, dict):
         raise ValueError("Config must be a dict")
 
-    # Merge with defaults
-    merged = _deep_merge(DEFAULT_CONFIG.copy(), cfg)
+    # Merge with defaults.  deepcopy is required: a shallow copy would
+    # leave every sub-dict not overridden by the user's file SHARED with
+    # DEFAULT_CONFIG, so mutating one loaded config would silently
+    # corrupt the defaults for every other consumer in the process.
+    import copy
+    merged = _deep_merge(copy.deepcopy(DEFAULT_CONFIG), cfg)
     logger.info(f"Loaded config from {path}")
     return merged
 

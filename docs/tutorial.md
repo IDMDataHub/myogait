@@ -80,6 +80,23 @@ print(len(myogait.__all__))  # 90+ public functions
 
 ## 2. Basic Pipeline
 
+### The One-Liner (recommended)
+
+For standard gait analysis, use the validated pipeline in a single call —
+it applies the benchmarked defaults and reports quality diagnostics:
+
+```python
+import myogait as mg
+
+result = mg.run_pipeline("walk.mp4", model="sapiens2-quick")
+print(result["stats"]["cadence"])
+for w in result["quality"]["warnings"]:
+    print("!", w)     # e.g. perspective distortion, too few cycles
+```
+
+The step-by-step version below is for when you need to customise a
+stage or understand what happens inside.
+
 The complete pipeline in 6 steps:
 
 ```python

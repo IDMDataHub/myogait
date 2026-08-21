@@ -429,6 +429,29 @@ def _apply_bias_correction_generic(
     marker_key: str,
 ) -> dict:
     """Shared implementation for per-joint Fourier bias corrections."""
+    # Deprecated (v0.8) — scheduled for removal in v1.0.
+    #
+    # Two independent grounds, both executable-guardrail-worthy:
+    # 1. These corrections encode the average bias of HEALTHY reference
+    #    gait (LASSO trained on n<=12 healthy adults). Applied to
+    #    pathological gait they can "restore" a healthy-looking curve
+    #    exactly where the clinical sign lives (swing knee peak,
+    #    push-off, end-stance hip).
+    # 2. Benchmarked against optical motion capture with modern pose
+    #    backbones, the raw pipeline OUTPERFORMS the LASSO-corrected
+    #    one (mean curve RMSE 6.2 deg raw vs 8.0 deg corrected) — the
+    #    biases these models were trained on are no longer present.
+    import warnings as _warnings
+    _warnings.warn(
+        f"apply_{joint}_bias_correction is deprecated and will be removed "
+        "in myogait 1.0. It applies a HEALTHY-adult prior (LASSO, n<=12 "
+        "subjects) that can mask pathological gait signatures, and "
+        "benchmarks show it degrades accuracy with modern pose models. "
+        "The recommended pipeline (mg.run_pipeline) applies no bias "
+        "correction.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
     if model_key not in _BIAS_MODELS:
         raise ValueError(
             f"Unknown {joint} bias model '{model_key}'. "

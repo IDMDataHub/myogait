@@ -19,7 +19,7 @@ Full pipeline with cycle analysis::
 
 from importlib import import_module
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
@@ -146,6 +146,7 @@ from .experimental_vicon import (
     attach_vicon_experimental_block,
     run_single_trial_vicon_benchmark,
 )
+from .pipeline import run_pipeline
 from .experimental_benchmark import (
     DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG,
     build_single_pair_benchmark_config,
@@ -249,6 +250,7 @@ __all__ = [
     "load_json",
     "save_json",
     "set_subject",
+    "run_pipeline",
     "plot_angles",
     "plot_cycles",
     "plot_events",

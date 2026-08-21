@@ -48,10 +48,12 @@ class TestGetNormativeCurveAdultHip:
         assert 30 <= rom <= 55, f"Hip ROM {rom:.1f} out of expected range"
 
     def test_hip_peak_flexion(self):
-        """Peak hip flexion should be ~30-35 degrees."""
+        """Peak hip flexion ~20-40 deg (empirical optical-capture curves
+        peak lower than textbook digitisations; the zero convention
+        differs slightly between sources)."""
         result = get_normative_curve("hip", "adult")
         mean = np.array(result["mean"])
-        assert 25 <= np.max(mean) <= 40, f"Peak flexion {np.max(mean):.1f} out of range"
+        assert 20 <= np.max(mean) <= 40, f"Peak flexion {np.max(mean):.1f} out of range"
 
     def test_hip_peak_extension(self):
         """Peak hip extension should be near -10 degrees."""
@@ -281,10 +283,11 @@ class TestVariableSD:
         assert sd.max() > sd.min(), "Trunk SD should vary across the gait cycle"
 
     def test_pelvis_sd_constant(self):
-        """Pelvis SD can remain constant (acceptable)."""
+        """Pelvis SD stays in a plausible narrow range (the empirical
+        curves carry per-phase SD, no longer an artificial constant)."""
         result = get_normative_curve("pelvis_sagittal", "adult")
         sd = np.array(result["sd"])
-        np.testing.assert_allclose(sd, sd[0], atol=1e-10)
+        assert np.all((sd >= 1.0) & (sd <= 10.0))
 
     def test_hip_sd_higher_at_extremes(self):
         """Hip SD should be higher at cycle extremes (near 0% and 55-65%)
