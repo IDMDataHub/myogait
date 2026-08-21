@@ -72,8 +72,8 @@ pip install myogait[all]
 
 ```python
 import myogait
-print(myogait.__version__)  # 0.3.0
-print(len(myogait.__all__))  # 90+ public functions
+print(myogait.__version__)  # 0.8.0
+print(len(myogait.__all__))  # 140+ public functions
 ```
 
 ---
@@ -101,7 +101,7 @@ The complete pipeline in 6 steps:
 
 ```python
 from myogait import (
-    extract, normalize, compute_angles,
+    extract, normalize, compute_angles, canonicalize_angle_signs,
     detect_events, segment_cycles, analyze_gait
 )
 
@@ -122,7 +122,7 @@ print(f"Angles: {list(data['angles']['frames'][0].keys())}")
 data = canonicalize_angle_signs(data)
 
 # Step 4: Detect events (heel strike, toe off)
-data = detect_events(data, method="gk_bike")
+data = detect_events(data, method="zeni")
 n_hs = len(data["events"]["left_hs"]) + len(data["events"]["right_hs"])
 print(f"{n_hs} heel strikes detected")
 
@@ -164,7 +164,7 @@ data = {
 
 ## 3. Choosing a Pose Backend
 
-### Experimental Input Degradation (AIM Benchmark Only)
+### Experimental Input Degradation (robustness studies)
 
 Use this only for robustness benchmarking. By default, all values are neutral
 and no degradation is applied.
@@ -185,7 +185,7 @@ data = extract(
 )
 ```
 
-### Experimental VICON Alignment (AIM, Single Video)
+### Experimental VICON Alignment (Single Video)
 
 ```python
 from myogait import run_single_trial_vicon_benchmark
@@ -200,7 +200,7 @@ data = run_single_trial_vicon_benchmark(
 print(data["experimental"]["vicon_benchmark"]["metrics"].keys())
 ```
 
-### Experimental Single-Pair Benchmark Runner (AIM Only)
+### Experimental Single-Pair Benchmark Runner
 
 ```python
 from myogait import run_single_pair_benchmark
@@ -227,7 +227,7 @@ manifest = run_single_pair_benchmark(
 print(manifest["summary_csv"])
 ```
 
-This helper is experimental and should only be used for AIM benchmark studies.
+This helper is experimental and intended for validation studies against an optical reference.
 
 ### Quick Comparison
 
@@ -389,67 +389,18 @@ from myogait import foot_progression_angle
 data = foot_progression_angle(data)
 ```
 
-### Landmark Bias Correction (Vicon-Calibrated, Experimental)
+### Advanced: Landmark Bias Calibration (experimental)
 
-> **Do you need this?** Probably not with a strong pose backbone.
-> On the Bath BioCV dataset (lateral view, Sapiens 2 quick vs a
-> correctly-loaded Vicon C3D reference), the *uncorrected* myogait
-> pipeline already matches the projected Vicon kinematics at
-> 3.7–6.1° RMSE (2.4–3.2° after mean-centering) with waveform
-> correlations of 0.92–0.99 for hip, knee **and** ankle, and peak
-> timings within 1–4 % of the cycle. The residual landmark bias is
-> small and subject-specific, so a correction calibrated on other
-> people tends to add noise rather than remove it. Reserve this tool
-> for weaker backbones (e.g. MediaPipe on difficult footage) or for
-> setups where a per-patient reference session is available.
-
-Pose estimators place landmarks with a gait-phase-dependent offset
-relative to marker-based joint centres. Once measured against a
-reference session, it can be subtracted:
-
-```python
-import myogait as mg
-
-# ── One-time calibration against a Vicon reference session ──
-# (repeat over several trials and merge for robustness)
-fits = []
-for json_path, c3d_path, offset_s in reference_pairs:
-    src = mg.load_json(json_path)
-    src = mg.normalize(src, filters=["butterworth"])
-    src = mg.compute_angles(src)
-    src = mg.detect_events(src, method="zeni")
-    cyc = mg.segment_cycles(src)
-    vic = mg.load_c3d(c3d_path)          # convention autodetected
-    vic = mg.normalize(vic, filters=["butterworth"])
-    vic = mg.compute_angles(vic)
-    fits.append(mg.fit_landmark_bias_by_phase(
-        src, vic, cyc, offset_s=offset_s,
-        landmarks=("LEFT_KNEE", "RIGHT_KNEE", "LEFT_ANKLE", "RIGHT_ANKLE")))
-
-bias = mg.merge_landmark_biases(fits)             # weighted average
-bias = mg.smooth_landmark_bias(bias)              # Fourier low-pass (recommended)
-
-# ── Apply to any new recording (same model + camera view) ──
-data = mg.load_json("new_patient.myogait.json")
-data = mg.normalize(data, filters=["butterworth"])
-data = mg.compute_angles(data)
-data = mg.detect_events(data, method="zeni")
-cycles = mg.segment_cycles(data)
-data = mg.apply_landmark_bias_correction(data, bias, cycles)
-data = mg.compute_angles(data)   # re-run: correction invalidates angles
-# do NOT re-run normalize() after the correction — it would smooth it away
-```
-
-**Caveats** (see the `apply_landmark_bias_correction` docstring):
-- Correct knee + ankle **together**; correcting a subset breaks the
-  hip–knee–ankle geometry.
-- Do **not** include heel / foot_index — their "bias" is an anatomical
-  definition mismatch (pose-estimator foot centre vs Vicon MTP marker),
-  and correcting it degrades the ankle angle severely.
-- The bias is specific to (pose model, camera view). Re-calibrate when
-  either changes.
-- Like the LASSO angle corrections, this encodes a healthy-reference
-  prior — prefer per-patient calibration for pathological gait.
+The validated pipeline needs **no angle or landmark correction**: with
+a modern pose backbone it already matches optical motion capture (see
+the Validation section of the README). For weaker backbones, or setups
+where a per-patient optical reference session is available, an
+experimental phase-binned landmark calibration exists
+(`fit_landmark_bias_by_phase` → `merge_landmark_biases` →
+`smooth_landmark_bias` → `apply_landmark_bias_correction`); its
+docstrings carry the full workflow and the measured caveats. The
+legacy LASSO angle corrections are **deprecated** and will be removed
+in 1.0.
 
 ---
 

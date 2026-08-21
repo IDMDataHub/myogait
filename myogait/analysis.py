@@ -105,6 +105,7 @@ def analyze_gait(
     height_m: Optional[float] = None,
     femur_mm: Optional[float] = None,
     foot_mm: Optional[float] = None,
+    femur_ratio: Optional[float] = None,
 ) -> dict:
     """Compute comprehensive gait statistics.
 
@@ -161,8 +162,8 @@ def analyze_gait(
         "clinical_markers": _clinical_markers(cycle_list),
         "regularity": regularity_index(data),
         "harmonic_ratio": harmonic_ratio(data),
-        "step_length": step_length(data, cycles, height_m, femur_mm, foot_mm),
-        "walking_speed": walking_speed(data, cycles, height_m, femur_mm, foot_mm),
+        "step_length": step_length(data, cycles, height_m, femur_mm, foot_mm, femur_ratio),
+        "walking_speed": walking_speed(data, cycles, height_m, femur_mm, foot_mm, femur_ratio),
         "pathologies": detect_pathologies(data, cycles),
         "pathology_flags": [],
     }
@@ -627,6 +628,7 @@ def _estimate_pixel_to_meter_scale(
     height_m: Optional[float] = None,
     femur_mm: Optional[float] = None,
     foot_mm: Optional[float] = None,
+    femur_ratio: Optional[float] = None,
 ) -> float:
     """Pick the best available anthropometric reference and return the
     scale factor (metres per normalised-image unit).
@@ -674,7 +676,8 @@ def _estimate_pixel_to_meter_scale(
     if not scales and height_m is not None:
         px = _median_femur_px()
         if px and px > 0:
-            scales.append((height_m * FEMUR_HEIGHT_RATIO) / px)
+            ratio = femur_ratio if femur_ratio is not None else FEMUR_HEIGHT_RATIO
+            scales.append((height_m * ratio) / px)
 
     if not scales:
         return 1.0
@@ -687,6 +690,7 @@ def step_length(
     height_m: Optional[float] = None,
     femur_mm: Optional[float] = None,
     foot_mm: Optional[float] = None,
+    femur_ratio: Optional[float] = None,
 ) -> dict:
     """Estimate step and stride length from pose data.
 
@@ -754,6 +758,7 @@ def step_length(
     # femur = 24.5 % of height.
     scale = _estimate_pixel_to_meter_scale(
         frames, height_m=height_m, femur_mm=femur_mm, foot_mm=foot_mm,
+        femur_ratio=femur_ratio,
     )
 
     # Compute step lengths (distance between consecutive HS of opposite feet)
@@ -823,6 +828,7 @@ def walking_speed(
     height_m: Optional[float] = None,
     femur_mm: Optional[float] = None,
     foot_mm: Optional[float] = None,
+    femur_ratio: Optional[float] = None,
 ) -> dict:
     """Estimate average walking speed.
 
@@ -864,6 +870,7 @@ def walking_speed(
     # Compute scale factor via the shared helper (same rule as step_length).
     scale = _estimate_pixel_to_meter_scale(
         frames, height_m=height_m_val, femur_mm=femur_mm, foot_mm=foot_mm,
+        femur_ratio=femur_ratio,
     )
 
     cycle_list = cycles.get("cycles", [])
