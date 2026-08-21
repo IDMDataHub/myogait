@@ -546,6 +546,24 @@ C3D_MARKER_CONVENTIONS: Dict[str, Dict[str, List[str]]] = {
         "RIGHT_SHOULDER":   ["RSHO"],
         "NOSE":             ["C7", "CLAV"],
     },
+    # Bath BioCV dataset (Cotton et al.) — explicit anatomical labels
+    # with LEFT_/RIGHT_ prefixes and _L / _R suffixes.  Uses the
+    # already-computed joint centres when available (LEFT_HIP etc.).
+    "bath_biocv": {
+        "LEFT_HIP":         ["LEFT_HIP", "ILCREST_L", "ASIS_L"],
+        "RIGHT_HIP":        ["RIGHT_HIP", "ILCREST_R", "ASIS_R"],
+        "LEFT_KNEE":        ["LEFT_KNEE", "KNEE_LAT_L", "KNEE_MED_L"],
+        "RIGHT_KNEE":       ["RIGHT_KNEE", "KNEE_LAT_R", "KNEE_MED_R"],
+        "LEFT_ANKLE":       ["LEFT_ANKLE", "MAL_LAT_L", "MAL_MED_L", "LAJC"],
+        "RIGHT_ANKLE":      ["RIGHT_ANKLE", "MAL_LAT_R", "MAL_MED_R", "RAJC"],
+        "LEFT_HEEL":        ["HEEL_L"],
+        "RIGHT_HEEL":       ["HEEL_R"],
+        "LEFT_FOOT_INDEX":  ["LEFT_MTP", "TOE_L", "MTP1_L", "MTP5_L", "LTOE"],
+        "RIGHT_FOOT_INDEX": ["RIGHT_MTP", "TOE_R", "MTP1_R", "MTP5_R", "RTOE"],
+        "LEFT_SHOULDER":    ["LEFT_SHO", "ACROM_L"],
+        "RIGHT_SHOULDER":   ["RIGHT_SHO", "ACROM_R"],
+        "NOSE":             ["C7", "CLAV"],
+    },
     # Underscore-prefixed variant (some lab exports).
     "iso_biomechanics_underscore": {
         "LEFT_HIP":         ["L_ASIS", "L_HJC"],
