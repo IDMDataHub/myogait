@@ -721,6 +721,58 @@ def export_excel(
             } for c in cycles["cycles"]]
             pd.DataFrame(rows).to_excel(writer, sheet_name="Cycles", index=False)
 
+            # Biomarkers_per_cycle sheet — one row per cycle with the
+            # full clinical panel (ROM + peaks + angular velocity +
+            # foot-drop + toe-clearance + phase-timing markers).  This
+            # is the sheet clinicians open first: it makes per-cycle
+            # variability visible without having to average anything.
+            fps_bm = data.get("meta", {}).get("fps", 30.0)
+            rows = []
+            for c in cycles["cycles"]:
+                normed = c.get("angles_normalized") or {}
+                row = {
+                    "id": c["cycle_id"],
+                    "side": c["side"],
+                    "duration_s": c["duration"],
+                    "stance_pct": c.get("stance_pct"),
+                    "swing_pct": c.get("swing_pct"),
+                }
+                for j in ("hip", "knee", "ankle", "trunk"):
+                    v = normed.get(j)
+                    if v is None or len(v) != 101:
+                        continue
+                    arr = np.asarray(v, dtype=float)
+                    row[f"{j}_ROM_deg"]       = round(float(np.ptp(arr)), 2)
+                    row[f"{j}_max_deg"]       = round(float(np.max(arr)), 2)
+                    row[f"{j}_min_deg"]       = round(float(np.min(arr)), 2)
+                    row[f"{j}_mean_deg"]      = round(float(np.mean(arr)), 2)
+                    # Angular velocity / acceleration (deg/s, deg/s²)
+                    dt = c["duration"] / 100.0  # cycle normalised over 101 pts
+                    if dt > 0:
+                        vel = np.gradient(arr, dt)
+                        acc = np.gradient(vel, dt)
+                        row[f"{j}_omega_peak_deg_s"]  = round(float(np.max(np.abs(vel))), 1)
+                        row[f"{j}_alpha_peak_deg_s2"] = round(float(np.max(np.abs(acc))), 1)
+                    # Phase-restricted peaks (60-100 % = swing region)
+                    row[f"{j}_peak_swing_deg"]   = round(float(np.max(arr[60:])), 2)
+                    row[f"{j}_peak_stance_deg"]  = round(float(np.max(arr[:60])), 2)
+
+                # SCI-relevant clinical markers per cycle
+                ankle = normed.get("ankle")
+                knee  = normed.get("knee")
+                if ankle is not None and len(ankle) == 101:
+                    row["ankle_at_HS_deg"]      = round(float(np.mean(ankle[:5])), 2)     # foot drop
+                    row["min_ankle_swing_deg"]  = round(float(np.min(ankle[60:])), 2)     # toe clearance
+                if knee is not None and len(knee) == 101:
+                    row["peak_knee_swing_deg"]  = round(float(np.max(knee[60:])), 2)      # stiff-knee marker
+                    # Sub-phase timing (index of key events in % cycle)
+                    row["knee_swing_peak_pct"]  = int(60 + int(np.argmax(knee[60:])))
+
+                rows.append(row)
+            if rows:
+                pd.DataFrame(rows).to_excel(
+                    writer, sheet_name="Biomarkers_per_cycle", index=False)
+
             # Summary sheet (mean curves)
             for side in ("left", "right"):
                 summary = cycles.get("summary", {}).get(side)

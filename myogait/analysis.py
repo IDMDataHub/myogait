@@ -103,6 +103,7 @@ def analyze_gait(
     data: dict,
     cycles: dict,
     height_m: Optional[float] = None,
+    femur_mm: Optional[float] = None,
 ) -> dict:
     """Compute comprehensive gait statistics.
 
@@ -118,7 +119,11 @@ def analyze_gait(
         Output of ``segment_cycles()``.
     height_m : float, optional
         Subject height in meters. Enables calibrated step length
-        and walking speed in m/s.
+        and walking speed in m/s (fallback anthropometric reference).
+    femur_mm : float, optional
+        Subject femur length in millimetres (issue #40).  When
+        provided, used directly as the pixel-to-meter reference and
+        takes precedence over the height-derived estimate.
 
     Returns
     -------
@@ -149,8 +154,8 @@ def analyze_gait(
         "clinical_markers": _clinical_markers(cycle_list),
         "regularity": regularity_index(data),
         "harmonic_ratio": harmonic_ratio(data),
-        "step_length": step_length(data, cycles, height_m),
-        "walking_speed": walking_speed(data, cycles, height_m),
+        "step_length": step_length(data, cycles, height_m, femur_mm),
+        "walking_speed": walking_speed(data, cycles, height_m, femur_mm),
         "pathologies": detect_pathologies(data, cycles),
         "pathology_flags": [],
     }
@@ -603,13 +608,18 @@ def step_length(
     data: dict,
     cycles: dict,
     height_m: Optional[float] = None,
+    femur_mm: Optional[float] = None,
 ) -> dict:
     """Estimate step and stride length from pose data.
 
     Uses the horizontal distance between ankle positions at heel
-    strike. When subject height is provided, calibrates the
-    pixel-to-meter conversion using femur length as an
-    anthropometric reference (~24.5%% of body height).
+    strike.  When subject height is provided, calibrates the
+    pixel-to-meter conversion using femur length as an anthropometric
+    reference (~24.5 % of body height).  When *femur_mm* is provided
+    directly (recommended when you have the measurement — issue #40),
+    it takes precedence over the height-derived estimate and gives a
+    strictly better calibration.  When both are omitted, output is
+    reported in image-normalised units.
 
     Parameters
     ----------
@@ -618,7 +628,11 @@ def step_length(
     cycles : dict
         Output of ``segment_cycles()``.
     height_m : float, optional
-        Subject height in meters for calibration.
+        Subject height in meters for calibration (fallback anthro).
+    femur_mm : float, optional
+        Subject femur length in millimetres.  When provided, used
+        directly as the pixel-to-meter reference instead of the
+        height-derived estimate (issue #40).
 
     Returns
     -------
@@ -651,9 +665,17 @@ def step_length(
         }
 
     # Estimate pixel-to-meter scale
-    # Use femur (hip-knee) length as reference: ~25% of body height
+    # Use femur (hip-knee) length as reference: ~25% of body height,
+    # or the measured femur length directly when *femur_mm* is supplied
+    # (issue #40 — strictly better than the anthropometric estimate).
     scale = 1.0  # pixels per meter (default)
-    if height_m is not None:
+    femur_m_reference: Optional[float] = None
+    if femur_mm is not None:
+        femur_m_reference = femur_mm / 1000.0
+    elif height_m is not None:
+        femur_m_reference = height_m * 0.245     # femur ≈ 24.5 % of height
+
+    if femur_m_reference is not None:
         femur_lengths = []
         for f in frames[:min(60, len(frames))]:
             lm = f.get("landmarks", {})
@@ -665,9 +687,8 @@ def step_length(
                 femur_lengths.append(np.sqrt(dx**2 + dy**2))
         if femur_lengths:
             median_femur_px = np.median(femur_lengths)
-            femur_m = height_m * 0.245  # femur ≈ 24.5% of height
             if median_femur_px > 0:
-                scale = femur_m / median_femur_px
+                scale = femur_m_reference / median_femur_px
 
     # Compute step lengths (distance between consecutive HS of opposite feet)
     all_hs = []
@@ -734,12 +755,15 @@ def walking_speed(
     data: dict,
     cycles: dict,
     height_m: Optional[float] = None,
+    femur_mm: Optional[float] = None,
 ) -> dict:
     """Estimate average walking speed.
 
-    Computes speed as stride_length / stride_time. When height
-    is provided, the result is in m/s; otherwise in normalized
-    units per second.
+    Computes speed as stride_length / stride_time.  When *femur_mm* is
+    provided, uses the measured femur length as the pixel-to-meter
+    reference (recommended, issue #40); otherwise falls back to
+    *height_m* × 0.245.  When neither is provided, output is in
+    normalised units per second.
 
     Parameters
     ----------
@@ -773,9 +797,16 @@ def walking_speed(
             ),
         }
 
-    # Compute scale factor (same logic as step_length)
+    # Compute scale factor (same logic as step_length).
+    # femur_mm (issue #40) takes precedence over the height-derived
+    # estimate when supplied.
     scale = 1.0
-    if height_m_val:
+    femur_m_reference = None
+    if femur_mm is not None:
+        femur_m_reference = femur_mm / 1000.0
+    elif height_m_val:
+        femur_m_reference = height_m_val * 0.245
+    if femur_m_reference is not None:
         femur_lengths = []
         for f in frames:
             lm = f.get("landmarks", {})
@@ -787,9 +818,8 @@ def walking_speed(
                 femur_lengths.append(np.sqrt(dx**2 + dy**2))
         if femur_lengths:
             median_femur_px = np.median(femur_lengths)
-            femur_m = height_m_val * 0.245
             if median_femur_px > 0:
-                scale = femur_m / median_femur_px
+                scale = femur_m_reference / median_femur_px
 
     cycle_list = cycles.get("cycles", [])
 

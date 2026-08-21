@@ -367,6 +367,18 @@ def _detect_walking_direction(data: dict) -> str:
         ``"left_to_right"`` or ``"right_to_left"``. Defaults to
         ``"left_to_right"`` if no signal can be computed.
     """
+    # If extract() already mirrored the frames so the subject walks
+    # left-to-right (``flip_if_right=True``, the default), the landmarks
+    # we see here are in left-to-right coordinate space *by
+    # construction*.  Re-detecting the direction from those already-
+    # mirrored coordinates can vote right_to_left (asymmetric noise on
+    # the 4 signals) and trigger a *second* mirror at lines below —
+    # both the "hip sign flipped in the PDF" and the "cycles look
+    # strange when the subject walks right-to-left" issues trace back to
+    # this double correction.  Trust the flip flag; skip re-detection.
+    if data.get("extraction", {}).get("was_flipped") is True:
+        return "left_to_right"
+
     frames = data.get("frames", [])
     if len(frames) < 2:
         return "left_to_right"
