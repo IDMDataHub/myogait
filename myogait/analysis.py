@@ -125,6 +125,12 @@ def analyze_gait(
         Subject femur length in millimetres.
     foot_mm : float, optional
         Subject foot length (heel → longest toe) in millimetres.
+    femur_ratio : float, optional
+        Femur-length-to-stature ratio used with ``height_m`` when no
+        measured femur is available.  Defaults to the healthy-adult
+        :data:`FEMUR_HEIGHT_RATIO` (0.245, Winter 2009); override for
+        populations where that average does not hold (pediatric,
+        contractures, bone deformity).
 
     Note
     ----
@@ -637,7 +643,8 @@ def _estimate_pixel_to_meter_scale(
     - ``femur_mm`` + ``foot_mm``: average of both independent scales.
     - ``femur_mm`` alone: use femur length directly.
     - ``foot_mm`` alone: use foot length (heel → LEFT_FOOT_INDEX).
-    - ``height_m`` alone: femur ≈ 24.5 % of height (fallback).
+    - ``height_m`` alone: femur ≈ ``femur_ratio`` × height (default
+      :data:`FEMUR_HEIGHT_RATIO` = 0.245, Winter 2009).
     - Nothing → returns 1.0 (image-normalised output).
     """
     def _median_femur_px() -> Optional[float]:
@@ -704,7 +711,8 @@ def step_length(
        directly (issue #40 quick-fix).
     3. **Foot only** (``foot_mm``): use the measured foot length
        (heel → toe distance).
-    4. **Height** (``height_m``): derive femur as 24.5 % of height
+    4. **Height** (``height_m``): derive femur as ``femur_ratio`` ×
+       height (default :data:`FEMUR_HEIGHT_RATIO`)
        (fallback anthropometric estimate).
     5. None → output in image-normalised units.
 
@@ -720,6 +728,9 @@ def step_length(
         Subject femur length in millimetres.
     foot_mm : float, optional
         Subject foot length (heel → longest toe) in millimetres.
+    femur_ratio : float, optional
+        Femur/stature ratio for the ``height_m`` fallback (default
+        :data:`FEMUR_HEIGHT_RATIO`).
 
     Returns
     -------
@@ -843,6 +854,11 @@ def walking_speed(
         Output of ``segment_cycles()``.
     height_m : float, optional
         Subject height in meters.
+    femur_mm, foot_mm : float, optional
+        Measured segment lengths in millimetres (preferred references).
+    femur_ratio : float, optional
+        Femur/stature ratio for the ``height_m`` fallback (default
+        :data:`FEMUR_HEIGHT_RATIO`).
 
     Returns
     -------

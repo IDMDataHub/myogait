@@ -3,6 +3,36 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.8.1] — 2026-08-21
+
+Technical release: post-audit hardening and documentation pass.
+
+### Added
+- `available_models()` — non-destructive backend discovery via
+  `importlib.util.find_spec` (including secondary requirements), so a
+  UI can grey out unavailable backends without importing anything.
+- `myogait.exceptions` — dedicated error hierarchy (`MyogaitError`
+  root) that also inherits the historical builtins, so existing
+  `except ValueError` handlers keep working. Adopted at the
+  unreadable-video and missing-backend sites.
+- `segment_cycles(min_confidence=…, min_coherence=…)` — optional
+  per-cycle quality gates on landmark confidence / frame coherence;
+  rejections reported in `summary["n_rejected_quality"]`.
+- `femur_ratio` parameter on `analyze_gait`, `step_length` and
+  `walking_speed` (defaults to the documented `FEMUR_HEIGHT_RATIO`).
+- CI: `backend-mediapipe` job running a real end-to-end extraction,
+  so the badge finally covers an actual pose backend.
+
+### Changed
+- `ensure_xpu_torch()` is strictly opt-in: by default it only warns
+  with the manual install command; the pip-reinstall + process-restart
+  path requires `auto_upgrade=True` or `MYOGAIT_AUTO_XPU=1`.
+- GPU extractors explicitly release CUDA/XPU cached memory in
+  `teardown()` (`BasePoseExtractor.release_gpu_memory()`).
+- README: validation figure (video vs optical capture, three healthy
+  adults) and feature list regrouped by theme; tutorial trimmed of
+  deprecated workflows.
+
 ## [0.8.0] — 2026-08-21
 
 The accuracy & validation release. Every change below came out of a

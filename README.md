@@ -41,10 +41,10 @@ Every step remains available individually; see the
 ![Video vs optical motion capture — mean gait cycles](docs/images/validation_curves.png)
 
 *Sagittal joint angles over the gait cycle: myogait from a single lateral
-video (blue) vs marker-based optical capture (black), mean ± SD over 19
-paired trials of a healthy adult. Waveforms and peak timings superimpose;
-the visible hip offset is a stable zero-definition difference,
-calibratable per site.*
+video (blue) vs marker-based optical capture (black), mean ± SD pooled
+over three healthy adults (~30 paired trials each side). Waveforms and
+peak timings superimpose across all three joints; the small hip offset is
+a stable zero-definition difference, calibratable per site.*
 
 myogait's sagittal kinematics have been validated against optical
 motion capture (Vicon, marker-based) on healthy adults across **two
