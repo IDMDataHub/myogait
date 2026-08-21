@@ -272,3 +272,28 @@ def test_run_pipeline_on_json(tmp_path):
     assert isinstance(result["cycles"].get("cycles", []), list)
     # diagnostics-friendly structure
     assert set(result) >= {"data", "cycles", "stats", "source_type"}
+
+
+# ── cycle quality gate ───────────────────────────────────────────────
+
+
+def test_segment_cycles_confidence_gate():
+    data = make_walking_data(n_frames=240)
+    data = mg.compute_angles(data, calibrate=False)
+    data = mg.detect_events(data, method="zeni", trim_standstill=False,
+                             min_cycle_duration=0.6)
+    base = mg.segment_cycles(data, min_duration=0.8, max_duration=1.5)
+    n_base = len(base["cycles"])
+    if n_base == 0:
+        import pytest
+        pytest.skip("no cycles from synthetic walk")
+    # All-pass gate (fixture confidence = 0.95)
+    ok = mg.segment_cycles(data, min_duration=0.8, max_duration=1.5,
+                            min_confidence=0.5)
+    assert len(ok["cycles"]) == n_base
+    assert ok["summary"]["n_rejected_quality"] == 0
+    # All-reject gate
+    rej = mg.segment_cycles(data, min_duration=0.8, max_duration=1.5,
+                             min_confidence=0.99)
+    assert len(rej["cycles"]) == 0
+    assert rej["summary"]["n_rejected_quality"] == n_base

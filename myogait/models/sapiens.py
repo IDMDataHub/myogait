@@ -359,6 +359,7 @@ class _PersonDetector:
 
     def teardown(self):
         self._model = None
+        self.release_gpu_memory()
 
 
 def _crop_and_pad(frame_bgr: np.ndarray, bbox, pad_ratio=_BBOX_PAD_RATIO):
@@ -453,6 +454,7 @@ def _make_sapiens_extractor(name, model_size, label):
         def teardown(self):
             self._model = None
             self._device = None
+            self.release_gpu_memory()
 
         def process_frame(self, frame_rgb: np.ndarray) -> Optional[dict]:
             if self._model is None:

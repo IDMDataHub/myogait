@@ -147,6 +147,16 @@ from .experimental_vicon import (
     run_single_trial_vicon_benchmark,
 )
 from .pipeline import run_pipeline
+from . import exceptions
+from .exceptions import (
+    MyogaitError,
+    ExtractionError,
+    UnreadableVideoError,
+    NoPersonDetectedError,
+    InvalidPivotError,
+    MissingDependencyError,
+    InvalidC3DError,
+)
 from .experimental_benchmark import (
     DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG,
     build_single_pair_benchmark_config,
@@ -251,6 +261,14 @@ __all__ = [
     "save_json",
     "set_subject",
     "run_pipeline",
+    "exceptions",
+    "MyogaitError",
+    "ExtractionError",
+    "UnreadableVideoError",
+    "NoPersonDetectedError",
+    "InvalidPivotError",
+    "MissingDependencyError",
+    "InvalidC3DError",
     "plot_angles",
     "plot_cycles",
     "plot_events",

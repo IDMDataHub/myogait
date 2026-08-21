@@ -145,6 +145,8 @@ def segment_cycles(
     n_points: int = 101,
     min_duration: float = 0.4,
     max_duration: float = 2.5,
+    min_confidence: float = None,
+    min_coherence: float = None,
 ) -> dict:
     """Segment gait data into cycles and compute normalized averages.
 
@@ -162,6 +164,16 @@ def segment_cycles(
         Minimum valid cycle duration in seconds (default 0.4).
     max_duration : float, optional
         Maximum valid cycle duration in seconds (default 2.5).
+    min_confidence : float, optional
+        Quality gate: reject a cycle whose mean per-frame landmark
+        ``confidence`` over its span is below this threshold (0-1).
+        ``None`` (default) disables the gate.  Rejections are counted
+        in the returned ``summary["n_rejected_quality"]``.
+    min_coherence : float, optional
+        Quality gate on the per-frame biomechanical ``coherence`` score
+        (populated by :func:`myogait.frame_coherence_score`); a cycle
+        whose mean coherence is below the threshold is rejected.
+        Silently inactive when coherence scores are absent.
 
     Returns
     -------
@@ -188,6 +200,24 @@ def segment_cycles(
     fps = data.get("meta", {}).get("fps", 30.0)
     angle_frames = angles.get("frames", [])
 
+    # Per-frame quality series for the optional cycle gates, indexed by
+    # original frame_idx (raw frames may be head-trimmed).
+    quality_conf = {}
+    quality_coh = {}
+    if min_confidence is not None or min_coherence is not None:
+        for i, f in enumerate(data.get("frames", [])):
+            fi = f.get("frame_idx", i)
+            if f.get("confidence") is not None:
+                quality_conf[fi] = float(f["confidence"])
+            if f.get("coherence") is not None:
+                quality_coh[fi] = float(f["coherence"])
+
+    def _mean_quality(series, start, end):
+        vals = [series[fi] for fi in range(start, end + 1) if fi in series]
+        return float(np.mean(vals)) if vals else None
+
+    n_rejected_quality = 0
+
     cycles = []
     cycle_id = 0
 
@@ -212,6 +242,24 @@ def segment_cycles(
             if duration < min_duration or duration > max_duration:
                 logger.debug(f"Cycle {side} {start_frame}-{end_frame} rejected: {duration:.2f}s")
                 continue
+
+            # Optional quality gates (landmark confidence / coherence)
+            if min_confidence is not None:
+                q = _mean_quality(quality_conf, start_frame, end_frame)
+                if q is not None and q < min_confidence:
+                    logger.debug(
+                        f"Cycle {side} {start_frame}-{end_frame} rejected: "
+                        f"mean confidence {q:.2f} < {min_confidence}")
+                    n_rejected_quality += 1
+                    continue
+            if min_coherence is not None:
+                q = _mean_quality(quality_coh, start_frame, end_frame)
+                if q is not None and q < min_coherence:
+                    logger.debug(
+                        f"Cycle {side} {start_frame}-{end_frame} rejected: "
+                        f"mean coherence {q:.2f} < {min_coherence}")
+                    n_rejected_quality += 1
+                    continue
 
             # Find toe-off within cycle
             to_frame = _find_to_between(to_sorted, start_frame, end_frame)
@@ -247,6 +295,8 @@ def segment_cycles(
 
     # Compute summary statistics
     summary = {}
+    if min_confidence is not None or min_coherence is not None:
+        summary["n_rejected_quality"] = n_rejected_quality
     for side in ("left", "right"):
         side_cycles = [c for c in cycles if c["side"] == side]
         if not side_cycles:

@@ -123,6 +123,7 @@ class ViTPosePoseExtractor(BasePoseExtractor):
         self._pose_model = None
         self._pose_processor = None
         self._device = None
+        self.release_gpu_memory()
 
     def process_frame(self, frame_rgb: np.ndarray) -> Optional[np.ndarray]:
         if self._pose_model is None:

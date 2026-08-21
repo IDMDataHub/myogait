@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Optional
 
 import cv2
+
+from .exceptions import UnreadableVideoError
 import numpy as np
 
 from .constants import (
@@ -454,7 +456,7 @@ def extract(
     # Open video for metadata
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        raise ValueError(f"Cannot open video: {video_path}")
+        raise UnreadableVideoError(f"Cannot open video: {video_path}")
 
     source_fps = cap.get(cv2.CAP_PROP_FPS)
     source_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -1471,7 +1473,7 @@ def auto_crop_roi(
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        raise ValueError(f"Cannot open video: {video_path}")
+        raise UnreadableVideoError(f"Cannot open video: {video_path}")
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))

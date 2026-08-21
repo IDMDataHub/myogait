@@ -49,18 +49,27 @@ def letterbox_resize(img, target_w, target_h):
     return canvas, pad_left, pad_top, new_w, new_h
 
 
-def ensure_xpu_torch():
-    """On Windows, auto-upgrade CPU-only PyTorch to the XPU build.
+def ensure_xpu_torch(auto_upgrade: bool = False):
+    """On Windows, detect a CPU-only PyTorch when an Intel XPU build is
+    needed — and (only on explicit opt-in) upgrade and restart.
 
-    PyPI distributes a CPU-only ``torch`` wheel for Windows.  Intel Arc / Xe
-    GPUs require the XPU build from PyTorch's dedicated index.  This function
-    detects the situation, upgrades ``torch`` automatically, and **restarts
-    the current Python process** so the new build is loaded transparently.
+    PyPI distributes a CPU-only ``torch`` wheel for Windows; Intel
+    Arc / Xe GPUs require the XPU build from PyTorch's dedicated index.
 
-    Call this in every extractor's ``setup()`` before touching the GPU.
-    On Linux/macOS or when CUDA/XPU is already available the function is a
+    By default this function only **detects and warns** with the manual
+    install command.  The automatic path — a synchronous
+    ``pip install --force-reinstall`` followed by ``os.execv`` that
+    **replaces the current process** — is destructive inside any
+    long-lived host (a web app, a notebook kernel, a job runner: every
+    concurrent session dies), so it never runs implicitly.  Opt in
+    with ``auto_upgrade=True`` or the environment variable
+    ``MYOGAIT_AUTO_XPU=1`` (intended for the ``myogait setup-sapiens2``
+    CLI and other single-purpose processes).
+
+    On Linux/macOS, or when CUDA/XPU is already available, this is a
     no-op.
     """
+    import os
     import platform
 
     if platform.system() != "Windows":
@@ -80,12 +89,24 @@ def ensure_xpu_torch():
     if not _is_cpu_build:
         return
 
+    if not (auto_upgrade or os.environ.get("MYOGAIT_AUTO_XPU") == "1"):
+        logger.warning(
+            "Detected CPU-only PyTorch (%s) on Windows — Intel Arc/Xe GPUs "
+            "need the XPU build. Install it manually:\n"
+            "  pip install torch --index-url "
+            "https://download.pytorch.org/whl/xpu\n"
+            "(or opt in to automatic upgrade+restart with "
+            "ensure_xpu_torch(auto_upgrade=True) / MYOGAIT_AUTO_XPU=1 — "
+            "never do this inside a shared or long-lived process).",
+            torch.__version__,
+        )
+        return
+
     logger.warning(
         "Detected CPU-only PyTorch (%s) on Windows. "
         "Upgrading to XPU build for Intel Arc GPU support...",
         torch.__version__,
     )
-    import os
     import subprocess
     import sys
 
@@ -157,3 +178,26 @@ class BasePoseExtractor(ABC):
     def teardown(self):
         """Release model resources. Called after processing ends."""
         pass
+
+    @staticmethod
+    def release_gpu_memory():
+        """Explicitly return freed tensors to the CUDA/XPU allocator.
+
+        Dropping the last reference to a model (``self._model = None``)
+        releases tensors to *PyTorch's caching allocator*, not to the
+        device: on a long-lived process that cycles through heavy
+        models (Sapiens 2 up to 5B parameters), VRAM stays reserved and
+        fragments across sessions.  GPU extractors should call this at
+        the end of ``teardown()``.  Safe no-op when torch or the device
+        is absent.
+        """
+        try:
+            import gc
+            import torch
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if hasattr(torch, "xpu") and torch.xpu.is_available():
+                torch.xpu.empty_cache()
+        except Exception:  # never let cleanup raise
+            pass

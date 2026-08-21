@@ -149,6 +149,7 @@ class SapiensSegEstimator:
     def teardown(self):
         self._model = None
         self._device = None
+        self.release_gpu_memory()
 
     def process_frame(self, frame_rgb: np.ndarray) -> np.ndarray:
         """Return (H, W) segmentation mask with class indices 0-27."""

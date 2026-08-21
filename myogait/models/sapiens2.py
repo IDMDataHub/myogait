@@ -453,6 +453,7 @@ def _make_sapiens2_extractor(name, model_size, label):
         def teardown(self):
             self._model = None
             self._device = None
+            self.release_gpu_memory()
 
         def process_frame(self, frame_rgb: np.ndarray) -> Optional[dict]:
             if self._model is None:
