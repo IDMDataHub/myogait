@@ -823,6 +823,7 @@ def compute_angles(
     apply_aspect_ratio: bool = True,
     calibration_dynamic_fallback: bool = True,
     calibration_min_std_deg: float = 1.0,
+    calibration_max_offset_deg: float = 25.0,
 ) -> dict:
     """Compute joint angles and add to pivot JSON.
 
@@ -859,6 +860,15 @@ def compute_angles(
         calibration window.  Below this threshold, the window is
         considered static and ``calibration_dynamic_fallback`` kicks
         in (default 1.0°).
+    calibration_max_offset_deg : float, optional
+        Maximum plausible magnitude for a neutral-calibration offset
+        (default 25.0°).  If the estimated offset for a joint exceeds
+        this, the "neutral" reference window almost certainly caught
+        mid-gait motion rather than a standing pose (common for
+        walkway clips that start mid-stride); the calibration is then
+        skipped for that joint to avoid shifting its curve into a
+        non-physiological range.  Set to ``float("inf")`` to disable
+        the guard.
     min_confidence : float, optional
         Skip angle computation on frames with confidence below this
         threshold (default 0.0, i.e. compute on all frames).  Skipped
@@ -1058,6 +1068,23 @@ def compute_angles(
             elif all_vals:
                 offset = float(np.median(all_vals))
             else:
+                continue
+
+            # Sanity guard: neutral calibration assumes the reference
+            # window is a near-neutral pose, so its offset should be
+            # small.  A large offset means the "neutral" window actually
+            # caught mid-gait motion (e.g. a walkway clip that starts
+            # mid-stride with no standing prelude) — subtracting it would
+            # shift the whole joint curve by tens of degrees into a
+            # non-physiological range.  Skip calibration for that joint
+            # rather than corrupt it.
+            if abs(offset) > calibration_max_offset_deg:
+                logger.warning(
+                    "calibration: %s offset %.1f° exceeds %.1f° — no "
+                    "reliable neutral pose (clip likely starts mid-gait); "
+                    "leaving %s uncalibrated.",
+                    key, offset, calibration_max_offset_deg, key,
+                )
                 continue
 
             for af in angle_frames:
