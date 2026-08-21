@@ -773,6 +773,13 @@ def load_c3d(
     # ── Resolve landmarks → 2-D sagittal coords per frame ──
     # For each landmark: pick the first available marker or average all found.
     # Then project: x = ap_axis component, y = -vertical_axis component.
+    #
+    # ezc3d fills missing/occluded samples with an exact (0,0,0) triplet
+    # rather than NaN.  Left as-is, those zeros drag the global min/max
+    # used for normalisation far outside the true motion range and squash
+    # every real trajectory into a narrow band — corrupting every metric
+    # downstream.  Convert them to NaN before averaging so nanmin/nanmax
+    # ignore them.
     raw: Dict[str, np.ndarray] = {}  # landmark → (n_frames, 2)
     for lm_name, candidates in mapping.items():
         found = [label_idx[mk] for mk in candidates if mk in label_idx]
@@ -780,7 +787,10 @@ def load_c3d(
             logger.debug("C3D: no marker found for %s (tried %s)", lm_name, candidates)
             continue
         # points shape: (4, n_markers, n_frames) → take XYZ (first 3 rows)
-        pts = points[:3, found, :]  # (3, n_found, n_frames)
+        pts = points[:3, found, :].astype(float, copy=True)  # (3, n_found, n_frames)
+        # Mark frames where all three coords are exactly zero as missing.
+        missing = (pts == 0.0).all(axis=0)  # (n_found, n_frames)
+        pts[:, missing] = np.nan
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             avg = np.nanmean(pts, axis=1)  # (3, n_frames)
