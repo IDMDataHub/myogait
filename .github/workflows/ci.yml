@@ -81,7 +81,9 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1 libglib2.0-0
+          # libegl1/libgles2: MediaPipe's Tasks API dlopens libEGL.so.1
+          # even for CPU inference on headless runners.
+          sudo apt-get install -y libgl1 libglib2.0-0 libegl1 libgles2
 
       - name: Install with mediapipe backend
         run: |
