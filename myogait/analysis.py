@@ -635,9 +635,20 @@ def _estimate_pixel_to_meter_scale(
     femur_mm: Optional[float] = None,
     foot_mm: Optional[float] = None,
     femur_ratio: Optional[float] = None,
+    width: float = 1.0,
+    height: float = 1.0,
 ) -> float:
     """Pick the best available anthropometric reference and return the
-    scale factor (metres per normalised-image unit).
+    scale factor (metres per **source pixel**).
+
+    Landmarks are normalised per axis (x / image-width, y / image-height),
+    so on a non-square frame one x-unit and one y-unit span different
+    real distances.  Reference segments and gait distances are therefore
+    de-normalised to source pixels (``x·width``, ``y·height``) before the
+    ratio is taken, making the scale isotropic — a mostly-vertical
+    reference (femur) can then be applied to a horizontal distance (step
+    length) without an aspect-ratio error.  With ``width = height = 1``
+    the behaviour is the historical metres-per-normalised-unit scale.
 
     Order of preference:
     - ``femur_mm`` + ``foot_mm``: average of both independent scales.
@@ -645,8 +656,11 @@ def _estimate_pixel_to_meter_scale(
     - ``foot_mm`` alone: use foot length (heel → LEFT_FOOT_INDEX).
     - ``height_m`` alone: femur ≈ ``femur_ratio`` × height (default
       :data:`FEMUR_HEIGHT_RATIO` = 0.245, Winter 2009).
-    - Nothing → returns 1.0 (image-normalised output).
+    - Nothing → returns 1.0.
     """
+    sx = float(width) if width else 1.0
+    sy = float(height) if height else 1.0
+
     def _median_femur_px() -> Optional[float]:
         femur_lengths = []
         for f in frames[:min(60, len(frames))]:
@@ -654,8 +668,8 @@ def _estimate_pixel_to_meter_scale(
             hip = lm.get("LEFT_HIP")
             knee = lm.get("LEFT_KNEE")
             if hip and knee and hip.get("x") is not None and knee.get("x") is not None:
-                dx = hip["x"] - knee["x"]
-                dy = hip["y"] - knee["y"]
+                dx = (hip["x"] - knee["x"]) * sx
+                dy = (hip["y"] - knee["y"]) * sy
                 femur_lengths.append(np.sqrt(dx**2 + dy**2))
         return float(np.median(femur_lengths)) if femur_lengths else None
 
@@ -666,8 +680,8 @@ def _estimate_pixel_to_meter_scale(
             heel = lm.get("LEFT_HEEL") or lm.get("RIGHT_HEEL")
             toe  = lm.get("LEFT_FOOT_INDEX") or lm.get("RIGHT_FOOT_INDEX")
             if heel and toe and heel.get("x") is not None and toe.get("x") is not None:
-                dx = heel["x"] - toe["x"]
-                dy = heel["y"] - toe["y"]
+                dx = (heel["x"] - toe["x"]) * sx
+                dy = (heel["y"] - toe["y"]) * sy
                 foot_lengths.append(np.sqrt(dx**2 + dy**2))
         return float(np.median(foot_lengths)) if foot_lengths else None
 
@@ -767,9 +781,12 @@ def step_length(
     # estimates (best precision).  femur_mm alone (issue #40) or foot_mm
     # alone → use that reference directly.  Otherwise fall back to
     # femur = 24.5 % of height.
+    meta = data.get("meta", {})
+    img_w = float(meta.get("width") or 1.0)
+    img_h = float(meta.get("height") or 1.0)
     scale = _estimate_pixel_to_meter_scale(
         frames, height_m=height_m, femur_mm=femur_mm, foot_mm=foot_mm,
-        femur_ratio=femur_ratio,
+        femur_ratio=femur_ratio, width=img_w, height=img_h,
     )
 
     # Compute step lengths (distance between consecutive HS of opposite feet)
@@ -797,7 +814,7 @@ def step_length(
         x1 = lm1.get("x")
         x2 = lm2.get("x")
         if x1 is not None and x2 is not None:
-            dist = abs(x2 - x1) * scale
+            dist = abs((x2 - x1) * img_w) * scale
             step_lengths[side].append(dist)
 
     # Stride lengths from cycles
@@ -813,7 +830,7 @@ def step_length(
         x1 = lm1.get("x")
         x2 = lm2.get("x")
         if x1 is not None and x2 is not None:
-            dist = abs(x2 - x1) * scale
+            dist = abs((x2 - x1) * img_w) * scale
             stride_lengths[c["side"]].append(dist)
 
     def _mean_or_none(vals):
@@ -884,9 +901,12 @@ def walking_speed(
         }
 
     # Compute scale factor via the shared helper (same rule as step_length).
+    meta = data.get("meta", {})
+    img_w = float(meta.get("width") or 1.0)
+    img_h = float(meta.get("height") or 1.0)
     scale = _estimate_pixel_to_meter_scale(
         frames, height_m=height_m_val, femur_mm=femur_mm, foot_mm=foot_mm,
-        femur_ratio=femur_ratio,
+        femur_ratio=femur_ratio, width=img_w, height=img_h,
     )
 
     cycle_list = cycles.get("cycles", [])
@@ -904,7 +924,7 @@ def walking_speed(
         x1 = lm1.get("x")
         x2 = lm2.get("x")
         if x1 is not None and x2 is not None and c["duration"] > 0:
-            stride_l = abs(x2 - x1) * scale
+            stride_l = abs((x2 - x1) * img_w) * scale
             speeds[side].append(stride_l / c["duration"])
 
     def _mean_or_none(vals):

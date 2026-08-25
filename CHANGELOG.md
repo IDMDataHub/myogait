@@ -3,6 +3,23 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.8.2] — 2026-08-25
+
+Bug-fix release: correct spatial scaling of gait distances.
+
+### Fixed
+- `step_length` / `walking_speed`: distances are now de-normalised to
+  source pixels before the anthropometric scale is applied. Landmarks
+  are normalised per axis (`x / width`, `y / height`), so on a
+  non-square frame one x-unit and one y-unit span different real
+  distances. The metric scale is derived mostly from the (vertical)
+  femur but a step is a (horizontal) antero-posterior distance, so the
+  previous code under-estimated step/stride length by roughly the image
+  aspect ratio on landscape footage (e.g. ~1.78× on 16:9). The scale is
+  now isotropic (metres per source pixel), fixing step length, stride
+  length and walking speed. When frame dimensions are unavailable the
+  behaviour is unchanged (unit scale).
+
 ## [0.8.1] — 2026-08-21
 
 Technical release: post-audit hardening and documentation pass.
