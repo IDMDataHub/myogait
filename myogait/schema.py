@@ -19,9 +19,12 @@ set_subject
 
 import enum
 import json
+import os
+import tempfile
+
 import numpy as np
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, BinaryIO, Optional, TextIO, Union
 
 
 def _convert_numpy(obj: Any) -> Any:
@@ -208,11 +211,27 @@ def save_json(data: dict, path: Union[str, Path], indent: int = 2) -> None:
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(dumps_json_safe(data, indent=indent))
+    # Serialize before touching the destination: an unsupported value must not
+    # truncate a previously valid pivot. Replacing a closed temporary file is
+    # atomic on the local filesystems the application supports.
+    payload = dumps_json_safe(data, indent=indent)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
-def load_json(path: Union[str, Path]) -> dict:
+def load_json(path: Union[str, Path, TextIO, BinaryIO]) -> dict:
     """Load and validate a pivot JSON file.
 
     Parameters
@@ -232,12 +251,14 @@ def load_json(path: Union[str, Path]) -> dict:
     ValueError
         If the JSON content is not a valid pivot format.
     """
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"File not found: {path}")
-
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+    if hasattr(path, "read"):
+        data = json.load(path)
+    else:
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {path}")
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
 
     if not isinstance(data, dict):
         raise ValueError("JSON root must be a dict")

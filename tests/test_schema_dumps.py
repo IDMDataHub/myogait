@@ -5,13 +5,14 @@ scalars, pathlib.Path and enum.Enum values embedded in user-provided dicts.
 """
 
 import enum
+import io
 import json
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from myogait.schema import dumps_json_safe
+from myogait.schema import dumps_json_safe, load_json, save_json
 
 
 class _Side(enum.Enum):
@@ -78,3 +79,21 @@ def test_unicode_preserved():
 def test_unserializable_object_raises_type_error():
     with pytest.raises(TypeError):
         dumps_json_safe({"bad": object()})
+
+
+def test_load_json_accepts_a_binary_stream():
+    data = load_json(io.BytesIO(b'{"meta": {"fps": 30}, "frames": []}'))
+
+    assert data["meta"]["fps"] == 30
+    assert data["frames"] == []
+
+
+def test_save_json_preserves_an_existing_pivot_when_serialization_fails(tmp_path):
+    target = tmp_path / "pivot.json"
+    target.write_text('{"meta": {}, "frames": []}', encoding="utf-8")
+
+    with pytest.raises(TypeError):
+        save_json({"meta": {}, "frames": [], "unsupported": object()}, target)
+
+    assert json.loads(target.read_text(encoding="utf-8")) == {"meta": {}, "frames": []}
+    assert not list(tmp_path.glob(".pivot.json.*.tmp"))
