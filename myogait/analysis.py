@@ -440,6 +440,22 @@ def _detect_flags(stats: dict) -> List[str]:
 # ── Regularity index (autocorrelation) ───────────────────────────────
 
 
+def _positive_autocorrelation(signal: np.ndarray) -> np.ndarray:
+    """Return normalized non-negative-lag autocorrelation efficiently.
+
+    SciPy selects the direct implementation for short recordings and an FFT
+    implementation for long recordings. The latter avoids the quadratic cost
+    of ``numpy.correlate`` for multi-minute acquisitions while preserving the
+    same autocorrelation values up to floating-point precision.
+    """
+    from scipy.signal import correlate
+
+    n_samples = len(signal)
+    autocorr = correlate(signal, signal, mode="full", method="auto")[n_samples - 1 :]
+    energy = autocorr[0]
+    return autocorr / energy if energy else np.zeros_like(autocorr)
+
+
 def regularity_index(data: dict, signal_key: str = "LEFT_ANKLE") -> dict:
     """Compute stride regularity using autocorrelation.
 
@@ -488,10 +504,7 @@ def regularity_index(data: dict, signal_key: str = "LEFT_ANKLE") -> dict:
     y = y - np.mean(y)
 
     # Autocorrelation (unbiased)
-    n = len(y)
-    autocorr = np.correlate(y, y, mode="full")
-    autocorr = autocorr[n - 1:]  # positive lags only
-    autocorr = autocorr / autocorr[0]  # normalize
+    autocorr = _positive_autocorrelation(y)
 
     # Expected step period: ~0.4-0.7s → 12-21 frames at 30fps
     min_lag = max(1, int(0.3 * fps))
