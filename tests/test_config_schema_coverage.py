@@ -75,3 +75,16 @@ def test_load_config_does_not_share_subdicts_with_defaults(tmp_path):
     original = DEFAULT_CONFIG[probe_key][probe_sub]
     merged[probe_key][probe_sub] = "corrupted"
     assert DEFAULT_CONFIG[probe_key][probe_sub] == original
+
+
+def test_deep_merge_does_not_alias_the_override_values():
+    from myogait.config import deep_merge
+
+    base = {"nested": {"defaults": [1]}, "other": 1}
+    override = {"nested": {"provided": [2]}}
+    merged = deep_merge(base, override)
+    merged["nested"]["defaults"].append(3)
+    merged["nested"]["provided"].append(4)
+
+    assert base == {"nested": {"defaults": [1]}, "other": 1}
+    assert override == {"nested": {"provided": [2]}}

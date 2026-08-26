@@ -18,6 +18,7 @@ DEFAULT_CONFIG : dict
 """
 
 import json
+import copy
 import logging
 from pathlib import Path
 from typing import Union
@@ -127,12 +128,8 @@ def load_config(path: Union[str, Path]) -> dict:
     if not isinstance(cfg, dict):
         raise ValueError("Config must be a dict")
 
-    # Merge with defaults.  deepcopy is required: a shallow copy would
-    # leave every sub-dict not overridden by the user's file SHARED with
-    # DEFAULT_CONFIG, so mutating one loaded config would silently
-    # corrupt the defaults for every other consumer in the process.
-    import copy
-    merged = _deep_merge(copy.deepcopy(DEFAULT_CONFIG), cfg)
+    # Merge with defaults without retaining references to either input.
+    merged = deep_merge(DEFAULT_CONFIG, cfg)
     logger.info(f"Loaded config from {path}")
     return merged
 
@@ -176,12 +173,17 @@ def save_config(config: dict, path: Union[str, Path]) -> str:
     return str(path)
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
-    """Recursively merge override into base."""
-    result = base.copy()
-    for k, v in override.items():
-        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-            result[k] = _deep_merge(result[k], v)
+def deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge mappings without sharing mutable input values."""
+    result = copy.deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = deep_merge(result[key], value)
         else:
-            result[k] = v
+            result[key] = copy.deepcopy(value)
     return result
+
+
+# Kept private as a compatibility alias for older internal callers.
+def _deep_merge(base: dict, override: dict) -> dict:
+    return deep_merge(base, override)

@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from .config import deep_merge
 from .extract import extract
 from .normalize import normalize
 from .angles import compute_angles
@@ -64,21 +65,11 @@ DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG: Dict[str, Any] = {
 }
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
-    out = deepcopy(base)
-    for k, v in override.items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict):
-            out[k] = _deep_merge(out[k], v)
-        else:
-            out[k] = v
-    return out
-
-
 def build_single_pair_benchmark_config(config: Optional[dict] = None) -> dict:
     """Build benchmark config with defaults."""
     if config is None:
         return deepcopy(DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG)
-    return _deep_merge(DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG, config)
+    return deep_merge(DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG, config)
 
 
 def _resolve_models(models_cfg: Any) -> List[str]:
