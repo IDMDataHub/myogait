@@ -77,6 +77,19 @@ def test_load_config_does_not_share_subdicts_with_defaults(tmp_path):
     assert DEFAULT_CONFIG[probe_key][probe_sub] == original
 
 
+def test_save_config_preserves_an_existing_file_when_serialization_fails(tmp_path):
+    from myogait.config import save_config
+
+    target = tmp_path / "study.json"
+    target.write_text('{"stable": true}\n', encoding="utf-8")
+
+    with pytest.raises(TypeError):
+        save_config({"unsupported": object()}, target)
+
+    assert target.read_text(encoding="utf-8") == '{"stable": true}\n'
+    assert not list(tmp_path.glob(".study.json.*.tmp"))
+
+
 def test_deep_merge_does_not_alias_the_override_values():
     from myogait.config import deep_merge
 

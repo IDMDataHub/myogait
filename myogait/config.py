@@ -20,6 +20,8 @@ DEFAULT_CONFIG : dict
 import json
 import copy
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Union
 
@@ -161,16 +163,33 @@ def save_config(config: dict, path: Union[str, Path]) -> str:
     if suffix in (".yaml", ".yml"):
         try:
             import yaml
-            with open(path, "w", encoding="utf-8") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        except ImportError:
-            raise ImportError("PyYAML required for YAML configs: pip install pyyaml")
+        except ImportError as exc:
+            raise ImportError("PyYAML required for YAML configs: pip install pyyaml") from exc
+        payload = yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
     else:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+        payload = json.dumps(config, indent=2, ensure_ascii=False)
 
-    logger.info(f"Saved config to {path}")
+    _write_text_atomic(path, payload)
+    logger.info("Saved config to %s", path)
     return str(path)
+
+
+def _write_text_atomic(path: Path, payload: str) -> None:
+    """Replace a configuration only after its complete payload is on disk."""
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def deep_merge(base: dict, override: dict) -> dict:
