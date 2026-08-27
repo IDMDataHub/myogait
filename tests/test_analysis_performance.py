@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from myogait.analysis import _ordered_heel_strikes, _positive_autocorrelation
+from myogait.analysis import _frame_rate, _ordered_heel_strikes, _positive_autocorrelation
+
+
+@pytest.mark.parametrize("fps", [0, -25, "unknown", float("nan"), float("inf"), None])
+def test_frame_rate_uses_a_safe_default_for_invalid_metadata(fps):
+    assert _frame_rate({"meta": {"fps": fps}}) == 30.0
+
+
+def test_frame_rate_accepts_numeric_metadata():
+    assert _frame_rate({"meta": {"fps": "60"}}) == 60.0
 
 
 def test_ordered_heel_strikes_interleaves_both_sides_by_frame():

@@ -72,6 +72,22 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_FPS = 30.0
+
+
+def _frame_rate(data: dict) -> float:
+    """Return a finite, positive acquisition rate from a pivot document."""
+    meta = data.get("meta")
+    raw_fps = meta.get("fps", _DEFAULT_FPS) if isinstance(meta, dict) else _DEFAULT_FPS
+    try:
+        fps = float(raw_fps)
+    except (TypeError, ValueError):
+        fps = _DEFAULT_FPS
+
+    if not np.isfinite(fps) or fps <= 0:
+        return _DEFAULT_FPS
+    return fps
+
 
 def _symmetry_index(left: float, right: float) -> float:
     """SI = |L - R| / (0.5 * (L + R)) * 100. Returns 0 if both are 0."""
@@ -156,7 +172,7 @@ def analyze_gait(
         raise TypeError("data must be a dict")
     if not isinstance(cycles, dict):
         raise TypeError("cycles must be a dict")
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = _frame_rate(data)
     events = data.get("events", {})
     angles = data.get("angles", {})
     cycle_list = cycles.get("cycles", [])
@@ -481,7 +497,7 @@ def regularity_index(data: dict, signal_key: str = "LEFT_ANKLE") -> dict:
         ``symmetry_ratio``. Values are None if insufficient data.
     """
     frames = data.get("frames", [])
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = _frame_rate(data)
 
     if len(frames) < 30:
         return {"step_regularity": None, "stride_regularity": None, "symmetry_ratio": None}
@@ -1108,7 +1124,7 @@ def single_support_time(data: dict, cycles: dict) -> dict:
     Function. 2nd ed. SLACK; 2010:9-16.
     """
     events = data.get("events", {})
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = _frame_rate(data)
     cycle_list = cycles.get("cycles", [])
 
     # Collect toe-off events per side
@@ -1274,7 +1290,7 @@ def stride_variability(data: dict, cycles: dict) -> dict:
     2001;82(8):1050-1056. doi:10.1053/apmr.2001.24893
     """
     events = data.get("events", {})
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = _frame_rate(data)
     cycle_list = cycles.get("cycles", [])
 
     # Stride time CV
@@ -1824,7 +1840,7 @@ def instantaneous_cadence(data: dict) -> dict:
         ``cv``, ``trend_slope`` (linear regression slope).
     """
     events = data.get("events", {})
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = _frame_rate(data)
 
     all_hs = []
     for ev in events.get("left_hs", []):
@@ -2044,7 +2060,7 @@ def estimate_center_of_mass(data: dict, model: str = "winter") -> dict:
     vertical_excursion = float(np.ptp(valid_y)) if valid_y else 0.0
 
     # Smoothness: inverse of normalized jerk
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = _frame_rate(data)
     smoothness = 0.0
     if len(valid_y) > 3:
         y_arr = np.array(com_y_list)
@@ -2098,7 +2114,7 @@ def postural_sway(
         ``sway_velocity``, ``ml_range``, ``ap_range``.
     """
     frames = data.get("frames", [])
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = _frame_rate(data)
 
     if start_frame is None:
         start_frame = 0
@@ -2338,7 +2354,7 @@ def compute_derivatives(
         )
     angle_frames = angles["frames"]
 
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = _frame_rate(data)
     dt = 1.0 / fps
 
     if joints is None:
@@ -2428,7 +2444,7 @@ def time_frequency_analysis(
         joints = ["hip_L", "knee_L", "ankle_L"]
 
     angle_frames = data.get("angles", {}).get("frames", [])
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = _frame_rate(data)
     n_frames = len(angle_frames)
 
     results = {}
