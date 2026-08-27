@@ -824,38 +824,39 @@ def step_length(
         femur_ratio=femur_ratio, width=img_w, height=img_h,
     )
 
-    # Compute step lengths (distance between consecutive HS of opposite feet)
+    # Event/cycle frames are stored in original video ``frame_idx`` space
+    # (see ``events._remap_event_frames``), which does NOT equal the position
+    # in the ``frames`` list when the subject is not visible from frame 0.
+    # Build a frame_idx -> array-position map so ``frames`` is indexed
+    # correctly; positional indexing scrambles ankle pairs and silently drops
+    # any strike whose frame_idx exceeds len(frames), collapsing step length.
+    idx_to_pos = {f.get("frame_idx", i): i for i, f in enumerate(frames)}
+
+    def _ankle_x(frame_key, ankle_name):
+        pos = idx_to_pos.get(frame_key)
+        if pos is None:
+            return None
+        return frames[pos].get("landmarks", {}).get(ankle_name, {}).get("x")
+
+    # Step length = antero-posterior distance BETWEEN THE TWO FEET at the
+    # instant of heel strike (the foot that just struck, in front, vs the
+    # contralateral stance foot, behind) -- the clinical definition, and it
+    # stays below the stride. Measuring instead one ankle's displacement over
+    # the whole step interval captures the entire swing arc and overestimates
+    # by ~35 %; it can even exceed the stride, which is physically impossible.
     step_lengths = {"left": [], "right": []}
-    all_hs = _ordered_heel_strikes(events)
-    for (f1, side), (f2, next_side) in zip(all_hs, all_hs[1:]):
-        if side == next_side:
-            continue
-        if f1 >= len(frames) or f2 >= len(frames):
-            continue
-
-        leading_side = next_side
-        ankle_name = f"{leading_side.upper()}_ANKLE"
-
-        lm1 = frames[f1].get("landmarks", {}).get(ankle_name, {})
-        lm2 = frames[f2].get("landmarks", {}).get(ankle_name, {})
-        x1 = lm1.get("x")
-        x2 = lm2.get("x")
-        if x1 is not None and x2 is not None:
-            dist = abs((x2 - x1) * img_w) * scale
-            step_lengths[leading_side].append(dist)
+    for f_hs, side in _ordered_heel_strikes(events):
+        left_x = _ankle_x(f_hs, "LEFT_ANKLE")
+        right_x = _ankle_x(f_hs, "RIGHT_ANKLE")
+        if left_x is not None and right_x is not None:
+            step_lengths[side].append(abs((left_x - right_x) * img_w) * scale)
 
     # Stride lengths from cycles
     stride_lengths = {"left": [], "right": []}
     for c in cycles.get("cycles", []):
-        f1 = c["start_frame"]
-        f2 = c["end_frame"]
-        if f1 >= len(frames) or f2 >= len(frames):
-            continue
         ankle_name = f"{c['side'].upper()}_ANKLE"
-        lm1 = frames[f1].get("landmarks", {}).get(ankle_name, {})
-        lm2 = frames[f2].get("landmarks", {}).get(ankle_name, {})
-        x1 = lm1.get("x")
-        x2 = lm2.get("x")
+        x1 = _ankle_x(c["start_frame"], ankle_name)
+        x2 = _ankle_x(c["end_frame"], ankle_name)
         if x1 is not None and x2 is not None:
             dist = abs((x2 - x1) * img_w) * scale
             stride_lengths[c["side"]].append(dist)
