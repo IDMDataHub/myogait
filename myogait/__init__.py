@@ -146,6 +146,11 @@ from .experimental_vicon import (
     attach_vicon_experimental_block,
     run_single_trial_vicon_benchmark,
 )
+from .isb import (
+    reconstruct_isb_angles,
+    ISB_REQUIRED_LANDMARKS,
+    InsufficientLandmarksForISBError,
+)
 from .pipeline import run_pipeline
 from . import exceptions
 from .exceptions import (
@@ -319,6 +324,9 @@ __all__ = [
     "load_vicon_trial_mat",
     "load_c3d",
     "compute_c3d_reference_angles",
+    "reconstruct_isb_angles",
+    "ISB_REQUIRED_LANDMARKS",
+    "InsufficientLandmarksForISBError",
     "detect_c3d_convention",
     "C3D_MARKER_CONVENTIONS",
     "estimate_vicon_offset_seconds",
