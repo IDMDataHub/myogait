@@ -244,7 +244,11 @@ def _direct_hip_joint_centers(RASIS, LASIS, RPSIS, LPSIS, ratio: float = _DEFAUL
 # ── Public API ───────────────────────────────────────────────────────
 
 
-def reconstruct_isb_angles(data: dict, joints: Sequence[str] = ("hip", "knee", "ankle")) -> dict:
+def reconstruct_isb_angles(
+    data: dict,
+    joints: Sequence[str] = ("hip", "knee", "ankle"),
+    hjc_fn=None,
+) -> dict:
     """Recompute hip/knee/ankle angles from C3D markers using ISB frames.
 
     Tier 1 (direct, no calibration file) -- see the module docstring for
@@ -266,6 +270,13 @@ def reconstruct_isb_angles(data: dict, joints: Sequence[str] = ("hip", "knee", "
     joints : sequence of str, optional
         Which joints to recompute (default: all three). A joint not
         requested keeps whatever ``compute_angles`` already produced.
+    hjc_fn : callable, optional
+        ``(RASIS, LASIS, RPSIS, LPSIS, pelvis_frame) -> (RHJC, LHJC)``,
+        called once per frame in place of the default tier-1 fixed-ratio
+        proxy. This is the seam :mod:`myogait.vicon_calibration` uses to
+        get tier 2 (Harrington regression) and tier 3 (VSK-calibrated)
+        HJCs through the same, otherwise-identical per-frame loop rather
+        than duplicating it.
 
     Returns
     -------
@@ -321,7 +332,10 @@ def reconstruct_isb_angles(data: dict, joints: Sequence[str] = ("hip", "knee", "
 
         try:
             pelvis = _pelvis_frame(RASIS, LASIS, RPSIS, LPSIS)
-            RHJC, LHJC = _direct_hip_joint_centers(RASIS, LASIS, RPSIS, LPSIS)
+            if hjc_fn is None:
+                RHJC, LHJC = _direct_hip_joint_centers(RASIS, LASIS, RPSIS, LPSIS)
+            else:
+                RHJC, LHJC = hjc_fn(RASIS, LASIS, RPSIS, LPSIS, pelvis)
         except ValueError:
             _write_none(frames[i], joints)
             continue
@@ -371,10 +385,11 @@ def reconstruct_isb_angles(data: dict, joints: Sequence[str] = ("hip", "knee", "
                 _write_none_side(frames[i], side, joints)
                 continue
 
-    data["angles"]["isb_reference"] = "isb_3d_direct"
+    data["angles"]["isb_reference"] = "isb_3d_direct" if hjc_fn is None else "isb_3d_custom_hjc"
     logger.info(
-        "reconstruct_isb_angles: tier 1 (direct, no calibration file), "
-        "%d frames, joints=%s", n_frames, list(joints),
+        "reconstruct_isb_angles: %s, %d frames, joints=%s",
+        "tier 1 (direct, no calibration file)" if hjc_fn is None else "custom HJC provider (tier 2/3)",
+        n_frames, list(joints),
     )
     return data
 
