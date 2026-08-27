@@ -40,7 +40,7 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 from scipy.signal import find_peaks, butter, filtfilt
 
-from .axis_utils import detect_walking_direction_from_feet
+from .axis_utils import detect_walking_direction_from_feet, safe_frame_rate
 
 logger = logging.getLogger(__name__)
 
@@ -496,7 +496,7 @@ def event_consensus(
     if methods is None:
         methods = ["zeni", "oconnor", "crossing"]
 
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = safe_frame_rate(data)
     frames = data["frames"]
 
     # Collect events from each method
@@ -628,7 +628,7 @@ def validate_events(data: dict) -> dict:
             "n_valid_cycles_right": 0,
         }
 
-    fps = events.get("fps", data.get("meta", {}).get("fps", 30.0))
+    fps = events.get("fps") or safe_frame_rate(data)
 
     for side in ["left", "right"]:
         hs_list = events.get(f"{side}_hs", [])
@@ -1438,7 +1438,7 @@ def detect_events(
     if not data.get("frames"):
         raise ValueError("No frames in data. Run extract() first.")
 
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = safe_frame_rate(data)
     frames = data["frames"]
 
     # Adaptive parameter tuning based on estimated walking speed
@@ -1486,8 +1486,18 @@ def detect_events(
                 continue
             kept = []
             for ev_idx in lst:
-                idx = int(ev_idx) if not isinstance(ev_idx, dict) else int(
-                    ev_idx.get("frame_idx", ev_idx.get("index", 0)))
+                # Events at this stage are still in array-index space (before
+                # ``_remap_event_frames``), keyed ``"frame"`` by every detector
+                # (Zeni/crossing/velocity). Reading ``frame_idx``/``index`` --
+                # keys that never exist here -- collapsed every event to index 0,
+                # so a clip that begins with the subject standing still had
+                # ``mask[0] == False`` decide *all* events and silently trimmed
+                # the entire gait bout to zero cycles.
+                if isinstance(ev_idx, dict):
+                    idx = int(ev_idx.get(
+                        "frame", ev_idx.get("frame_idx", ev_idx.get("index", 0))))
+                else:
+                    idx = int(ev_idx)
                 if 0 <= idx < len(mask) and mask[idx]:
                     kept.append(ev_idx)
                 else:

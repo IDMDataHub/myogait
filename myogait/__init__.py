@@ -19,7 +19,7 @@ Full pipeline with cycle analysis::
 
 from importlib import import_module
 
-__version__ = "0.8.3"
+__version__ = "0.8.4"
 
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (

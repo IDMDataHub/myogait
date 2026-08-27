@@ -607,8 +607,13 @@ def render_stickfigure_animation(
     phase_lookup: Dict[int, str] = {}
     if cycles:
         for c in cycles.get("cycles", []):
-            hs_frame = c.get("hs_frame", 0)
-            to_frame = c.get("to_frame")
+            # Cycle frames are stored under start_frame / toe_off_frame /
+            # end_frame (all in original video frame_idx space, matching
+            # phase_lookup's key). Reading hs_frame / to_frame -- keys that do
+            # not exist -- left to_frame None, so the stance/swing colouring
+            # block never ran and every rendered frame stayed uncoloured.
+            hs_frame = c.get("start_frame", 0)
+            to_frame = c.get("toe_off_frame")
             end_frame = c.get("end_frame", hs_frame)
             if to_frame is not None:
                 for fi in range(hs_frame, to_frame + 1):

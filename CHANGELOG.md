@@ -3,6 +3,74 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.8.4] — 2026-08-27
+
+Bug-fix release: a codebase-wide audit for the same defect classes behind
+the 0.8.3 fix — positional frame indexing, camera-motion-corrupted
+metrics, and inconsistent calibration flags.
+
+### Fixed
+- `stride_variability`: step-length CV now measures the same-frame
+  inter-ankle separation resolved through the frame-index map, instead of
+  a single ankle's cross-frame displacement read positionally. The old
+  formulation was corrupted both by the frame-index mismatch (analysed
+  window starting late / shorter than the source) and by a tracking
+  camera, producing impossible CVs (>100%); it now returns
+  physiologically plausible values.
+- `toe_clearance`: read the correct cycle key (`toe_off_frame`, not the
+  non-existent `to_frame`) and resolve cycle frames through the
+  frame-index map. Every minimum-toe-clearance value was previously
+  `None` because the swing loop never ran.
+- `to_opensim_mot` (`.mot` export): pelvis translations are read through
+  a frame-index → position map; positional indexing corrupted every
+  translation row when the analysed window did not start at frame 0.
+- `detect_parkinsonian`, `harmonic_ratio`, `postural_sway`: reformulated
+  to pelvis-relative (same-frame) quantities so a tracking/panning camera
+  can no longer distort them. In particular the parkinsonian "short
+  stride" screen used the absolute ankle-x range, which a panning camera
+  collapses toward zero — falsely flagging a healthy subject; it now uses
+  the ankle excursion relative to the pelvis and is camera-motion immune.
+- `step_length` / `walking_speed` / `analyze_gait`: anthropometric
+  references (height, femur, foot) are resolved once and back-filled from
+  the pivot's `subject` block consistently, so the two functions can no
+  longer disagree on whether a trial is calibrated (metres vs normalised
+  units).
+- `detect_events` / `normalize`: acquisition rate is sanitised via a
+  shared `safe_frame_rate`, so a malformed `meta.fps` (`0`, negative,
+  `None`, or non-numeric) no longer raises `ZeroDivisionError` / crashes
+  or silently yields zero cycles.
+- `trim_standstill`: read the event `frame` key (events are still in
+  array-index space at this stage) instead of the non-existent
+  `frame_idx` / `index` keys, which collapsed every event to index 0 and
+  silently trimmed the entire gait bout to zero cycles on any clip that
+  began with the subject standing still.
+
+### Added
+- `analyze_gait` populates `stats["warnings"]`: physiological plausibility
+  guards on metric step/stride/speed record any breach machine-readably
+  and set `valid_for_progression = False`, so a grossly mis-scaled
+  calibration can no longer be read as trustworthy.
+
+## [0.8.3] — 2026-08-27
+
+Bug-fix release: make spatiotemporal metrics reliable under a tracking
+(panning) camera.
+
+### Fixed
+- `step_length` / `walking_speed`: step length is now the antero-posterior
+  separation between the two ankles *within* the heel-strike frame, stride
+  is the sum of the two step lengths, and speed is step × cadence. A
+  subject-following/panning camera is optically identical to a treadmill —
+  it cancels the forward image translation and corrupts every cross-frame
+  displacement metric — so the previous single-ankle progression
+  under-estimated step, stride and speed several-fold. The new
+  formulation is same-frame / event-timing based and therefore immune to
+  camera panning, validated across walking direction, pan sign, and
+  there-and-back trials.
+- Event/cycle frames are resolved through a frame-index → array-position
+  map, fixing wrong-frame reads and silently dropped heel strikes when the
+  analysed window does not start at video frame 0.
+
 ## [0.8.2] — 2026-08-25
 
 Bug-fix release: correct spatial scaling of gait distances.

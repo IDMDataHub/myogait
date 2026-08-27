@@ -349,8 +349,12 @@ def export_mot(
     w = data.get("meta", {}).get("width", 1920)
     h = data.get("meta", {}).get("height", 1080)
 
-    # Get frame-level landmark data for pelvis position
+    # Get frame-level landmark data for pelvis position. Angle frames carry the
+    # original-video ``frame_idx``; the landmark ``frames`` list may start late
+    # and be shorter, so index it through a frame_idx->position map rather than
+    # positionally (a positional read corrupted every pelvis-translation row).
     all_frames = data.get("frames", [])
+    frame_pos = {f.get("frame_idx", i): i for i, f in enumerate(all_frames)}
 
     # Build data rows
     rows = []
@@ -375,8 +379,9 @@ def export_mot(
         pelvis_tx = 0.0
         pelvis_ty = 0.0
         pelvis_tz = 0.0
-        if fidx < len(all_frames):
-            frame_lm = all_frames[fidx].get("landmarks", {})
+        pos = frame_pos.get(fidx)
+        if pos is not None:
+            frame_lm = all_frames[pos].get("landmarks", {})
             lhip = frame_lm.get("LEFT_HIP", {})
             rhip = frame_lm.get("RIGHT_HIP", {})
             lhx = lhip.get("x")

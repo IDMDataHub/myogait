@@ -120,6 +120,8 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from .axis_utils import safe_frame_rate
+
 
 logger = logging.getLogger(__name__)
 
@@ -1742,7 +1744,7 @@ def normalize(
     if not data.get("frames"):
         raise ValueError("No frames in data. Run extract() first.")
 
-    fps = data.get("meta", {}).get("fps", 30.0)
+    fps = safe_frame_rate(data)
 
     # Save raw frames on first call
     if "frames_raw" not in data:

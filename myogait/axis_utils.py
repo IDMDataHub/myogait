@@ -11,6 +11,29 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_FPS = 30.0
+
+
+def safe_frame_rate(data: dict, default: float = _DEFAULT_FPS) -> float:
+    """Return a finite, strictly-positive acquisition rate from a pivot.
+
+    ``data["meta"]["fps"]`` can arrive as ``0``, a negative value, ``None``,
+    an empty/absent meta block, or even a non-numeric string. Reading it raw
+    caused a ``ZeroDivisionError`` (fps=0), silent zero-cycle output (fps<0),
+    or a crash in normalisation (``None``/``"banana"``). Coerce all of those
+    to a sane default so event detection and normalisation never blow up on a
+    malformed header.
+    """
+    meta = data.get("meta")
+    raw_fps = meta.get("fps", default) if isinstance(meta, dict) else default
+    try:
+        fps = float(raw_fps)
+    except (TypeError, ValueError):
+        return default
+    if not np.isfinite(fps) or fps <= 0:
+        return default
+    return fps
+
 
 def detect_walking_direction_from_feet(
     data: dict,
