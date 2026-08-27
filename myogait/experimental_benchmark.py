@@ -8,6 +8,7 @@ compares each run against one VICON trial.
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 from itertools import product
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -22,6 +23,7 @@ from .events import detect_events, list_event_methods
 from .schema import dumps_json_safe, save_json
 from .models import list_models
 from .experimental_vicon import SyncError, run_single_trial_vicon_benchmark
+from . import __version__
 
 
 DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG: Dict[str, Any] = {
@@ -116,6 +118,28 @@ def _flatten_row_metrics(row: dict, data: dict) -> dict:
         row[f"{ev}_median_ms"] = em.get("median_ms")
 
     return row
+
+
+def _file_sha256(path: Path) -> str | None:
+    """Return an input content hash without loading it into memory."""
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def benchmark_input_fingerprints(
+    video_path: str | Path, vicon_trial_dir: str | Path
+) -> dict[str, str | None]:
+    """Fingerprint the exact files consumed by one video/VICON benchmark."""
+    trial_dir = Path(vicon_trial_dir)
+    fingerprints = {"video_sha256": _file_sha256(Path(video_path))}
+    for filename in ("res_angles_t.mat", "points3D_t.mat", "cycle.mat"):
+        fingerprints[f"vicon_{filename}_sha256"] = _file_sha256(trial_dir / filename)
+    return fingerprints
 
 
 def run_single_pair_benchmark(
@@ -246,6 +270,8 @@ def run_single_pair_benchmark(
         "n_error": int((df["status"] == "error").sum()),
         "summary_csv": str(summary_path),
         "runs_dir": str(runs_dir),
+        "myogait_version": __version__,
+        "input_fingerprints": benchmark_input_fingerprints(video_path, vicon_trial_dir),
         "config": cfg,
     }
     with open(out_dir / "benchmark_manifest.json", "w", encoding="utf-8") as f:
