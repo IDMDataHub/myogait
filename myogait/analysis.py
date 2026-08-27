@@ -879,6 +879,54 @@ def _stance_foot_drift_m(frames, events, idx_to_pos, img_w, scale) -> Optional[f
     return float(np.median(drifts)) if drifts else None
 
 
+def _c3d_step_lengths(data: dict, events: dict) -> Optional[dict]:
+    """Per-side step lengths (metres) from the real 3-D C3D markers.
+
+    A C3D pivot carries the true marker positions in ``c3d_markers_3d`` (mm),
+    so the metric step length is read directly -- the antero-posterior
+    inter-ankle separation at each heel strike -- with NO pixel-to-metre
+    scaling. The 2-D landmark projection the rest of the pipeline consumes
+    squashes the real-world capture volume anisotropically into the (square)
+    image box, so a femur/height pixel scale derived from the vertical femur
+    does NOT apply to the horizontal step and is off by the volume aspect
+    ratio (observed ~100x on Bath BioCV). Returns ``None`` for a non-C3D
+    pivot so the caller falls back to the pixel-scale path.
+    """
+    m3d = data.get("c3d_markers_3d")
+    if not isinstance(m3d, dict):
+        return None
+    la, ra = m3d.get("LEFT_ANKLE"), m3d.get("RIGHT_ANKLE")
+    if la is None or ra is None:
+        return None
+    la = np.asarray(la, dtype=float)
+    ra = np.asarray(ra, dtype=float)
+    if la.ndim != 2 or la.shape[1] < 2 or la.shape != ra.shape:
+        return None
+    # Forward (AP) axis = the axis the ankles travel along most; the vertical
+    # and medio-lateral spans are far smaller than the walkway length.
+    both = np.vstack([la, ra])
+    spans = np.nanmax(both, axis=0) - np.nanmin(both, axis=0)
+    if not np.any(np.isfinite(spans)):
+        return None
+    axis = int(np.nanargmax(spans))
+    # Millimetres -> metres (marker coords run to hundreds/thousands).
+    finite = both[np.isfinite(both)]
+    unit = 0.001 if (finite.size and float(np.median(np.abs(finite))) > 50.0) else 1.0
+    idx_to_pos = _frame_index_map(data.get("frames", []))
+    n = min(len(la), len(ra))
+    steps = {"left": [], "right": []}
+    for f_hs, side in _ordered_heel_strikes(events):
+        pos = idx_to_pos.get(f_hs)
+        if pos is None or pos >= n:
+            continue
+        lv, rv = la[pos, axis], ra[pos, axis]
+        if np.isfinite(lv) and np.isfinite(rv):
+            steps[side].append(abs(lv - rv) * unit)
+    if not steps["left"] and not steps["right"]:
+        return None
+    return steps
+
+
 def step_length(
     data: dict,
     cycles: dict,
@@ -959,6 +1007,26 @@ def step_length(
                 "Treadmill-like trial detected: image-progression step/stride length "
                 "is not reliable."
             ),
+        }
+
+    # C3D marker source: read the real metric step straight off the 3-D
+    # markers (no pixel scaling -- see _c3d_step_lengths). Falls through to the
+    # pixel-scale path for ordinary video pivots.
+    c3d_steps = _c3d_step_lengths(data, events)
+    if c3d_steps is not None:
+        mean_l = float(np.mean(c3d_steps["left"])) if c3d_steps["left"] else None
+        mean_r = float(np.mean(c3d_steps["right"])) if c3d_steps["right"] else None
+        c3d_stride = (round(mean_l + mean_r, 4)
+                      if (mean_l is not None and mean_r is not None) else None)
+        return {
+            "step_length_left": round(mean_l, 4) if mean_l is not None else None,
+            "step_length_right": round(mean_r, 4) if mean_r is not None else None,
+            "stride_length_left": c3d_stride,
+            "stride_length_right": c3d_stride,
+            "unit": "m",
+            "calibrated": True,
+            "valid_for_progression": True,
+            "source": "c3d_markers_3d",
         }
 
     # Estimate pixel-to-meter scale.
@@ -1112,6 +1180,31 @@ def walking_speed(
             ),
         }
 
+    cycle_list = cycles.get("cycles", [])
+    events = data.get("events") or {}
+
+    # C3D marker source: real metric step (from the 3-D markers) x cadence.
+    # See step_length / _c3d_step_lengths -- the pixel-scale path is invalid on
+    # a C3D pivot because the 2-D projection loses the real-world scale.
+    c3d_steps = _c3d_step_lengths(data, events)
+    if c3d_steps is not None:
+        stride_times = [c["duration"] for c in cycle_list if c.get("duration", 0) > 0]
+        steps_per_s = (2.0 / float(np.mean(stride_times))) if stride_times else None
+
+        def _c3d_spd(vals):
+            if not vals or steps_per_s is None:
+                return None
+            return round(float(np.mean(vals)) * steps_per_s, 3)
+
+        return {
+            "speed_mean": _c3d_spd(c3d_steps["left"] + c3d_steps["right"]),
+            "speed_left": _c3d_spd(c3d_steps["left"]),
+            "speed_right": _c3d_spd(c3d_steps["right"]),
+            "unit": "m/s",
+            "valid_for_progression": True,
+            "source": "c3d_markers_3d",
+        }
+
     # Compute scale factor via the shared helper (same rule as step_length).
     meta = data.get("meta", {})
     img_w = float(meta.get("width") or 1.0)
@@ -1120,8 +1213,6 @@ def walking_speed(
         frames, height_m=height_m_val, femur_mm=femur_mm, foot_mm=foot_mm,
         femur_ratio=femur_ratio, width=img_w, height=img_h,
     )
-
-    cycle_list = cycles.get("cycles", [])
 
     # Event/cycle frames are in original video frame_idx space; map to array
     # position (same fix as step_length) so ``frames`` is indexed correctly.

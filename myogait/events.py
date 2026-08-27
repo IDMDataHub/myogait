@@ -115,6 +115,27 @@ def _lowpass_filter(signal_arr: np.ndarray, cutoff: float, fs: float,
     return filtfilt(b, a, signal_arr)
 
 
+def _resolve_walking_right(current_data, displacement_fallback) -> bool:
+    """Return ``True`` when the subject walks left→right.
+
+    Foot orientation (toe vs heel) is the primary, treadmill-robust cue, but
+    it needs the toe and heel landmarks. When those are missing or occluded
+    the foot detector cannot tell and previously defaulted to "right",
+    silently swapping heel-strike and toe-off on a genuine right-to-left walk.
+    We now detect "unknown" in that case and fall back to a
+    displacement heuristic (net pelvis/ankle travel), which still gives the
+    correct direction whenever there is any forward progression in-frame.
+    """
+    direction = "unknown"
+    if current_data is not None:
+        direction = detect_walking_direction_from_feet(current_data, default="unknown")
+    if direction == "right":
+        return True
+    if direction == "left":
+        return False
+    return bool(displacement_fallback())
+
+
 def _detect_zeni(
     frames: list,
     fps: float,
@@ -144,13 +165,13 @@ def _detect_zeni(
     # Detect walking direction from foot orientation (toe vs heel).
     # This is more robust than displacement-based detection and
     # works on treadmills.
-    if _current_data is not None:
-        walking_right = detect_walking_direction_from_feet(_current_data) == "right"
-    else:
-        # Fallback: pelvis displacement
+    def _pelvis_disp():
+        # Fallback: net pelvis displacement over the clip.
         valid_pelvis = pelvis_x[~np.isnan(pelvis_x)]
-        walking_right = (valid_pelvis[-1] > valid_pelvis[0]
-                         if len(valid_pelvis) >= 2 else True)
+        return (valid_pelvis[-1] > valid_pelvis[0]
+                if len(valid_pelvis) >= 2 else True)
+
+    walking_right = _resolve_walking_right(_current_data, _pelvis_disp)
 
     # Relative ankle position
     left_ankle_rel = left_ankle_x - pelvis_x
@@ -241,12 +262,13 @@ def _detect_crossing(
     left_ankle_x = _lowpass_filter(left_ankle_x, cutoff_freq, fps)
     right_ankle_x = _lowpass_filter(right_ankle_x, cutoff_freq, fps)
 
-    # Detect walking direction from foot orientation
-    if _current_data is not None:
-        walking_right = detect_walking_direction_from_feet(_current_data) == "right"
-    else:
+    # Detect walking direction from foot orientation (fall back to net ankle
+    # displacement when the feet are missing/occluded).
+    def _ankle_disp():
         valid_la = left_ankle_x[~np.isnan(left_ankle_x)]
-        walking_right = len(valid_la) >= 2 and valid_la[-1] > valid_la[0]
+        return len(valid_la) >= 2 and valid_la[-1] > valid_la[0]
+
+    walking_right = _resolve_walking_right(_current_data, _ankle_disp)
 
     # Compute crossing signal (difference between left and right knee x)
     # Flip for right-to-left walking so rising crossing always = left forward
@@ -392,12 +414,13 @@ def _detect_oconnor(
 
     pelvis_x = (left_hip_x + right_hip_x) / 2
 
-    # Detect walking direction from foot orientation
-    if _current_data is not None:
-        walking_right = detect_walking_direction_from_feet(_current_data) == "right"
-    else:
+    # Detect walking direction from foot orientation (fall back to net pelvis
+    # displacement when the feet are missing/occluded).
+    def _pelvis_disp():
         valid_pelvis = pelvis_x[~np.isnan(pelvis_x)]
-        walking_right = len(valid_pelvis) >= 2 and valid_pelvis[-1] > valid_pelvis[0]
+        return len(valid_pelvis) >= 2 and valid_pelvis[-1] > valid_pelvis[0]
+
+    walking_right = _resolve_walking_right(_current_data, _pelvis_disp)
 
     results = {}
     for side, heel_name in [("left", "LEFT_HEEL"), ("right", "RIGHT_HEEL")]:

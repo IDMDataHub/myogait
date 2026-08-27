@@ -3,6 +3,37 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.8.5] — 2026-08-27
+
+Bug-fix release: correct metric spatiotemporal parameters on a C3D marker
+source, and finish the walking-direction robustness work. Validated on the
+Bath BioCV dataset (markerless video vs Vicon C3D) and a panning-camera
+clip.
+
+### Fixed
+- `step_length` / `walking_speed` on a **C3D pivot**: step, stride and speed
+  are now read directly from the real 3-D markers (``c3d_markers_3d``, in mm)
+  instead of the pixel-to-metre scale path. A C3D pivot's 2-D landmark
+  projection squashes the real-world capture volume anisotropically into the
+  image box, so a femur/height pixel scale (derived from the vertical femur)
+  did not apply to the horizontal step and produced values ~100x too large
+  (e.g. 82 m steps, 168 m/s). Markerless-video vs Vicon-C3D walking speed now
+  agree to ~0.1% on Bath BioCV (both 1.35 m/s).
+- Walking-direction detection falls back to a displacement heuristic when the
+  feet are missing/occluded, instead of silently defaulting to
+  left-to-right. `detect_walking_direction_from_feet` gained a ``default``
+  parameter (``"right"`` for backward compatibility; the event detectors pass
+  ``"unknown"`` to trigger the pelvis/ankle-displacement fallback). Previously
+  a right-to-left walk with occluded feet had its heel-strike and toe-off
+  events swapped.
+
+### Added
+- App (`myogait_app`): the pipeline now drops the against-direction cycle
+  group on a there-and-back walkway (``CyclesConfig.filter_direction``,
+  enabled automatically by ``autoconfig.detect_config`` on a detected
+  reversal), matching library ``run_pipeline`` behaviour. The mirrored
+  return-pass cycles no longer pollute the ROM / symmetry averages.
+
 ## [0.8.4] — 2026-08-27
 
 Bug-fix release: a codebase-wide audit for the same defect classes behind
