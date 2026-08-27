@@ -740,6 +740,44 @@ def _estimate_pixel_to_meter_scale(
     return float(np.mean(scales))
 
 
+#: Stance-foot image drift (m over a single stance) above which the camera is
+#: taken to be moving (panning/tracking). A weight-bearing foot flat on the
+#: ground barely translates (heel-to-toe roll ~0.05 m); a tracking pan makes it
+#: appear to drift several times that.
+_PAN_DRIFT_M = 0.15
+
+
+def _stance_foot_drift_m(frames, events, idx_to_pos, img_w, scale) -> Optional[float]:
+    """Median absolute x-drift (m) of the planted stance foot over its stance.
+
+    A foot bearing body weight, flat on the ground, cannot translate; if its
+    image x moves, the camera moved. Measured per single-support phase (a
+    foot's heel strike to its own toe-off). Returns None when it cannot be
+    measured.
+    """
+    def _frame(e):
+        return e.get("frame") if isinstance(e, dict) else e
+
+    def _ax(fidx, name):
+        pos = idx_to_pos.get(fidx)
+        return None if pos is None else frames[pos].get("landmarks", {}).get(name, {}).get("x")
+
+    drifts = []
+    for side in ("left", "right"):
+        hs = sorted(_frame(e) for e in events.get(f"{side}_hs", []))
+        to = sorted(_frame(e) for e in events.get(f"{side}_to", []))
+        name = f"{side.upper()}_ANKLE"
+        for h in hs:
+            t = min((x for x in to if x > h), default=None)
+            if t is None or t - h < 4:
+                continue
+            xs = [_ax(fi, name) for fi in range(h, t + 1)]
+            xs = [x for x in xs if x is not None]
+            if len(xs) >= 4:
+                drifts.append(abs(xs[-1] - xs[0]) * img_w * scale)
+    return float(np.median(drifts)) if drifts else None
+
+
 def step_length(
     data: dict,
     cycles: dict,
@@ -851,34 +889,48 @@ def step_length(
         if left_x is not None and right_x is not None:
             step_lengths[side].append(abs((left_x - right_x) * img_w) * scale)
 
-    # Stride lengths from cycles
-    stride_lengths = {"left": [], "right": []}
-    for c in cycles.get("cycles", []):
-        ankle_name = f"{c['side'].upper()}_ANKLE"
-        x1 = _ankle_x(c["start_frame"], ankle_name)
-        x2 = _ankle_x(c["end_frame"], ankle_name)
-        if x1 is not None and x2 is not None:
-            dist = abs((x2 - x1) * img_w) * scale
-            stride_lengths[c["side"]].append(dist)
-
     def _mean_or_none(vals):
         return round(float(np.mean(vals)), 4) if vals else None
 
-    # Calibration is metric whenever ANY anthropometric reference was given --
-    # a measured femur or foot, not only height. The scale above already uses
-    # them (femur/foot take priority over height), so the unit/flag must match
-    # or a femur-calibrated result is wrongly reported as normalised and
-    # dropped downstream.
+    # Camera-motion guard. A static overground camera keeps a planted stance
+    # foot still in the image; a tracking / panning camera (common with a
+    # hand-held or subject-following GoPro) makes the planted foot appear to
+    # drift, which is optically identical to a treadmill: it cancels most of
+    # the true forward translation in every cross-frame measurement (hip
+    # progression, single-ankle stride, image-based speed) while leaving the
+    # same-frame inter-ankle step untouched. Detect it from the stance-foot
+    # drift so those progression metrics can be flagged rather than reported
+    # as if the camera were fixed.
+    pan_m = _stance_foot_drift_m(frames, events, idx_to_pos, img_w, scale)
+    panning = pan_m is not None and pan_m > _PAN_DRIFT_M
+
+    # Stride = the two consecutive steps of a gait cycle (step_left + step_right),
+    # derived from the pan-immune inter-ankle STEP rather than a single ankle's
+    # cross-frame displacement (which a panning camera corrupts, producing the
+    # impossible stride < step).
+    mean_l = np.mean(step_lengths["left"]) if step_lengths["left"] else None
+    mean_r = np.mean(step_lengths["right"]) if step_lengths["right"] else None
+    stride = round(float(mean_l + mean_r), 4) if (mean_l is not None and mean_r is not None) else None
+
     calibrated = height_m is not None or femur_mm is not None or foot_mm is not None
-    return {
+    result = {
         "step_length_left": _mean_or_none(step_lengths["left"]),
         "step_length_right": _mean_or_none(step_lengths["right"]),
-        "stride_length_left": _mean_or_none(stride_lengths["left"]),
-        "stride_length_right": _mean_or_none(stride_lengths["right"]),
+        "stride_length_left": stride,
+        "stride_length_right": stride,
         "unit": "m" if calibrated else "normalized",
         "calibrated": calibrated,
-        "valid_for_progression": True,
+        "valid_for_progression": not panning,
     }
+    if panning:
+        result["camera_motion"] = "pan_detected"
+        result["limitation"] = (
+            f"Tracking/panning camera detected (planted stance foot drifts "
+            f"~{pan_m:.2f} m per stance): the inter-ankle step length stays "
+            "valid, but image-progression metrics (walking speed, hip "
+            "progression) are unreliable -- film from a fixed tripod for those."
+        )
+    return result
 
 
 # ── Walking speed ────────────────────────────────────────────────────
@@ -948,19 +1000,23 @@ def walking_speed(
 
     cycle_list = cycles.get("cycles", [])
 
+    # Event/cycle frames are in original video frame_idx space; map to array
+    # position (same fix as step_length) so ``frames`` is indexed correctly.
+    idx_to_pos = {f.get("frame_idx", i): i for i, f in enumerate(frames)}
+
+    def _ankle_x(frame_key, ankle_name):
+        pos = idx_to_pos.get(frame_key)
+        return None if pos is None else frames[pos].get("landmarks", {}).get(ankle_name, {}).get("x")
+
     speeds = {"left": [], "right": []}
     for c in cycle_list:
         side = c["side"]
-        f1 = c["start_frame"]
-        f2 = c["end_frame"]
-        if f1 >= len(frames) or f2 >= len(frames):
+        if c["duration"] <= 0:
             continue
         ankle_name = f"{side.upper()}_ANKLE"
-        lm1 = frames[f1].get("landmarks", {}).get(ankle_name, {})
-        lm2 = frames[f2].get("landmarks", {}).get(ankle_name, {})
-        x1 = lm1.get("x")
-        x2 = lm2.get("x")
-        if x1 is not None and x2 is not None and c["duration"] > 0:
+        x1 = _ankle_x(c["start_frame"], ankle_name)
+        x2 = _ankle_x(c["end_frame"], ankle_name)
+        if x1 is not None and x2 is not None:
             stride_l = abs((x2 - x1) * img_w) * scale
             speeds[side].append(stride_l / c["duration"])
 
@@ -968,13 +1024,26 @@ def walking_speed(
         return round(float(np.mean(vals)), 3) if vals else None
 
     all_speeds = speeds["left"] + speeds["right"]
-    return {
+    out = {
         "speed_mean": _mean_or_none(all_speeds),
         "speed_left": _mean_or_none(speeds["left"]),
         "speed_right": _mean_or_none(speeds["right"]),
         "unit": "m/s" if calibrated else "norm/s",
         "valid_for_progression": True,
     }
+    # A panning/tracking camera cancels the forward translation this stride-
+    # over-time speed relies on (see step_length): flag it unreliable rather
+    # than reporting a value several times too low.
+    pan_m = _stance_foot_drift_m(frames, data.get("events") or {}, idx_to_pos, img_w, scale)
+    if pan_m is not None and pan_m > _PAN_DRIFT_M:
+        out["valid_for_progression"] = False
+        out["camera_motion"] = "pan_detected"
+        out["limitation"] = (
+            "Tracking/panning camera: image-progression walking speed is "
+            "unreliable. Estimate it from step length x cadence instead, or "
+            "film from a fixed tripod."
+        )
+    return out
 
 
 # ── Advanced pathology detection ─────────────────────────────────────
