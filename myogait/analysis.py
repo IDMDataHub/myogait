@@ -718,20 +718,22 @@ def _estimate_pixel_to_meter_scale(
                 foot_lengths.append(np.sqrt(dx**2 + dy**2))
         return float(np.median(foot_lengths)) if foot_lengths else None
 
+    # Average every independent scale estimate available, rather than letting
+    # one reference override the others: a measured femur, a measured foot and
+    # a height-derived femur estimate each give a pixel-to-metre scale, and the
+    # mean of whatever was provided is the most robust. Falls back to 1.0
+    # (image-normalised) only when nothing could be measured.
+    femur_px = _median_femur_px()
     scales = []
-    if femur_mm is not None:
-        px = _median_femur_px()
-        if px and px > 0:
-            scales.append((femur_mm / 1000.0) / px)
+    if femur_mm is not None and femur_px and femur_px > 0:
+        scales.append((femur_mm / 1000.0) / femur_px)
     if foot_mm is not None:
-        px = _median_foot_px()
-        if px and px > 0:
-            scales.append((foot_mm / 1000.0) / px)
-    if not scales and height_m is not None:
-        px = _median_femur_px()
-        if px and px > 0:
-            ratio = femur_ratio if femur_ratio is not None else FEMUR_HEIGHT_RATIO
-            scales.append((height_m * ratio) / px)
+        foot_px = _median_foot_px()
+        if foot_px and foot_px > 0:
+            scales.append((foot_mm / 1000.0) / foot_px)
+    if height_m is not None and femur_px and femur_px > 0:
+        ratio = femur_ratio if femur_ratio is not None else FEMUR_HEIGHT_RATIO
+        scales.append((height_m * ratio) / femur_px)
 
     if not scales:
         return 1.0
@@ -800,8 +802,8 @@ def step_length(
             "step_length_right": None,
             "stride_length_left": None,
             "stride_length_right": None,
-            "unit": "m" if height_m else "normalized",
-            "calibrated": height_m is not None,
+            "unit": "m" if (height_m or femur_mm or foot_mm) else "normalized",
+            "calibrated": height_m is not None or femur_mm is not None or foot_mm is not None,
             "valid_for_progression": False,
             "limitation": (
                 "Treadmill-like trial detected: image-progression step/stride length "
@@ -861,13 +863,19 @@ def step_length(
     def _mean_or_none(vals):
         return round(float(np.mean(vals)), 4) if vals else None
 
+    # Calibration is metric whenever ANY anthropometric reference was given --
+    # a measured femur or foot, not only height. The scale above already uses
+    # them (femur/foot take priority over height), so the unit/flag must match
+    # or a femur-calibrated result is wrongly reported as normalised and
+    # dropped downstream.
+    calibrated = height_m is not None or femur_mm is not None or foot_mm is not None
     return {
         "step_length_left": _mean_or_none(step_lengths["left"]),
         "step_length_right": _mean_or_none(step_lengths["right"]),
         "stride_length_left": _mean_or_none(stride_lengths["left"]),
         "stride_length_right": _mean_or_none(stride_lengths["right"]),
-        "unit": "m" if height_m else "normalized",
-        "calibrated": height_m is not None,
+        "unit": "m" if calibrated else "normalized",
+        "calibrated": calibrated,
         "valid_for_progression": True,
     }
 
@@ -910,6 +918,9 @@ def walking_speed(
     """
     frames = data.get("frames", [])
     height_m_val = height_m or data.get("subject", {}).get("height_m") if data.get("subject") else height_m
+    # Metric whenever any anthropometric reference was given -- the scale below
+    # uses femur/foot as well as height (see step_length for the same fix).
+    calibrated = height_m_val is not None or femur_mm is not None or foot_mm is not None
 
     extraction = data.get("extraction", {})
     if isinstance(extraction, dict) and extraction.get("treadmill") is True:
@@ -917,7 +928,7 @@ def walking_speed(
             "speed_mean": None,
             "speed_left": None,
             "speed_right": None,
-            "unit": "m/s" if height_m_val else "norm/s",
+            "unit": "m/s" if calibrated else "norm/s",
             "valid_for_progression": False,
             "limitation": (
                 "Treadmill-like trial detected: walking speed from image progression "
@@ -960,7 +971,7 @@ def walking_speed(
         "speed_mean": _mean_or_none(all_speeds),
         "speed_left": _mean_or_none(speeds["left"]),
         "speed_right": _mean_or_none(speeds["right"]),
-        "unit": "m/s" if height_m_val else "norm/s",
+        "unit": "m/s" if calibrated else "norm/s",
         "valid_for_progression": True,
     }
 
