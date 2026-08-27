@@ -913,6 +913,10 @@ def step_length(
     stride = round(float(mean_l + mean_r), 4) if (mean_l is not None and mean_r is not None) else None
 
     calibrated = height_m is not None or femur_mm is not None or foot_mm is not None
+    # Step and stride here are pan-immune: step is a same-frame inter-ankle
+    # measurement, and stride is derived from it (step_left + step_right), not
+    # from cross-frame single-ankle displacement. So they stay valid whether
+    # the camera is fixed OR tracking -- no need to invalidate on a pan.
     result = {
         "step_length_left": _mean_or_none(step_lengths["left"]),
         "step_length_right": _mean_or_none(step_lengths["right"]),
@@ -920,15 +924,14 @@ def step_length(
         "stride_length_right": stride,
         "unit": "m" if calibrated else "normalized",
         "calibrated": calibrated,
-        "valid_for_progression": not panning,
+        "valid_for_progression": True,
     }
     if panning:
         result["camera_motion"] = "pan_detected"
-        result["limitation"] = (
+        result["note"] = (
             f"Tracking/panning camera detected (planted stance foot drifts "
-            f"~{pan_m:.2f} m per stance): the inter-ankle step length stays "
-            "valid, but image-progression metrics (walking speed, hip "
-            "progression) are unreliable -- film from a fixed tripod for those."
+            f"~{pan_m:.2f} m per stance). Step and stride are measured pan-immune "
+            "and stay valid; a raw image-progression distance would not."
         )
     return result
 
@@ -1008,41 +1011,41 @@ def walking_speed(
         pos = idx_to_pos.get(frame_key)
         return None if pos is None else frames[pos].get("landmarks", {}).get(ankle_name, {}).get("x")
 
-    speeds = {"left": [], "right": []}
-    for c in cycle_list:
-        side = c["side"]
-        if c["duration"] <= 0:
-            continue
-        ankle_name = f"{side.upper()}_ANKLE"
-        x1 = _ankle_x(c["start_frame"], ankle_name)
-        x2 = _ankle_x(c["end_frame"], ankle_name)
-        if x1 is not None and x2 is not None:
-            stride_l = abs((x2 - x1) * img_w) * scale
-            speeds[side].append(stride_l / c["duration"])
+    # Speed = pan-immune STEP LENGTH x cadence (step frequency), the textbook
+    # identity, instead of a single ankle's cross-frame displacement over time
+    # -- which a tracking/panning camera corrupts (it cancels the forward
+    # translation, giving a speed several times too low). Both the inter-ankle
+    # step (same-frame) and the cadence (event timing) are pan-immune, so this
+    # is reliable whether the camera is fixed OR following the subject.
+    events = data.get("events") or {}
+    steps = {"left": [], "right": []}
+    for f_hs, side in _ordered_heel_strikes(events):
+        lx = _ankle_x(f_hs, "LEFT_ANKLE")
+        rx = _ankle_x(f_hs, "RIGHT_ANKLE")
+        if lx is not None and rx is not None:
+            steps[side].append(abs((lx - rx) * img_w) * scale)
 
-    def _mean_or_none(vals):
-        return round(float(np.mean(vals)), 3) if vals else None
+    stride_times = [c["duration"] for c in cycle_list if c.get("duration", 0) > 0]
+    # Two steps per stride, so step frequency = 2 / mean stride time.
+    steps_per_s = (2.0 / float(np.mean(stride_times))) if stride_times else None
 
-    all_speeds = speeds["left"] + speeds["right"]
+    def _spd(vals):
+        if not vals or steps_per_s is None:
+            return None
+        return round(float(np.mean(vals)) * steps_per_s, 3)
+
     out = {
-        "speed_mean": _mean_or_none(all_speeds),
-        "speed_left": _mean_or_none(speeds["left"]),
-        "speed_right": _mean_or_none(speeds["right"]),
+        "speed_mean": _spd(steps["left"] + steps["right"]),
+        "speed_left": _spd(steps["left"]),
+        "speed_right": _spd(steps["right"]),
         "unit": "m/s" if calibrated else "norm/s",
         "valid_for_progression": True,
     }
-    # A panning/tracking camera cancels the forward translation this stride-
-    # over-time speed relies on (see step_length): flag it unreliable rather
-    # than reporting a value several times too low.
-    pan_m = _stance_foot_drift_m(frames, data.get("events") or {}, idx_to_pos, img_w, scale)
+    pan_m = _stance_foot_drift_m(frames, events, idx_to_pos, img_w, scale)
     if pan_m is not None and pan_m > _PAN_DRIFT_M:
-        out["valid_for_progression"] = False
+        # Speed above is already pan-immune (step x cadence); note the pan for
+        # transparency rather than invalidating a now-correct number.
         out["camera_motion"] = "pan_detected"
-        out["limitation"] = (
-            "Tracking/panning camera: image-progression walking speed is "
-            "unreliable. Estimate it from step length x cadence instead, or "
-            "film from a fixed tripod."
-        )
     return out
 
 
