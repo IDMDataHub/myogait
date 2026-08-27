@@ -16,13 +16,12 @@ against real data (GH panning-camera clip, Bath BioCV video+C3D):
 import numpy as np
 import pytest
 
-from conftest import make_walking_data, make_standing_data
+from conftest import make_walking_data
 
 import myogait as mg
 from myogait.analysis import (
     analyze_gait, step_length, walking_speed, toe_clearance,
-    stride_variability, detect_parkinsonian, _frame_index_map,
-    _c3d_step_lengths,
+    stride_variability, _frame_index_map, _c3d_step_lengths,
 )
 from myogait.axis_utils import safe_frame_rate, detect_walking_direction_from_feet
 
@@ -60,7 +59,14 @@ def test_toe_clearance_populated_with_late_frame_idx():
     assert cycles["cycles"], "fixture should produce cycles"
     tc = toe_clearance(data, cycles)
     # at least one side yields a real value (not the all-None dead metric)
-    assert tc["mtc_left"] is not None or tc["mtc_right"] is not None
+    vals = [tc["mtc_left"], tc["mtc_right"]]
+    assert any(v is not None for v in vals)
+    # minimum toe clearance is a mid-swing height above the ground: it must be
+    # non-negative (a heel-referenced ground + toe-off search used to make it
+    # slightly negative).
+    for v in vals:
+        if v is not None:
+            assert v >= 0.0, f"MTC {v} should be non-negative"
 
 
 def test_stride_variability_cv_is_plausible():
@@ -155,7 +161,7 @@ def _make_c3d_like():
 
 def test_c3d_step_lengths_are_metric_and_plausible():
     data = _make_c3d_like()
-    cycles = _pipeline(data)
+    _pipeline(data)  # populates data["events"]
     events = data.get("events", {})
     steps = _c3d_step_lengths(data, events)
     assert steps is not None

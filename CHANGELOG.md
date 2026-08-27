@@ -26,6 +26,14 @@ clip.
   ``"unknown"`` to trigger the pelvis/ankle-displacement fallback). Previously
   a right-to-left walk with occluded feet had its heel-strike and toe-off
   events swapped.
+- `toe_clearance`: minimum toe clearance is now referenced against the toe
+  marker's own vertical floor (not the heel's) and searched over mid-swing
+  only. It previously mixed the heel ground with the toe marker and included
+  the toe-off / terminal-swing ground contacts, so the MTC came out ≈0 or
+  slightly negative; it is now the physiological mid-swing clearance (~1–2 cm).
+- Dropped Python 3.9 from the supported set (``requires-python >= 3.10``): it
+  reached end-of-life in Oct 2025 and the numeric dependency floors no longer
+  install on it.
 
 ### Added
 - App (`myogait_app`): the pipeline now drops the against-direction cycle

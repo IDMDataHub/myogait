@@ -1510,14 +1510,19 @@ def toe_clearance(data: dict, cycles: dict) -> dict:
         return {"mtc_left": None, "mtc_right": None,
                 "mtc_left_cv": None, "mtc_right_cv": None, "unit": "normalized"}
 
-    # Find ground level from heel positions during stance
-    heel_y_all = []
-    for f in frames:
-        for heel_name in ("LEFT_HEEL", "RIGHT_HEEL"):
-            lm = f.get("landmarks", {}).get(heel_name)
-            if lm and lm.get("y") is not None and not np.isnan(lm["y"]):
-                heel_y_all.append(lm["y"])
-    ground_y = np.percentile(heel_y_all, 95) if heel_y_all else 0.82
+    # Ground level PER SIDE from that foot's OWN vertical floor -- the 95th
+    # percentile of the toe (FOOT_INDEX) y over the recording, i.e. the surface
+    # the toe rests/pushes off from. Referencing the toe against the *heel*'s
+    # ground (as before) mixed two markers with different foot-flat heights, so
+    # the clearance could come out negative even for a normal swing.
+    def _floor(name):
+        ys = [f["landmarks"][name]["y"] for f in frames
+              if isinstance(f.get("landmarks", {}).get(name), dict)
+              and f["landmarks"][name].get("y") is not None
+              and not np.isnan(f["landmarks"][name]["y"])]
+        return float(np.percentile(ys, 95)) if ys else 0.82
+
+    foot_floor = {side: _floor(f"{side.upper()}_FOOT_INDEX") for side in ("left", "right")}
 
     # Cycle frames are original-video indices; resolve them to positions in the
     # analysed window (which may start late / be shorter). The toe-off frame is
@@ -1540,18 +1545,26 @@ def toe_clearance(data: dict, cycles: dict) -> dict:
         if end_pos is None:
             end_pos = len(frames)
 
-        # Swing phase: TO to end of cycle
+        # Minimum TOE clearance is a MID-SWING event. Over a swing the toe
+        # clearance starts near zero at toe-off (foot leaving the ground), rises
+        # to an early-swing peak, dips to the MTC around mid-swing, then descends
+        # again to heel strike. Searching the whole swing returned the toe-off /
+        # terminal-swing ground contact (≈0 or negative) instead of the real
+        # MTC, so restrict the search to the mid-portion of swing.
         foot_name = f"{side.upper()}_FOOT_INDEX"
-        min_clearance = float("inf")
-        for fi in range(to_pos, min(end_pos, len(frames))):
-            lm = frames[fi].get("landmarks", {}).get(foot_name)
-            if lm and lm.get("y") is not None and not np.isnan(lm["y"]):
-                clearance = ground_y - lm["y"]
-                if clearance < min_clearance:
-                    min_clearance = clearance
-
-        if min_clearance < float("inf"):
-            mtc[side].append(min_clearance)
+        ground = foot_floor[side]
+        positions = list(range(to_pos, min(end_pos, len(frames))))
+        if len(positions) >= 6:
+            lo = int(round(0.25 * len(positions)))
+            hi = max(lo + 1, int(round(0.85 * len(positions))))
+            positions = positions[lo:hi]
+        clearances = [ground - frames[fi]["landmarks"][foot_name]["y"]
+                      for fi in positions
+                      if isinstance(frames[fi].get("landmarks", {}).get(foot_name), dict)
+                      and frames[fi]["landmarks"][foot_name].get("y") is not None
+                      and not np.isnan(frames[fi]["landmarks"][foot_name]["y"])]
+        if clearances:
+            mtc[side].append(min(clearances))
 
     result = {}
     for side in ("left", "right"):
