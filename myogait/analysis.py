@@ -201,6 +201,16 @@ def _add_legacy_summary_aliases(stats: dict) -> None:
         stats["stance_pct"] = round(float(np.mean(stance_vals)), 1)
 
 
+def _ordered_heel_strikes(events: dict) -> list[tuple[int, str]]:
+    """Return heel strikes ordered by frame, tagged with their side."""
+    strikes = [
+        (event["frame"], side)
+        for side, key in (("left", "left_hs"), ("right", "right_hs"))
+        for event in events.get(key, [])
+    ]
+    return sorted(strikes)
+
+
 def _spatiotemporal(cycle_list: list, events: dict, fps: float) -> dict:
     """Compute spatio-temporal parameters."""
     left_cycles = [c for c in cycle_list if c["side"] == "left"]
@@ -217,17 +227,11 @@ def _spatiotemporal(cycle_list: list, events: dict, fps: float) -> dict:
     cadence = (60.0 / stride_time_mean * 2) if stride_time_mean > 0 else 0.0
 
     # Step time (alternating feet)
-    all_hs = []
-    for ev in events.get("left_hs", []):
-        all_hs.append({"frame": ev["frame"], "side": "left"})
-    for ev in events.get("right_hs", []):
-        all_hs.append({"frame": ev["frame"], "side": "right"})
-    all_hs.sort(key=lambda e: e["frame"])
-
     step_times = []
-    for i in range(len(all_hs) - 1):
-        if all_hs[i]["side"] != all_hs[i + 1]["side"]:
-            dt = (all_hs[i + 1]["frame"] - all_hs[i]["frame"]) / fps
+    all_hs = _ordered_heel_strikes(events)
+    for (frame, side), (next_frame, next_side) in zip(all_hs, all_hs[1:]):
+        if side != next_side:
+            dt = (next_frame - frame) / fps
             step_times.append(dt)
 
     step_time_mean = float(np.mean(step_times)) if step_times else stride_time_mean / 2
@@ -803,24 +807,16 @@ def step_length(
     )
 
     # Compute step lengths (distance between consecutive HS of opposite feet)
-    all_hs = []
-    for ev in events.get("left_hs", []):
-        all_hs.append({"frame": ev["frame"], "side": "left"})
-    for ev in events.get("right_hs", []):
-        all_hs.append({"frame": ev["frame"], "side": "right"})
-    all_hs.sort(key=lambda e: e["frame"])
-
     step_lengths = {"left": [], "right": []}
-    for i in range(len(all_hs) - 1):
-        if all_hs[i]["side"] == all_hs[i + 1]["side"]:
+    all_hs = _ordered_heel_strikes(events)
+    for (f1, side), (f2, next_side) in zip(all_hs, all_hs[1:]):
+        if side == next_side:
             continue
-        f1 = all_hs[i]["frame"]
-        f2 = all_hs[i + 1]["frame"]
         if f1 >= len(frames) or f2 >= len(frames):
             continue
 
-        side = all_hs[i + 1]["side"]  # step is named by the leading foot
-        ankle_name = f"{side.upper()}_ANKLE"
+        leading_side = next_side
+        ankle_name = f"{leading_side.upper()}_ANKLE"
 
         lm1 = frames[f1].get("landmarks", {}).get(ankle_name, {})
         lm2 = frames[f2].get("landmarks", {}).get(ankle_name, {})
@@ -828,7 +824,7 @@ def step_length(
         x2 = lm2.get("x")
         if x1 is not None and x2 is not None:
             dist = abs((x2 - x1) * img_w) * scale
-            step_lengths[side].append(dist)
+            step_lengths[leading_side].append(dist)
 
     # Stride lengths from cycles
     stride_lengths = {"left": [], "right": []}

@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import numpy as np
 
-from myogait.analysis import _positive_autocorrelation
+from myogait.analysis import _ordered_heel_strikes, _positive_autocorrelation
+
+
+def test_ordered_heel_strikes_interleaves_both_sides_by_frame():
+    events = {
+        "left_hs": [{"frame": 30}, {"frame": 10}],
+        "right_hs": [{"frame": 20}],
+    }
+
+    assert _ordered_heel_strikes(events) == [(10, "left"), (20, "right"), (30, "left")]
 
 
 def test_positive_autocorrelation_matches_numpy_reference_for_a_long_signal():
