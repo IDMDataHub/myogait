@@ -26,6 +26,32 @@ Feature release: calibrated restoration of the markerless ankle push-off.
   makes no healthy-gait assumption and is safe on pathological gait.
 - `analyze_gait(..., restore_ankle_dynamics=False)`: opt-in flag that applies
   the correction to a copy of the cycles before computing the statistics.
+- `reconstruct_isb_angles(data, joints=...)` and the `isb` module: hip, knee
+  and ankle recomputed from C3D markers using proper ISB anatomical segment
+  frames (pelvis, thigh, shank, foot; Wu et al. 2002), instead of the single
+  averaged joint centre `compute_angles` works from. The 2-D sagittal angle
+  references flexion to the trunk (shoulder->hip) whereas ISB references the
+  pelvis: a real anatomical difference that leaves a ~10-17 deg constant
+  offset on hip/knee against a Visual3D/Vicon reference. Tier 1 (direct, no
+  calibration file) needs the paired medial/lateral markers and raises
+  `InsufficientLandmarksForISBError` otherwise, so sparse/markerless sources
+  fall back cleanly to the sagittal method. Characterised across Bath BioCV
+  (356 trial x joint x side): a clean, subject-specific level shift, waveform
+  r = 0.975 preserved. Also exposes the abduction/adduction and rotation DOF.
+- `reconstruct_isb_angles_tier2/tier3` and `load_raw_c3d_markers`
+  (`vicon_calibration` module): Harrington-regression and VSK-calibrated hip
+  joint centres for the ISB reconstruction, and every raw C3D marker by its
+  original label.
+
+### Changed
+- Walking-direction detection now takes a majority vote across four
+  body-orientation cues (hip displacement plus three pan-invariant
+  intra-frame offsets: foot-vs-hip, nose-vs-hip, toe-vs-heel), instead of the
+  hip-displacement heuristic alone. The single cue collapses to landmark
+  noise when the camera pans to follow the subject; the intra-frame cues do
+  not. Angle-sign results are unchanged wherever `canonicalize_angle_signs`
+  runs (the reported ankle metric is invariant to the direction stage,
+  verified by a landmark-mirroring test to within 1 deg).
 
 ## [0.8.5] — 2026-08-27
 
