@@ -56,7 +56,6 @@ from typing import Optional
 import numpy as np
 
 from .isb import (
-    ISB_REQUIRED_LANDMARKS,
     InsufficientLandmarksForISBError,
     _femur_frame,
     _foot_frame,
@@ -397,12 +396,12 @@ def calibrate_technical_frames(
         # No VSK joint ball for one or both hips -- fall back to the
         # Harrington regression (tier 2's estimator) rather than failing
         # tier 3 outright over a missing virtual point.
-        r, l = estimate_hjc_harrington(
+        r_hjc, l_hjc = estimate_hjc_harrington(
             static_landmarks_3d["RIGHT_ASIS"], static_landmarks_3d["LEFT_ASIS"],
             static_landmarks_3d["RIGHT_PSIS"], static_landmarks_3d["LEFT_PSIS"],
         )
-        hjc.setdefault("R", r)
-        hjc.setdefault("L", l)
+        hjc.setdefault("R", r_hjc)
+        hjc.setdefault("L", l_hjc)
 
     offsets: dict[str, np.ndarray] = {}
     segments_calibrated: list[str] = []

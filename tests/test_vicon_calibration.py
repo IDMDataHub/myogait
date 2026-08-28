@@ -5,10 +5,8 @@ import pytest
 
 from myogait.isb import _pelvis_frame
 from myogait.vicon_calibration import (
-    HjcCalibration,
     TechnicalCalibration,
     VSKData,
-    apply_technical_calibration,
     calibrate_hjc_from_static,
     calibrate_technical_frames,
     estimate_hjc_harrington,

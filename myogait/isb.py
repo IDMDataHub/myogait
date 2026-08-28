@@ -61,7 +61,7 @@ rather than registering as a ``method=`` value.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Sequence
 
 import numpy as np
 
