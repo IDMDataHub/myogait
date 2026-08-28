@@ -26,9 +26,6 @@ Feature release: calibrated restoration of the markerless ankle push-off.
   makes no healthy-gait assumption and is safe on pathological gait.
 - `analyze_gait(..., restore_ankle_dynamics=False)`: opt-in flag that applies
   the correction to a copy of the cycles before computing the statistics.
-- `docs/ankle_dynamics_report.pdf`: a proto-article documenting the method,
-  formulas, transfer function, validation and the alternative approaches
-  explored (multi-view fusion, rigid foot).
 
 ## [0.8.5] — 2026-08-27
 
