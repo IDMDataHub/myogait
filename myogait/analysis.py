@@ -122,6 +122,7 @@ def analyze_gait(
     femur_mm: Optional[float] = None,
     foot_mm: Optional[float] = None,
     femur_ratio: Optional[float] = None,
+    restore_ankle_dynamics: bool = False,
 ) -> dict:
     """Compute comprehensive gait statistics.
 
@@ -175,6 +176,14 @@ def analyze_gait(
     fps = _frame_rate(data)
     events = data.get("events", {})
     angles = data.get("angles", {})
+
+    # Optional: restore the markerless ankle push-off the pose estimator
+    # attenuates (calibrated deconvolution, mean-restoration). Operates on a
+    # copy so the caller's cycles are untouched; see ankle_dynamics.
+    if restore_ankle_dynamics:
+        from .ankle_dynamics import restore_ankle_dynamics as _restore_ankle
+        cycles = _restore_ankle(cycles)
+
     cycle_list = cycles.get("cycles", [])
 
     # Resolve anthropometric references ONCE so step_length and walking_speed

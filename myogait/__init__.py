@@ -19,7 +19,7 @@ Full pipeline with cycle analysis::
 
 from importlib import import_module
 
-__version__ = "0.8.5"
+__version__ = "0.8.6"
 
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
@@ -84,6 +84,11 @@ from .analysis import (
     pca_waveform_analysis,
     compute_derivatives,
     time_frequency_analysis,
+)
+from .ankle_dynamics import (
+    restore_ankle_dynamics,
+    ankle_restoration_delta,
+    ANKLE_TF_METADATA,
 )
 from .normative import (
     get_normative_curve,
@@ -247,6 +252,9 @@ __all__ = [
     "pca_waveform_analysis",
     "compute_derivatives",
     "time_frequency_analysis",
+    "restore_ankle_dynamics",
+    "ankle_restoration_delta",
+    "ANKLE_TF_METADATA",
     "get_normative_curve",
     "get_normative_band",
     "select_stratum",

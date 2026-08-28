@@ -3,6 +3,33 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.8.6] — 2026-08-28
+
+Feature release: calibrated restoration of the markerless ankle push-off.
+
+### Added
+- `restore_ankle_dynamics(cycles)` and the `ankle_dynamics` module. A 2-D
+  pose estimator behaves, on a joint-angle waveform, like a subject-
+  independent low-pass filter (it keeps ~80 % of the signal at 1 Hz but only
+  ~20 % at 6-7 Hz), so the fast push-off plantar-flexion is flattened and the
+  ankle range of motion is systematically under-read. We model the estimator
+  as a linear time-invariant system, estimate its transfer function ``H(f)``
+  once against synchronous Vicon (BioCV / Bath BATH-01258, 9 subjects,
+  85 trials, embedded in the module) and invert it by Wiener deconvolution.
+  The correction is applied as **mean restoration**: because deconvolution is
+  linear, only the systematic mean cycle is deconvolved and the resulting
+  per-phase delta is added to every cycle, so inter-cycle variability is left
+  exactly unchanged. Validated leave-one-subject-out: ankle ROM bias
+  -10.6 -> -5.3 deg, |ROM error| 10.8 -> 6.7 deg, inter-cycle SD unchanged;
+  it improves every subject and restores inter-patient variability toward the
+  optical reference. The filter is applied in Hz (cadence-adaptive), so it
+  makes no healthy-gait assumption and is safe on pathological gait.
+- `analyze_gait(..., restore_ankle_dynamics=False)`: opt-in flag that applies
+  the correction to a copy of the cycles before computing the statistics.
+- `docs/ankle_dynamics_report.pdf`: a proto-article documenting the method,
+  formulas, transfer function, validation and the alternative approaches
+  explored (multi-view fusion, rigid foot).
+
 ## [0.8.5] — 2026-08-27
 
 Bug-fix release: correct metric spatiotemporal parameters on a C3D marker
