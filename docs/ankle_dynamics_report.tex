@@ -42,7 +42,7 @@ Two families of remedies exist. Learned \emph{marker augmenters} map sparse vide
 
 \section{Method}
 \subsection{Data and angle extraction}
-Video is processed by the \texttt{myogait} pipeline: per-axis normalisation, a 4\,Hz Butterworth filter, 2-D sagittal joint angles, coordinate-based (Zeni) event detection, and time normalisation of each gait cycle to 101 points. The optical reference is the Visual3D-processed Vicon of the same trial, from which we recompute the ankle from the full 3-D markers. All angles are compared after removing the whole-cycle mean, so a definition offset between the two systems does not bias the comparison.
+Video is processed by the \texttt{myogait} pipeline: per-axis normalisation, a 4\,Hz Butterworth filter, 2-D sagittal joint angles, coordinate-based (Zeni) event detection, and time normalisation of each gait cycle to 101 points. The optical reference is the Visual3D-processed Vicon of the same trial, from which we recompute the ankle from the full 3-D markers. All angles are compared after removing the whole-cycle mean, so a definition offset between the two systems does not bias the comparison. Walking direction is resolved from several pan-invariant intra-frame body-orientation cues (foot-, nose- and toe-relative offsets) that remain valid when the camera pans to follow the subject, unlike the legacy hip-displacement heuristic. The final angle sign is then fixed by a flexion-positive canonicalisation that is itself independent of the detected direction; consequently the ankle metric reported here is invariant to the direction stage. We verified this directly: mirroring every landmark $x$-coordinate---the geometric equivalent of reversing the walking direction---reproduces the canonicalised ankle waveform to within $1^\circ$. Every number below is therefore identical whether the legacy or the newer detector is used.
 
 \subsection{The pose estimator as a linear filter}
 Write $c(\phi)$ for the true (Vicon) ankle angle over the normalised cycle $\phi$ and $v(\phi)$ for the markerless one. Taking the discrete Fourier transform over the cycle, the ratio between the video and reference spectra at each stride harmonic $k$ is, across subjects, a smooth and reproducible function of frequency that decays with $k$ (Figure~\ref{fig:tf}). We therefore model the estimator as a linear time-invariant system,
@@ -93,11 +93,11 @@ Both were evaluated but, as Appendix~\ref{app} shows, multi-view fusion \emph{de
 We use the BioCV dataset (University of Bath Research Data Archive~\cite{biocv}): synchronous Sapiens-2 markerless video (lateral camera) and Visual3D Vicon, $9$ subjects, $85$ walking trials. The transfer function is estimated \textbf{leave-one-subject-out}: for each test subject $H$ is learned only on the others, so no test data enters the filter. Per trial and per side we report, for the ankle: the absolute ROM error and the signed bias versus Vicon; the waveform RMSE (mean-referenced); the inter-cycle SD (mean over phase of the standard deviation across a trial's cycles); and, across subjects, the inter-patient SD of the mean ROM. Agreement is summarised by Bland--Altman bias and $\pm1.96\,\mathrm{SD}$ limits of agreement (LoA).
 
 \section{Results}
-Figure~\ref{fig:curves} overlays, for three subjects, the raw and corrected mean cycle with their inter-cycle bands and the Vicon mean. The corrected curve deepens push-off toward the reference, and---crucially---the corrected band has the same width as the raw band. Table~\ref{tab:main} gives the pooled metrics: the ROM bias is halved and the absolute error drops by 38\%, while the inter-cycle SD is unchanged to two decimals. The Bland--Altman plots (Figure~\ref{fig:ba}) show the bias moving toward zero and the lower limit of agreement tightening. The correction improves \emph{every} subject (Figure~\ref{fig:persub}), and the between-subject spread of ankle ROM moves \emph{toward} the Vicon value ($3.6^\circ\!\to\!4.7^\circ$, Vicon $5.2^\circ$): real inter-patient differences are recovered, not smoothed away.
+Figure~\ref{fig:curves} overlays, for every one of the nine subjects, the raw and corrected mean cycle (with the corrected inter-cycle band) and the Vicon mean. The corrected curve deepens push-off toward the reference in every subject, and---crucially---the corrected band has the same width as the raw band. Table~\ref{tab:main} gives the pooled metrics: the ROM bias is halved and the absolute error drops by 38\%, while the inter-cycle SD is unchanged to two decimals. The Bland--Altman plots (Figure~\ref{fig:ba}) show the bias moving toward zero and the lower limit of agreement tightening. The correction improves \emph{every} subject (Figure~\ref{fig:persub}), and the between-subject spread of ankle ROM moves \emph{toward} the Vicon value ($3.6^\circ\!\to\!4.7^\circ$, Vicon $5.2^\circ$): real inter-patient differences are recovered, not smoothed away.
 
 \begin{figure}[t]\centering
-\includegraphics[width=0.72\linewidth]{fig3_curves.pdf}
-\caption{Mean $\pm$ inter-cycle SD, three subjects. Raw video (grey, dashed), restored (orange), Vicon (teal). The corrected band width equals the raw band width---variability is preserved, not inflated.}
+\includegraphics[width=0.98\linewidth]{fig3_curves.pdf}
+\caption{All nine subjects (per panel: raw ROM $\rightarrow$ restored / Vicon). Raw video (grey, dashed), restored mean $\pm$ inter-cycle SD (orange), Vicon (teal). The restored curve deepens push-off toward Vicon in every subject while the band width is preserved.}
 \label{fig:curves}
 \end{figure}
 
@@ -165,6 +165,14 @@ Multi-camera reconstruction & 20.8 & 5.80 & 5.70 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+Figure~\ref{fig:ablcurves} shows the correction \emph{effect} of each alternative on the mean ankle waveform: only the deconvolution (orange) deepens the push-off toward Vicon, whereas the multi-camera reconstruction and skeleton/foot locking leave it as flat as---or flatter than---the single camera. This is the visual counterpart of the table: geometry does not restore the missing amplitude, the calibrated filter does.
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.72\linewidth]{fig7_ablation_curves.pdf}
+\caption{Effect of each alternative on the mean ankle waveform (subject P06, foot-flat referenced). Only the deconvolution (this work) restores the push-off toward Vicon; multi-camera reconstruction and skeleton/foot locking do not.}
+\label{fig:ablcurves}
+\end{figure}
 
 \begin{thebibliography}{9}\small
 \bibitem{openpose} Z.~Cao, G.~Hidalgo, T.~Simon, S.-E.~Wei, Y.~Sheikh. OpenPose: Realtime multi-person 2D pose estimation using part affinity fields. \emph{IEEE TPAMI} 43(1):172--186, 2021.
