@@ -104,7 +104,7 @@ from .scores import (
     sagittal_deviation_index,
     movement_analysis_profile,
 )
-from .schema import load_json, save_json, set_subject
+from .schema import load_json, save_json, set_study, set_subject
 from .export import (
     export_csv,
     export_mot,
@@ -284,6 +284,7 @@ __all__ = [
     "load_json",
     "save_json",
     "set_subject",
+    "set_study",
     "run_pipeline",
     "exceptions",
     "MyogaitError",

@@ -139,6 +139,20 @@ def create_empty(
     }
 
 
+#: Measured segment lengths (millimetres) that :func:`set_subject` persists
+#: alongside the demographic fields, so a pivot carries the anthropometry that
+#: calibrates step length / walking speed rather than keeping it only in a
+#: session config. Names match the app's ``SubjectConfig``.
+SUBJECT_SEGMENT_FIELDS = (
+    "femur_length_mm",
+    "tibia_length_mm",
+    "upper_arm_length_mm",
+    "forearm_length_mm",
+    "trunk_length_mm",
+    "foot_length_mm",
+)
+
+
 def set_subject(
     data: dict,
     age: Optional[int] = None,
@@ -147,6 +161,12 @@ def set_subject(
     weight_kg: Optional[float] = None,
     pathology: Optional[str] = None,
     notes: Optional[str] = None,
+    femur_length_mm: Optional[float] = None,
+    tibia_length_mm: Optional[float] = None,
+    upper_arm_length_mm: Optional[float] = None,
+    forearm_length_mm: Optional[float] = None,
+    trunk_length_mm: Optional[float] = None,
+    foot_length_mm: Optional[float] = None,
     **extra,
 ) -> dict:
     """Set subject metadata in the pivot JSON.
@@ -167,6 +187,12 @@ def set_subject(
         Primary diagnosis or condition.
     notes : str, optional
         Additional clinical notes.
+    femur_length_mm, tibia_length_mm, upper_arm_length_mm, forearm_length_mm, \
+trunk_length_mm, foot_length_mm : float, optional
+        Measured segment lengths in millimetres. Persisting these lets the
+        anthropometric calibration (step length, walking speed) travel with the
+        pivot and round-trip through the app, instead of living only in a
+        session config. See :data:`SUBJECT_SEGMENT_FIELDS`.
     **extra
         Any additional metadata key-value pairs.
 
@@ -188,9 +214,71 @@ def set_subject(
         subject["pathology"] = pathology
     if notes is not None:
         subject["notes"] = notes
+    for _name, _value in (
+        ("femur_length_mm", femur_length_mm),
+        ("tibia_length_mm", tibia_length_mm),
+        ("upper_arm_length_mm", upper_arm_length_mm),
+        ("forearm_length_mm", forearm_length_mm),
+        ("trunk_length_mm", trunk_length_mm),
+        ("foot_length_mm", foot_length_mm),
+    ):
+        if _value is not None:
+            subject[_name] = _value
     subject.update(extra)
 
     data["subject"] = subject
+    return data
+
+
+def set_study(
+    data: dict,
+    patient_id: Optional[str] = None,
+    run: Optional[str] = None,
+    group: Optional[str] = None,
+    condition: Optional[str] = None,
+    **extra,
+) -> dict:
+    """Set (merge) study identifiers in the pivot JSON.
+
+    These label a recording so a batch can be grouped for pooled/cohort
+    analysis (by patient, run, group and condition). Unlike
+    :func:`set_subject`, this *merges* into any existing ``data["study"]`` so
+    editing one field (e.g. ``condition``) leaves the others intact -- the
+    common case when re-tagging an already-generated pivot.
+
+    Parameters
+    ----------
+    data : dict
+        Pivot JSON dict.
+    patient_id : str, optional
+        Subject identifier used to pair a video run with its marker reference.
+    run : str, optional
+        Recording/run label (defaults, in the app, to the clip name).
+    group : str, optional
+        Study group (e.g. ``"control"``).
+    condition : str, optional
+        Experimental condition (e.g. ``"baseline"``, ``"post-op"``).
+    **extra
+        Any additional study key-value pairs (only non-None are written).
+
+    Returns
+    -------
+    dict
+        Modified *data* dict with ``study`` field updated in place.
+    """
+    study = dict(data.get("study") or {})
+    for _name, _value in (
+        ("patient_id", patient_id),
+        ("run", run),
+        ("group", group),
+        ("condition", condition),
+    ):
+        if _value is not None:
+            study[_name] = _value
+    for _name, _value in extra.items():
+        if _value is not None:
+            study[_name] = _value
+    data["study"] = study
     return data
 
 
