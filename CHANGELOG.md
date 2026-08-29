@@ -3,6 +3,23 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.8.7] — 2026-08-28
+
+Editable pivot metadata: subject/study can now be written and round-tripped
+via the library directly, not only from the app's session config.
+
+### Added
+- `set_study(data, patient_id=, run=, group=, condition=, **extra)`: writes and
+  *merges* study identifiers into `data["study"]` (editing one field, e.g.
+  `condition`, leaves the others intact). Exported at the package top level.
+- `set_subject` now persists the measured segment lengths — `femur_length_mm`,
+  `tibia_length_mm`, `upper_arm_length_mm`, `forearm_length_mm`,
+  `trunk_length_mm`, `foot_length_mm` (see `SUBJECT_SEGMENT_FIELDS`) — alongside
+  the demographics, so the anthropometry that calibrates step length / walking
+  speed travels with the pivot. Backward-compatible: unset segments stay absent,
+  and `load_json` still requires only `meta`+`frames`, so old pivots load
+  unchanged.
+
 ## [0.8.6] — 2026-08-28
 
 Feature release: calibrated restoration of the markerless ankle push-off.
