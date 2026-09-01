@@ -92,7 +92,9 @@ class HRNETPoseExtractor(BasePoseExtractor):
                     continue
             raise ImportError(
                 "Could not install mmcv: no prebuilt wheel found for your "
-                f"platform (torch {major}.{minor}, {cu_tag}). "
+                f"platform (torch {major}.{minor}, {cu_tag}). Easiest fix "
+                "(installs the whole MMPose stack, auto-matched to your "
+                "torch/CUDA):\n  myogait setup-mmpose\n"
                 "See https://mmcv.readthedocs.io/en/latest/get_started/installation.html"
             )
 

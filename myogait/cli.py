@@ -472,6 +472,80 @@ def cmd_setup_sapiens2(args):
     print(f"  >>> mg.extract('video.mp4', model='sapiens2-{alias}')")
 
 
+def cmd_setup_mmpose(args):
+    """One-shot, user-friendly install of the MMPose backend (HRNet, RTMPose-m).
+
+    MMPose needs four *compatible* OpenMMLab packages (mmengine, mmcv, mmdet,
+    mmpose). Installing them by hand is the usual failure point on Windows:
+    ``mmcv`` ships no source build and plain ``pip`` picks a wheel that does
+    not match the installed torch/CUDA. ``mim`` (OpenMMLab's own installer)
+    resolves the versions and fetches the prebuilt ``mmcv`` wheel matching the
+    *installed* torch + CUDA automatically, so we drive the install through it.
+    """
+    import importlib
+    import importlib.util
+    import subprocess
+
+    # 1) torch must be present first — mim picks the mmcv wheel from it.
+    if importlib.util.find_spec("torch") is None:
+        print(
+            "PyTorch is required first (mim reads torch+CUDA to pick the mmcv "
+            "wheel). Install it, e.g.:\n"
+            "  pip install torch --index-url "
+            "https://download.pytorch.org/whl/cu121\n"
+            "then re-run `myogait setup-mmpose`.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    try:
+        import torch
+        print(f"torch {torch.__version__} (CUDA {torch.version.cuda or 'CPU'})")
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 2) openmim (the installer) — pip-install it if missing.
+    if importlib.util.find_spec("mim") is None:
+        if args.no_install:
+            print(
+                "openmim is missing. Install it (`pip install -U openmim`) or "
+                "re-run without --no-install.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print("Installing openmim...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", "openmim"])
+        importlib.invalidate_caches()
+
+    # 3) mim install the full stack — mim resolves the compatible prebuilt
+    #    mmcv wheel for the detected torch/CUDA.
+    packages = ["mmengine", args.mmcv, args.mmdet, args.mmpose]
+    print("Installing the OpenMMLab stack via mim:\n  " + "\n  ".join(packages))
+    subprocess.check_call([sys.executable, "-m", "mim", "install", *packages])
+    importlib.invalidate_caches()
+
+    # 4) Verify the import chain the HRNet/MMPose backends need at runtime.
+    print("Verifying imports...")
+    try:
+        import mmcv          # noqa: F401
+        import mmdet         # noqa: F401
+        import mmpose        # noqa: F401
+        from mmpose.apis import inference_topdown  # noqa: F401
+        print(f"  mmcv {mmcv.__version__} · mmpose {mmpose.__version__} "
+              f"· mmdet {mmdet.__version__}")
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"Install completed but import failed: {exc}\n"
+            "Usually the mmcv wheel does not match your torch/CUDA. See "
+            "https://mmpose.readthedocs.io/en/latest/installation.html",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print("\nDone. From now on:")
+    print("  >>> import myogait as mg")
+    print("  >>> mg.extract('video.mp4', model='hrnet')   # HRNet-W48 via MMPose")
+
+
 def cmd_info(args):
     """Display info about a myogait JSON file."""
     from . import load_json
@@ -633,6 +707,23 @@ def main():
              "for thin runtimes (the .pt2 alone is enough).",
     )
     p_setup.set_defaults(func=cmd_setup_sapiens2)
+
+    # setup-mmpose
+    p_mm = sub.add_parser(
+        "setup-mmpose",
+        help=("One-shot setup for the MMPose backend (HRNet / RTMPose-m): "
+              "installs mmengine+mmcv+mmdet+mmpose via mim, auto-matching "
+              "your torch/CUDA."),
+    )
+    p_mm.add_argument("--mmcv", default="mmcv>=2.0.1,<2.3",
+                      help="mmcv version spec (default: mmcv>=2.0.1,<2.3).")
+    p_mm.add_argument("--mmdet", default="mmdet>=3.2.0",
+                      help="mmdet version spec (default: mmdet>=3.2.0).")
+    p_mm.add_argument("--mmpose", default="mmpose>=1.3.1",
+                      help="mmpose version spec (default: mmpose>=1.3.1).")
+    p_mm.add_argument("--no-install", action="store_true",
+                      help="Do not pip-install openmim; fail if missing.")
+    p_mm.set_defaults(func=cmd_setup_mmpose)
 
     args = parser.parse_args()
     _setup_logging(args.verbose)

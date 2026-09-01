@@ -49,7 +49,10 @@ class MMPosePoseExtractor(BasePoseExtractor):
             logger.info("RTMPose loaded.")
         except ImportError as e:
             raise ImportError(
-                "MMPose/YOLO not installed. Install with: pip install myogait[mmpose,yolo]\n"
+                "MMPose/YOLO not installed. Easiest fix (auto-matches your "
+                "torch/CUDA):\n  myogait setup-mmpose\n"
+                "Manual: pip install myogait[yolo] && "
+                "mim install mmengine mmcv mmdet mmpose\n"
                 f"Original error: {e}"
             )
 

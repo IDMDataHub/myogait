@@ -3,6 +3,23 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.8.8] — 2026-09-01
+
+User-friendly, one-shot install of the MMPose backend (HRNet-W48, RTMPose-m).
+
+### Added
+- `myogait setup-mmpose`: installs the full OpenMMLab stack in one command via
+  `mim` (`mmengine` + `mmcv` + `mmdet` + `mmpose`). `mim` fetches the prebuilt
+  `mmcv` wheel matching the *installed* torch + CUDA automatically — the step
+  that fails under plain `pip` on Windows (no source build, wrong wheel picked;
+  see issues #4/#5). Checks that torch is present first, pip-installs `openmim`
+  if missing, then verifies the import chain. Flags: `--mmcv/--mmdet/--mmpose`
+  to pin versions, `--no-install`.
+
+### Changed
+- HRNet / MMPose backends now point to `myogait setup-mmpose` in their
+  missing-dependency errors, instead of the fragile manual `pip install`.
+
 ## [0.8.7] — 2026-08-28
 
 Editable pivot metadata: subject/study can now be written and round-tripped
