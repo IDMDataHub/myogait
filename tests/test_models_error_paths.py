@@ -55,7 +55,7 @@ def test_mmpose_setup_wraps_missing_dependency_error(monkeypatch):
     _force_import_error(monkeypatch, {"mmpose"})
     sys.modules.pop("mmpose", None)
 
-    with pytest.raises(ImportError, match=r"myogait\[mmpose,yolo\]"):
+    with pytest.raises(ImportError, match=r"setup-mmpose"):
         MMPosePoseExtractor().setup()
 
 
