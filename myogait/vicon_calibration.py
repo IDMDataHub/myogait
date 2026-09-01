@@ -159,7 +159,11 @@ def calibrate_hjc_from_static(
     leg_length_mm : float, optional
         See :func:`estimate_hjc_harrington`.
     """
-    mean = {k: np.nanmean(np.asarray(v, dtype=float), axis=0) for k, v in static_markers_3d.items()}
+    required_markers = ("RIGHT_ASIS", "LEFT_ASIS", "RIGHT_PSIS", "LEFT_PSIS")
+    mean = {
+        name: _mean_static_marker(static_markers_3d, name)
+        for name in required_markers
+    }
     RHJC, LHJC = estimate_hjc_harrington(
         mean["RIGHT_ASIS"], mean["LEFT_ASIS"], mean["RIGHT_PSIS"], mean["LEFT_PSIS"],
         leg_length_mm=leg_length_mm,
@@ -169,6 +173,35 @@ def calibrate_hjc_from_static(
     right_local = inv @ np.append(RHJC, 1.0)
     left_local = inv @ np.append(LHJC, 1.0)
     return HjcCalibration(right_local=right_local, left_local=left_local)
+
+
+def _mean_static_marker(static_markers_3d: dict, marker_name: str) -> np.ndarray:
+    """Return a finite mean marker position from a static trial.
+
+    C3D files commonly encode an occluded marker as rows of ``NaN``.  A
+    direct ``nanmean`` would then return another ``NaN`` and defer the useful
+    error until an unrelated matrix operation.  Reject that input at the
+    calibration boundary instead.  A single ``(3,)`` position is accepted as
+    a convenience for callers that have already averaged the static trial.
+    """
+    if marker_name not in static_markers_3d:
+        raise ValueError(f"Static HJC calibration requires marker {marker_name!r}.")
+
+    positions = np.asarray(static_markers_3d[marker_name], dtype=float)
+    if positions.shape == (3,):
+        positions = positions.reshape(1, 3)
+    if positions.ndim != 2 or positions.shape[1] != 3:
+        raise ValueError(
+            f"Static marker {marker_name!r} must have shape (n_frames, 3); "
+            f"got {positions.shape}."
+        )
+
+    finite_positions = positions[np.isfinite(positions).all(axis=1)]
+    if not len(finite_positions):
+        raise ValueError(
+            f"Static HJC calibration cannot use {marker_name!r}: no finite frames are available."
+        )
+    return finite_positions.mean(axis=0)
 
 
 def hjc_from_calibration(calibration: HjcCalibration, pelvis_dynamic: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
