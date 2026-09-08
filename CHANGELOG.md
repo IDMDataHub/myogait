@@ -3,6 +3,23 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.8.9] — 2026-09-03
+
+Fix a metric step/stride/speed over-estimation on subject-following (panning)
+videos.
+
+### Fixed
+- `step_length` / `walking_speed`: the pixel-to-metre scale was calibrated from
+  the **first 60 frames only**. On a tracking/panning shot the subject is often
+  still entering the frame there (far, small), so the femur/foot reference was
+  under-measured and the scale inflated — step, stride and speed came out
+  **~1.5× too long** vs the Vicon marker reference (validated on Myokinesis
+  patients 0101/0106/0111: stride 1.73-1.94 m → 1.02-1.25 m against a Vicon
+  ~1.15 m). The scale now takes the **median over the whole recording**, which
+  is robust to entry/exit frames and matches the reference within ~10 %.
+  Fixed-camera recordings, where the subject is full-size throughout, are
+  unchanged. Regression test: `tests/test_scale_calibration_window.py`.
+
 ## [0.8.8] — 2026-09-01
 
 User-friendly, one-shot install of the MMPose backend (HRNet-W48, RTMPose-m).

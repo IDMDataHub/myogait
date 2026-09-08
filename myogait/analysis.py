@@ -805,8 +805,14 @@ def _estimate_pixel_to_meter_scale(
     sy = float(height) if height else 1.0
 
     def _median_femur_px() -> Optional[float]:
+        # Median over the WHOLE recording, not just the first 60 frames: on a
+        # tracking/panning shot the subject is often still entering (far, small)
+        # in those opening frames, so a first-60 femur under-measures the real
+        # segment and inflates the metre scale -- step/stride came out ~1.5x too
+        # long vs Vicon on subject-following clips. The full-recording median is
+        # robust to the entry/exit frames and matches the marker reference.
         femur_lengths = []
-        for f in frames[:min(60, len(frames))]:
+        for f in frames:
             lm = f.get("landmarks", {})
             hip = lm.get("LEFT_HIP")
             knee = lm.get("LEFT_KNEE")
@@ -817,8 +823,9 @@ def _estimate_pixel_to_meter_scale(
         return float(np.median(femur_lengths)) if femur_lengths else None
 
     def _median_foot_px() -> Optional[float]:
+        # Whole-recording median, same reason as _median_femur_px above.
         foot_lengths = []
-        for f in frames[:min(60, len(frames))]:
+        for f in frames:
             lm = f.get("landmarks", {})
             heel = lm.get("LEFT_HEEL") or lm.get("RIGHT_HEEL")
             toe  = lm.get("LEFT_FOOT_INDEX") or lm.get("RIGHT_FOOT_INDEX")
