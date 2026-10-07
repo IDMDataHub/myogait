@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 _VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
-def _filter_cycles_by_direction(data: dict, cycles: dict) -> dict:
+def filter_cycles_by_direction(data: dict, cycles: dict) -> dict:
     """Keep the dominant walking-direction cycle group.
 
     Walkway recordings often contain an outbound and a return pass;
@@ -95,6 +95,10 @@ def _filter_cycles_by_direction(data: dict, cycles: dict) -> dict:
                     if an.get("hip") is not None:
                         an["hip"] = [-v for v in an["hip"]]
     return {**cycles, "cycles": keep}
+
+
+# Backward-compatible private alias (myogait <= 0.8.9 exposed only this name).
+_filter_cycles_by_direction = filter_cycles_by_direction
 
 
 def _diagnose(data: dict, cycles_all: dict, cycles_kept: dict) -> dict:
@@ -239,12 +243,37 @@ def run_pipeline(
     ``result["quality"]["warnings"]`` lists anything the pipeline
     detected that should temper interpretation (also logged).
     """
+    data, source_type = _load_source(source, model=model,
+                                     show_progress=show_progress)
+    return _run_steps(
+        data, source_type,
+        butterworth_cutoff=butterworth_cutoff,
+        calibrate=False,
+        event_method=event_method,
+        trim_standstill=False,
+        min_cycle_duration_s=min_cycle_duration_s,
+        max_cycle_duration_s=max_cycle_duration_s,
+        n_points=n_points,
+        analyze=analyze,
+        direction_filter=direction_filter,
+    )
+
+
+def _load_source(source, model: str = "sapiens2-quick",
+                 show_progress: bool = True) -> tuple[dict, str]:
+    """Load a video, a pivot JSON or a C3D into a pivot dict.
+
+    Returns ``(data, source_type)`` with ``source_type`` one of
+    ``"video"``, ``"json"`` or ``"c3d"``.  A pivot ``dict`` is accepted
+    as-is (``source_type`` ``"c3d"`` when it carries markers, else
+    ``"json"``).
+    """
     from .schema import load_json
-    from .normalize import normalize
-    from .angles import compute_angles, canonicalize_angle_signs
-    from .events import detect_events
-    from .cycles import segment_cycles
-    from .analysis import analyze_gait
+
+    if isinstance(source, dict):
+        is_c3d = bool(source.get("c3d_markers_3d")) or str(
+            (source.get("meta") or {}).get("source") or "").lower() == "c3d"
+        return source, ("c3d" if is_c3d else "json")
 
     src = str(source)
     suffix = Path(src).suffix.lower()
@@ -264,20 +293,45 @@ def run_pipeline(
             f"Unrecognised source type '{suffix}'. Expected a video "
             f"({sorted(_VIDEO_SUFFIXES)}), a .myogait.json, or a .c3d file."
         )
+    return data, source_type
+
+
+def _run_steps(
+    data: dict,
+    source_type: str,
+    *,
+    butterworth_cutoff: float = 4.0,
+    calibrate: bool = False,
+    event_method: str = "zeni",
+    trim_standstill: bool = False,
+    min_cycle_duration_s: float = 0.8,
+    max_cycle_duration_s: float = 1.6,
+    n_points: int = 101,
+    analyze: bool = True,
+    direction_filter: bool = True,
+) -> dict:
+    """Processing steps shared by :func:`run_pipeline` and
+    :func:`myogait.autoconfig.run_auto` (steps 2-9 of run_pipeline)."""
+    from .normalize import normalize
+    from .angles import compute_angles, canonicalize_angle_signs
+    from .events import detect_events
+    from .cycles import segment_cycles
+    from .analysis import analyze_gait
 
     data = normalize(data, filters=["butterworth"],
                      butterworth_cutoff=butterworth_cutoff)
-    data = compute_angles(data, calibrate=False)
+    data = compute_angles(data, calibrate=calibrate)
     if source_type == "c3d":
         from .experimental_vicon import compute_c3d_reference_angles
         data = compute_c3d_reference_angles(data)
     data = canonicalize_angle_signs(data)
-    data = detect_events(data, method=event_method, trim_standstill=False,
+    data = detect_events(data, method=event_method,
+                         trim_standstill=trim_standstill,
                          min_cycle_duration=min(0.6, min_cycle_duration_s))
     cycles_all = segment_cycles(data, n_points=n_points,
                                  min_duration=min_cycle_duration_s,
                                  max_duration=max_cycle_duration_s)
-    cycles = (_filter_cycles_by_direction(data, cycles_all)
+    cycles = (filter_cycles_by_direction(data, cycles_all)
               if direction_filter else cycles_all)
 
     quality = _diagnose(data, cycles_all, cycles)
