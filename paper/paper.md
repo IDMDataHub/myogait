@@ -141,63 +141,47 @@ changelog.
 # Research impact statement
 
 **Agreement with marker-based motion capture.** `myogait` 0.8.9 with the
-Sapiens2 backend was compared with simultaneous marker-based recordings
-(Qualisys or Vicon, 200 Hz) processed by the same `myogait` angle, event and
-cycle algorithms, so the comparison
-isolates the pose-estimation stage; events on both sides come from kinematic
-detection, not force plates. Curve agreement is reported per subject as
-Pearson *r* and centred RMSE (RMSE after removing the mean offset); parameter
-agreement per trial as ICC(2,1) (two-way random, absolute agreement, single
-measure, @Koo2016) and Bland–Altman limits of agreement [@Bland1986]; event
-timing is relative, after kinematic synchronisation of the two systems.
+Sapiens2 backend was compared with simultaneous marker-based recordings of
+the BioCV dataset [@Evans2024; @Needham2021]: 9 healthy adults walking
+overground, filmed by fixed machine-vision cameras (200 fps, analysed at
+60 fps) from four sides, with Qualisys motion capture (200 Hz) as reference,
+194 video–marker pairs. Both systems were processed by the same `myogait`
+angle, event and cycle algorithms, so the comparison isolates the
+pose-estimation stage. Curves are compared per subject (Pearson *r*, RMSE and
+RMSE after removing the mean offset), parameters per trial (ICC(2,1),
+two-way random, absolute agreement [@Koo2016]; Bland–Altman limits
+[@Bland1986]) and events after kinematic synchronisation of the two systems.
 
-*Laboratory* (BioCV dataset [@Evans2024; @Needham2021]: 9 healthy adults,
-fixed machine-vision cameras at 200 fps analysed at 60 fps, Qualisys, 194
-video–marker pairs over four views). With the left lateral
-camera, hip, knee and ankle curves reached *r* = 0.98, 0.96 and 0.88 (centred
-RMSE 2.9°, 4.9° and 4.8°); cadence ICC was 0.93, stride-length ICC 0.71 and
-speed ICC 0.83; initial-contact and toe-off timing differed by −6 ± 26 ms and
-−3 ± 29 ms (62 of 83 synchronised trials). The right lateral camera, filming
-the same trials from the other side, gave lower agreement (ankle *r* 0.80,
-stride-length and speed ICC 0.41–0.56); frontal and rear views do not give
-usable sagittal angles.
+With the left lateral camera, hip, knee and ankle waveforms reached *r* =
+0.98, 0.96 and 0.88, with offset-removed RMSE of 2.9°, 4.9° and 4.8°.
+Absolute angles are biased (hip −6.9°, partly because the video hip angle
+is measured between thigh and trunk), giving absolute RMSE of 8.6°, 7.8° and
+6.6°, and knee and ankle ranges of motion are underestimated by about 9°.
+Cadence agreed closely (ICC 0.93, bias −0.9 steps/min), stride length and
+speed moderately (ICC 0.71 and 0.83), and initial contact and toe-off differed
+by −6 ± 26 ms and −3 ± 29 ms. The right lateral camera, filming the same
+trials from the other side, gave lower agreement (ankle *r* 0.80,
+stride-length and speed ICC 0.41–0.56), and frontal and rear views do not
+give usable sagittal angles: waveform shape, timing and cadence from a
+lateral view are the validated outputs.
 
-*Clinic, preliminary use* (Myokinesis study: 64 walks of 15 participants,
-5 with a neuromuscular disease, filmed with a hand-held iPhone at 60 Hz
-following the subject, Vicon). Curves reached *r* = 0.92, 0.98 and 0.91 (centred
-RMSE 3.1°, 5.3°, 4.8°); cadence ICC 0.97, stride-length ICC 0.80 (bias
-−0.01 m, limits −0.25 to +0.23 m), speed ICC 0.86; event timing −8 ± 8 ms and
-−2 ± 9 ms over short overlapping recordings. Pose estimation failed for one
-patient (left/right confusions). Group differences between healthy and
-patient participants had the same direction with both systems but were
-attenuated by video. This is a demonstration of use, not a clinical
-validation, which will be reported separately on the complete cohort.
+**Gait events from real video.** In a 16-dataset benchmark of gait-event
+detectors [@Fer2026], `myogait` provided the markerless chain on BioCV video:
+with Sapiens2 at 60 fps, the BIKE detector reached heel-strike and toe-off F1
+scores of 0.83 and 0.87, against 0.13 for heel strike when the detector was
+run on raw landmarks without the `myogait` preprocessing. Performance
+collapsed below 30 fps, which `myogait` reports as a quality warning.
 
-Across both settings, waveform shape and timing are the validated outputs.
-Absolute angles are biased (hip −7° to −12°, partly because of the
-trunk-based hip definition), giving absolute RMSE of 8.6°, 7.8° and 6.6° (hip,
-knee, ankle) in the laboratory and 13.2°, 6.2° and 8.0° in the clinic, and
-knee and ankle ranges of motion are underestimated by about 9° in the
-laboratory and up to 17° in the clinic. To our knowledge this is the first
-comparison of hand-held smartphone gait kinematics against marker-based
-capture that includes patients.
-
-**Reproducibility and use.** The validation is distributed as a
-self-contained package (prepared data, Python build scripts and R analyses)
-that regenerates every table and figure (TODO: DOI Zenodo). `myogait` has been
-released on PyPI since February 2026 (about 340 downloads per month) and
-archived on Zenodo [@myogait]; the repository had 12 stars and 6 external forks
-in October 2026. It is
-used in the Myokinesis clinical study at the Institut de Myologie, provided
-the markerless video chain of a gait-event benchmark [@Fer2026], and is the
-processing layer of `myogait-app` [@myogaitapp].
-
-# Ethics
-
-TODO : Myokinesis was approved by [CPP …, IDRCB/NCT …]; all participants gave
-written informed consent. The BioCV data were collected under the ethics
-approval of the University of Bath and are used under the dataset licence;
-they are not redistributed.
+**Reproducibility and use.** The code, aggregate tables and figures of the
+validation are in the repository (`validation/`); the raw BioCV data are
+available from the University of Bath and are not redistributed. `myogait`
+has been released on PyPI since February 2026 (about 340 downloads per month)
+and archived on Zenodo [@myogait]; the repository had 12 stars and 6
+external forks in October 2026. It is used in the Myokinesis study at the
+Institut de Myologie, where its clinical validation in patients with
+neuromuscular diseases, filmed with a hand-held smartphone against Vicon, is
+ongoing and will be reported separately, and it is the processing layer of
+`myogait-app` [@myogaitapp].
 
 # AI usage disclosure
 
@@ -213,7 +197,7 @@ capture reported above.
 
 # Acknowledgements
 
-We thank the participants and the clinical team of the Myokinesis study,
+We thank the clinical team of the Myokinesis study,
 W. Legendre for code contributions, T. Marques, J.-Y. Hogrel and M. Jacoupy
 for discussions on the validation, the University of Bath group (L. Needham,
 L. Wade, M. Evans, S. Colyer, P. McGuigan and colleagues) for access to the
