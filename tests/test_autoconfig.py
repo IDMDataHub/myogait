@@ -91,3 +91,30 @@ def test_run_auto_on_dict_and_json(tmp_path):
 def test_filter_cycles_by_direction_is_public():
     from myogait.pipeline import _filter_cycles_by_direction
     assert mg.filter_cycles_by_direction is _filter_cycles_by_direction
+
+
+def _cycle(side, hip_sign=1.0):
+    import numpy as np
+    pct = np.linspace(0, 1, 101)
+    hip = hip_sign * 25.0 * np.cos(2 * np.pi * pct)           # flexed at contact
+    knee = 30.0 + 25.0 * np.sin(2 * np.pi * (pct - 0.5)) ** 2
+    return {"side": side, "angles_normalized": {"hip": list(hip), "knee": list(knee)}}
+
+
+def test_enforce_flexion_positive_flips_inverted_hip_side():
+    cycles = [_cycle("left", -1.0), _cycle("left", -1.0), _cycle("right", 1.0)]
+    mg.enforce_flexion_positive(cycles)
+    for c in cycles:
+        hip = c["angles_normalized"]["hip"]
+        assert hip[0] > 0 > hip[50]
+
+
+def test_run_steps_enforces_sign_without_direction_filter():
+    from myogait.pipeline import _run_steps
+    data = make_walking_data(n_frames=240)
+    res = _run_steps(copy.deepcopy(data), "json", direction_filter=False, analyze=False)
+    for c in res["cycles"].get("cycles", []):
+        hip = c["angles_normalized"].get("hip")
+        if hip is not None:
+            import numpy as np
+            assert np.mean(hip[:15]) >= np.mean(hip[40:60])

@@ -11,6 +11,11 @@ semantic versioning: breaking API changes only occur in major releases.
   CPU, Sapiens 2 being the GPU option.
 
 ### Fixed
+- `run_auto` (0.9.0) could return a hip curve with the wrong sign on one side
+  for single-direction recordings: the flexion-positive check only ran inside
+  the direction filter. It now always runs; it is exposed as
+  `enforce_flexion_positive`. Found on a marker (C3D) trial whose raw 2-D left
+  hip was inverted (video vs marker hip r went from -1.00 to 1.00).
 - `run_pipeline` / `run_auto` no longer suggest neutral calibration when it
   was already applied.
 - Normative curves: the adult hip, knee, ankle and sagittal-pelvis curves are

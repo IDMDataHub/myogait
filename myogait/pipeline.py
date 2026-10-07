@@ -33,6 +33,41 @@ logger = logging.getLogger(__name__)
 _VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
 
+def _knee_mean(cs):
+    vals = [np.mean(c["angles_normalized"]["knee"]) for c in cs
+            if c.get("angles_normalized", {}).get("knee") is not None]
+    return float(np.mean(vals)) if vals else -np.inf
+
+
+def enforce_flexion_positive(cycle_list: list) -> list:
+    """Enforce the flexion-positive convention per side, in place.
+
+    Knee flexion must be positive on average, and the hip must be flexed
+    at initial contact (start of the cycle) and extended in mid-cycle.
+    A side whose mean curves contradict this has its knee and/or hip
+    sign flipped.  Returns *cycle_list* for convenience.
+    """
+    for side in ("left", "right"):
+        side_cycles = [c for c in cycle_list if c.get("side") == side]
+        if _knee_mean(side_cycles) < 0:
+            for c in side_cycles:
+                an = c.get("angles_normalized", {})
+                for j in ("knee", "hip"):
+                    if an.get(j) is not None:
+                        an[j] = [-v for v in an[j]]
+        hip_curves = [c["angles_normalized"]["hip"] for c in side_cycles
+                      if c.get("angles_normalized", {}).get("hip") is not None
+                      and len(c["angles_normalized"]["hip"]) == 101]
+        if hip_curves:
+            hm = np.mean(hip_curves, axis=0)
+            if np.mean(hm[:15]) < np.mean(hm[40:60]):
+                for c in side_cycles:
+                    an = c.get("angles_normalized", {})
+                    if an.get("hip") is not None:
+                        an["hip"] = [-v for v in an["hip"]]
+    return cycle_list
+
+
 def filter_cycles_by_direction(data: dict, cycles: dict) -> dict:
     """Keep the dominant walking-direction cycle group.
 
@@ -67,33 +102,11 @@ def filter_cycles_by_direction(data: dict, cycles: dict) -> dict:
             continue
         groups[1.0 if x1 > x0 else -1.0].append(c)
 
-    def _knee_mean(cs):
-        vals = [np.mean(c["angles_normalized"]["knee"]) for c in cs
-                if c.get("angles_normalized", {}).get("knee") is not None]
-        return float(np.mean(vals)) if vals else -np.inf
-
     keep = max(groups.values(), key=lambda cs: (len(cs), _knee_mean(cs)))
     if not keep:
         return cycles
 
-    for side in ("left", "right"):
-        side_cycles = [c for c in keep if c.get("side") == side]
-        if _knee_mean(side_cycles) < 0:
-            for c in side_cycles:
-                an = c.get("angles_normalized", {})
-                for j in ("knee", "hip"):
-                    if an.get(j) is not None:
-                        an[j] = [-v for v in an[j]]
-        hip_curves = [c["angles_normalized"]["hip"] for c in side_cycles
-                      if c.get("angles_normalized", {}).get("hip") is not None
-                      and len(c["angles_normalized"]["hip"]) == 101]
-        if hip_curves:
-            hm = np.mean(hip_curves, axis=0)
-            if np.mean(hm[:15]) < np.mean(hm[40:60]):
-                for c in side_cycles:
-                    an = c.get("angles_normalized", {})
-                    if an.get("hip") is not None:
-                        an["hip"] = [-v for v in an["hip"]]
+    enforce_flexion_positive(keep)
     return {**cycles, "cycles": keep}
 
 
@@ -332,8 +345,11 @@ def _run_steps(
     cycles_all = segment_cycles(data, n_points=n_points,
                                  min_duration=min_cycle_duration_s,
                                  max_duration=max_cycle_duration_s)
-    cycles = (filter_cycles_by_direction(data, cycles_all)
-              if direction_filter else cycles_all)
+    if direction_filter:
+        cycles = filter_cycles_by_direction(data, cycles_all)
+    else:
+        cycles = cycles_all
+        enforce_flexion_positive(cycles.get("cycles", []))
 
     quality = _diagnose(data, cycles_all, cycles)
     for w in quality["warnings"]:

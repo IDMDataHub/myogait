@@ -167,7 +167,7 @@ from .vicon_calibration import (
     reconstruct_isb_angles_tier3,
     load_raw_c3d_markers,
 )
-from .pipeline import run_pipeline, filter_cycles_by_direction
+from .pipeline import run_pipeline, filter_cycles_by_direction, enforce_flexion_positive
 from .autoconfig import run_auto, detect_recipe
 from . import exceptions
 from .exceptions import (
@@ -290,6 +290,7 @@ __all__ = [
     "run_auto",
     "detect_recipe",
     "filter_cycles_by_direction",
+    "enforce_flexion_positive",
     "exceptions",
     "MyogaitError",
     "ExtractionError",
