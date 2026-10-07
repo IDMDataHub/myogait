@@ -296,7 +296,7 @@ data = frame_coherence_score(data)
 
 # Per-frame scores [0, 1] in data["frames"][i]["coherence"]
 # Summary statistics in data["coherence_summary"]
-print(f"Mean coherence: {data['coherence_summary']['mean']:.3f}")
+print(f"Mean coherence: {data['coherence_summary']['mean_score']:.3f}")
 print(f"Low-quality frames: {data['coherence_summary']['low_coherence_frames']}")
 ```
 
@@ -619,7 +619,7 @@ from myogait import movement_analysis_profile, plot_gvs_profile
 map_data = movement_analysis_profile(cycles)
 
 # Visualization
-fig = plot_gvs_profile(gvs)
+fig = plot_gvs_profile(cycles)
 fig.savefig("movement_analysis_profile.png", dpi=150)
 ```
 

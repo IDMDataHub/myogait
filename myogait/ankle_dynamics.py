@@ -7,7 +7,7 @@ ankle range of motion is systematically under-read (bias ≈ -11 deg on BioCV).
 
 We model the estimator as a linear time-invariant system with transfer
 function ``H(f)`` and invert it (Wiener deconvolution). ``H(f)`` was estimated
-once against synchronous optical mocap (Vicon) on the BioCV / Bath BATH-01258
+once against synchronous optical mocap (Qualisys) on the BioCV / Bath BATH-01258
 dataset (9 subjects, 85 walking trials, cam01 lateral view) and is embedded
 below -- so no mocap is needed at run time.
 
@@ -36,7 +36,7 @@ from typing import Optional
 import numpy as np
 
 # ── Calibrated ankle transfer function H(f) ──────────────────────────
-# Estimated on BioCV BATH-01258 (Sapiens-2 cam01 lateral) vs Visual3D Vicon,
+# Estimated on BioCV BATH-01258 (Sapiens-2 cam01 lateral) vs Visual3D/Qualisys,
 # 9 subjects / 85 walking trials. Complex per-harmonic Wiener transfer of the
 # pose estimator (video = H * truth), sampled at the stride harmonics.
 ANKLE_TF_FREQ_HZ = np.array([
@@ -50,7 +50,7 @@ ANKLE_TF_H = _ANKLE_TF_H
 ANKLE_TF_REG = 0.08          # Wiener regularisation (noise vs restoration trade-off)
 ANKLE_TF_N_HARMONICS = 8
 ANKLE_TF_METADATA = {
-    "dataset": "BioCV BATH-01258 (Bath), Sapiens-2 cam01 lateral vs Visual3D Vicon",
+    "dataset": "BioCV BATH-01258 (Bath), Sapiens-2 cam01 lateral vs Visual3D/Qualisys",
     "n_subjects": 9, "n_trials": 85,
     "validation": "leave-one-subject-out; ankle |ROM err| 10.8->6.7 deg, "
                   "bias -10.6->-5.3 deg, inter-cycle SD unchanged (1.73)",

@@ -77,7 +77,7 @@ def cmd_extract(args):
 
 
 def cmd_run(args):
-    """Run full pipeline: extract → normalize → angles → events."""
+    """Run full pipeline: extract -> normalize -> angles -> events."""
     from . import extract, normalize, compute_angles, detect_events, save_json
 
     t0 = time.time()
@@ -133,7 +133,7 @@ def cmd_run(args):
 
 
 def cmd_analyze(args):
-    """Analyze a myogait JSON file: events → cycles → stats → plots."""
+    """Analyze a myogait JSON file: events -> cycles -> stats -> plots."""
     from . import load_json, save_json, detect_events, segment_cycles, analyze_gait
     from .plotting import plot_summary, plot_angles, plot_cycles, plot_events
 
@@ -616,7 +616,7 @@ def main():
     p_extract.set_defaults(func=cmd_extract)
 
     # run (full pipeline)
-    p_run = sub.add_parser("run", help="Run full pipeline: extract → normalize → angles → events")
+    p_run = sub.add_parser("run", help="Run full pipeline: extract -> normalize -> angles -> events")
     p_run.add_argument("video", help="Path to video file")
     p_run.add_argument("-m", "--model", default="mediapipe", help="Pose model (default: mediapipe)")
     p_run.add_argument("-o", "--output", help="Output JSON path (default: video.json)")
@@ -641,7 +641,7 @@ def main():
     p_run.set_defaults(func=cmd_run)
 
     # analyze
-    p_analyze = sub.add_parser("analyze", help="Analyze a myogait JSON: events → cycles → stats → plots")
+    p_analyze = sub.add_parser("analyze", help="Analyze a myogait JSON: events -> cycles -> stats -> plots")
     p_analyze.add_argument("json_file", help="Path to myogait JSON file (with angles)")
     p_analyze.add_argument("-o", "--output-dir", default=".", help="Directory for plots (default: .)")
     p_analyze.add_argument("--no-plots", action="store_true", help="Skip plot generation")

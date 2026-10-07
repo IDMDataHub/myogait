@@ -16,7 +16,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-video = "/home/ffer/gait_benchmark/data/videos/20250909_143902.mp4"
+import sys
+
+if len(sys.argv) < 2:
+    sys.exit(f"usage: python {sys.argv[0]} <walking_video.mp4>")
+video = sys.argv[1]
 
 # ── Choose model: "sapiens-quick" (v1, 0.3B) or "sapiens2-quick" (v2, 0.4B)
 # Sapiens 2 (ICLR 2026) provides +4 mAP over v1 with the same Goliath 308

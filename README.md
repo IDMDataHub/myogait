@@ -4,7 +4,7 @@ Markerless video-based gait analysis toolkit.
 
 [![CI](https://github.com/IDMDataHub/myogait/actions/workflows/ci.yml/badge.svg)](https://github.com/IDMDataHub/myogait/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/myogait)](https://pypi.org/project/myogait/)
-[![Python 3.9+](https://img.shields.io/pypi/pyversions/myogait)](https://pypi.org/project/myogait/)
+[![Python versions](https://img.shields.io/pypi/pyversions/myogait)](https://pypi.org/project/myogait/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/github/actions/workflow/status/IDMDataHub/myogait/ci.yml?label=tests)](https://github.com/IDMDataHub/myogait/actions/workflows/ci.yml)
 [![Downloads](https://img.shields.io/pypi/dm/myogait)](https://pypi.org/project/myogait/)
@@ -545,7 +545,7 @@ print(f"Quality score: {quality['score']}/100")
 
 # Per-frame coherence scoring (z-score based, adapts to any FPS)
 data = frame_coherence_score(data)
-print(f"Mean coherence: {data['coherence_summary']['mean']:.3f}")
+print(f"Mean coherence: {data['coherence_summary']['mean_score']:.3f}")
 print(f"Low frames: {data['coherence_summary']['low_coherence_frames']}")
 ```
 
@@ -572,13 +572,15 @@ before drawing clinical conclusions (see the warnings at the top of
 
 ### Normative Comparison
 
-Compare patient kinematics against published normative reference bands
-(Perry & Burnfield).
+Compare patient kinematics against normative reference bands. Adult hip,
+knee, ankle and sagittal pelvis curves were computed from the BioCV dataset of
+healthy adults (Evans et al. 2024, doi:10.15125/BATH-01258); trunk and
+frontal-plane curves come from Perry & Burnfield (2010) and Winter (2009).
 
 ```python
 from myogait import plot_normative_comparison, get_normative_band
 
-# Plot patient vs normative bands (Perry & Burnfield)
+# Plot patient vs normative bands
 fig = plot_normative_comparison(data, cycles, plane="both")
 fig.savefig("normative_comparison.png", dpi=150)
 
@@ -653,7 +655,8 @@ mg.export_excel(data, "report.xlsx", cycles=cycles, stats=stats)
 
 ### C3D loading with automatic marker-convention detection
 
-`load_c3d()` reads any C3D file and returns a myogait-compatible pivot
+C3D input and output need the optional `c3d` extra
+(`pip install "myogait[c3d]"`). `load_c3d()` reads any C3D file and returns a myogait-compatible pivot
 dict.  When `marker_mapping` is omitted the function autodetects the
 convention among the registered families (Plug-in Gait, ISB, Helen
 Hayes, ...) by scoring how many lower-limb markers each convention can
@@ -722,7 +725,7 @@ fig = plot_summary(data, cycles, stats)
 fig.savefig("dashboard.png", dpi=150)
 
 # MAP barplot (Movement Analysis Profile)
-fig = plot_gvs_profile(gvs)
+fig = plot_gvs_profile(cycles)
 fig.savefig("gvs_profile.png", dpi=150)
 ```
 
@@ -862,7 +865,7 @@ All functions operate on a single `data` dict that flows through the pipeline.
 | **Visualization** | |
 | `plot_summary(data, cycles, stats)` | Summary dashboard |
 | `plot_normative_comparison(data, cycles)` | Patient vs normative bands |
-| `plot_gvs_profile(gvs)` | Movement Analysis Profile barplot |
+| `plot_gvs_profile(cycles)` | Movement Analysis Profile barplot |
 | `render_skeleton_video(video, data, out)` | Skeleton overlay on video |
 | `render_stickfigure_animation(data, out)` | Anonymized stick figure GIF |
 | **Export** | |

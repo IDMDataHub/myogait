@@ -232,7 +232,7 @@ def main():
     label_map = dict(MODELS)
     selected = [(m, label_map.get(m, m)) for m in args.models]
 
-    print(f"\n=== Sapiens 2 plug-and-play demo ===")
+    print("\n=== Sapiens 2 plug-and-play demo ===")
     print(f"video : {video}")
     print(f"out   : {out_dir}")
     print(f"models: {', '.join(m for m, _ in selected)}\n")
