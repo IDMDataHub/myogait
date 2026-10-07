@@ -3,7 +3,10 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
-## [Unreleased]
+## [0.9.0] — 2026-10-07
+
+Automatic recipe choice, a public API for the companion application, and the
+validation material and community files for publication.
 
 ### Added
 - `run_auto(source, ...)` and `detect_recipe(data)` (`myogait.autoconfig`): pick
