@@ -4,7 +4,7 @@ ALL,view,,"iphone_following (Myokinesis); lateral_L / lateral_R / frontal / rear
 ALL,setting,,"Readable dataset x view label used to stratify every analysis"
 ALL,group,,"SAIN = healthy control; NMD = neuromuscular disease (Myokinesis); HEALTHY = Bath lab participants"
 ALL,pair_id,,"Paired-run key: Myokinesis <patient>_<IMG_xxxx>; Bath <subject>_<WALK_nn>_<camXX> (one video <-> one Vicon trial)"
-ALL,patient,,"Subject ID: Myokinesis 4 digits (0101..0115, read as TEXT), Bath P03..P17"
+ALL,patient,,"Subject ID: clinical study 4 digits (read as TEXT), Bath P03..P17"
 ALL,system,,"video = markerless (iPhone + Sapiens2-quick + myogait); vicon = marker-based reference (Vicon 200 Hz + myogait)"
 ALL,side,,"L/R as labelled by EACH system (video L/R may be mirrored vs anatomy, see side_map.csv)"
 ALL,side_ref,,"Anatomical side expressed in Vicon labels (video side remapped when side_swap = TRUE). Use this for every cross-system comparison"

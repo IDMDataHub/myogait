@@ -18,8 +18,7 @@ validation material and community files for publication.
 - `filter_cycles_by_direction` is now public (the private
   `_filter_cycles_by_direction` name is kept as an alias).
 - `validation/`: code, aggregate results and figures of the validation against
-  marker-based capture (BioCV laboratory dataset, Qualisys + preliminary
-  Myokinesis clinical data, Vicon).
+  marker-based capture (BioCV laboratory dataset, Qualisys).
 - `paper/`: draft software paper, built to PDF by the `draft-pdf` workflow.
 - `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`.
 
@@ -39,9 +38,8 @@ videos.
   the **first 60 frames only**. On a tracking/panning shot the subject is often
   still entering the frame there (far, small), so the femur/foot reference was
   under-measured and the scale inflated — step, stride and speed came out
-  **~1.5× too long** vs the Vicon marker reference (validated on Myokinesis
-  patients 0101/0106/0111: stride 1.73-1.94 m → 1.02-1.25 m against a Vicon
-  ~1.15 m). The scale now takes the **median over the whole recording**, which
+  **~1.5× too long** vs a marker-based reference on subject-following
+  recordings. The scale now takes the **median over the whole recording**, which
   is robust to entry/exit frames and matches the reference within ~10 %.
   Fixed-camera recordings, where the subject is full-size throughout, are
   unchanged. Regression test: `tests/test_scale_calibration_window.py`.

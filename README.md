@@ -61,30 +61,28 @@ result["recipe"]["name"], result["reasons"]   # e.g. "overground", [...]
 ## Validation
 
 myogait 0.8.9 (Sapiens2 backend) was compared with simultaneous marker-based
-motion capture processed by the same myogait algorithms, in a laboratory
-(BioCV, University of Bath: 9 healthy adults, fixed cameras, Qualisys, 194
-video–marker pairs) and,
-preliminarily, in a clinic (Myokinesis, Institut de Myologie: 64 walks of 15
-participants including 5 with a neuromuscular disease, hand-held iPhone
-following the subject, Vicon).
+motion capture processed by the same myogait algorithms on the BioCV dataset
+of the University of Bath (9 healthy adults, fixed cameras, Qualisys, 194
+video–marker pairs).
 
-![Curve agreement with marker-based capture by setting](validation/results/figures/agreement_forest.png)
+![Joint-angle agreement with marker-based capture, left lateral view](validation/results/figures/BA_kinematics__Bath_lateral_left_cam01_.png)
 
-| | Lab, lateral camera | Clinic, hand-held (preliminary) |
-|---|---|---|
-| Waveform *r*, hip / knee / ankle | 0.98 / 0.96 / 0.88 | 0.92 / 0.98 / 0.91 |
-| Centred RMSE, hip / knee / ankle | 2.9° / 4.9° / 4.8° | 3.1° / 5.3° / 4.8° |
-| Cadence ICC(2,1) | 0.93 | 0.97 |
-| Stride-length ICC(2,1) (bias) | 0.71 (−0.04 m) | 0.80 (−0.01 m) |
-| Walking-speed ICC(2,1) | 0.83 | 0.86 |
-| Initial contact / toe-off timing | −6 ± 26 / −3 ± 29 ms | −8 ± 8 / −2 ± 9 ms |
+| Lateral camera | Agreement with marker-based capture |
+|---|---|
+| Waveform *r*, hip / knee / ankle | 0.98 / 0.96 / 0.88 |
+| Centred RMSE, hip / knee / ankle | 2.9° / 4.9° / 4.8° |
+| Absolute RMSE, hip / knee / ankle | 8.6° / 7.8° / 6.6° |
+| Cadence ICC(2,1) | 0.93 |
+| Stride-length ICC(2,1) (bias) | 0.71 (−0.04 m) |
+| Walking-speed ICC(2,1) | 0.83 |
+| Initial contact / toe-off timing | −6 ± 26 / −3 ± 29 ms |
 
-Waveform shape and timing are the validated outputs. Absolute angles carry a
-hip offset (−7° to −12°, trunk-based hip angle) and knee/ankle ranges of
-motion are underestimated (about 9° in the lab, up to 17° in the clinic). The
-camera on the far side of the subject gives lower agreement, and frontal or
-rear views do not give usable sagittal angles. Full results, limits, code and
-aggregate tables: [`validation/`](validation/README.md).
+Waveform shape, timing and cadence are the validated outputs. Absolute angles
+carry a hip offset (about −7°, trunk-based hip angle) and knee/ankle ranges of
+motion are underestimated by about 9°. The camera on the far side of the
+subject gives lower agreement, and frontal or rear views do not give usable
+sagittal angles. A clinical validation in patients is ongoing. Full results,
+limits, code and aggregate tables: [`validation/`](validation/README.md).
 
 ## Features
 

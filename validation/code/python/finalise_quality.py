@@ -9,7 +9,7 @@ existing 01_data_prepared/ (fast, no re-analysis):
 
 Why: the video's left/right labels can be mirrored w.r.t. the Vicon (walking
 direction). The frame-level cross-correlation sync detects that for most runs
-(r ~ 0.98). When the sync is poor (r < SYNC_R_OK, e.g. patient 0114 whose pose
+(r ~ 0.98). When the sync is poor (r < SYNC_R_OK, e.g. a patient whose pose
 labels flip L/R within the trial), the sync's side decision is not trusted: the
 side mapping is then chosen from the cycle-normalised curves (the assignment
 with the lowest centred RMSE over hip/knee/ankle), and flagged `side_method =

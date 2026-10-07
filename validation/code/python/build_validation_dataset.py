@@ -67,10 +67,15 @@ SY_DIR = os.path.join(OUT, "synced")
 for d in (OUT, TS_DIR, SY_DIR):
     os.makedirs(d, exist_ok=True)
 
-# Study groups (anthropometry file of the study: SAIN = healthy, NMD = neuromuscular disease)
-GROUPS = {"0101": "SAIN", "0102": "SAIN", "0103": "SAIN", "0104": "SAIN", "0105": "SAIN",
-          "0106": "SAIN", "0107": "NMD", "0108": "SAIN", "0109": "SAIN", "0110": "SAIN",
-          "0111": "NMD", "0112": "NMD", "0113": "SAIN", "0114": "NMD", "0115": "NMD"}
+# Clinical study groups (SAIN = healthy, NMD = neuromuscular disease) are not
+# distributed: they are read from a local, non-public file when present.
+GROUPS_FILE = os.path.join(PKG, "00_original", "myokinesis", "groups.csv")
+GROUPS = {}
+if os.path.exists(GROUPS_FILE):
+    with open(GROUPS_FILE, encoding="utf-8") as fh:
+        for line in fh.read().splitlines()[1:]:
+            pid, grp = line.split(",")[:2]
+            GROUPS[pid.strip()] = grp.strip()
 
 SIDES = ("left", "right")
 SIDE_TAG = {"left": "L", "right": "R"}
