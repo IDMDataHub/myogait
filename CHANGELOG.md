@@ -19,7 +19,6 @@ validation material and community files for publication.
   `_filter_cycles_by_direction` name is kept as an alias).
 - `validation/`: code, aggregate results and figures of the validation against
   marker-based capture (BioCV laboratory dataset, Qualisys).
-- `paper/`: draft software paper, built to PDF by the `draft-pdf` workflow.
 - `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`.
 
 ### Changed
