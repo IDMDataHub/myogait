@@ -3,6 +3,26 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [Unreleased]
+
+### Added
+- `run_auto(source, ...)` and `detect_recipe(data)` (`myogait.autoconfig`): pick
+  the processing recipe from the recording itself — default recipe for a clean
+  standing-start clip, the validated overground recipe (calibration off,
+  standstill kept) for a marker source, a mid-stride start or a there-and-back
+  walkway (with direction filtering) — and fall back once to the overground
+  recipe if no gait cycle is found. The same detection now drives myogait-app.
+- `filter_cycles_by_direction` is now public (the private
+  `_filter_cycles_by_direction` name is kept as an alias).
+- `validation/`: code, aggregate results and figures of the validation against
+  Vicon (BioCV laboratory dataset + preliminary Myokinesis clinical data).
+- `paper/`: draft software paper, built to PDF by the `draft-pdf` workflow.
+- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`.
+
+### Changed
+- README: statement of need, link to myogait-app, updated validation section
+  (numbers from `validation/`), citation with the Zenodo DOI.
+
 ## [0.8.9] — 2026-09-03
 
 Fix a metric step/stride/speed over-estimation on subject-following (panning)
