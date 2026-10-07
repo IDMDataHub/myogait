@@ -69,8 +69,12 @@ feed OpenSim [@Delp2007; @Seth2018], but need several synchronised, calibrated
 cameras, which is often impractical in a clinic corridor. Single-camera
 approaches range from pose estimators that output landmarks only — MediaPipe
 [@Lugaresi2019], ViTPose [@Xu2022], RTMPose [@Jiang2023], Sapiens
-[@Khirodkar2024] — to study-specific gait pipelines [@Stenum2021;
-@Kidzinski2020]. Kinovea [@Kinovea] supports manual and semi-automatic 2-D
+[@Khirodkar2024] — to gait pipelines evaluated in clinical populations
+[@Stenum2021; @Kidzinski2020; @Stenum2024; @Liu2026]. Closest in spirit, the
+Portable Biomechanics Laboratory [@Peiffer2026] reconstructs biomechanics
+from a hand-held smartphone in neurological patients, and OpenCap-based
+metrics separate neuromuscular diseases [@Ruth2025], but with two fixed
+phones. Kinovea [@Kinovea] supports manual and semi-automatic 2-D
 measurement without pose-estimation-based landmark detection. Sports2D
 [@Pagnon2024] is the closest open-source tool: it computes 2-D joint and
 segment angles from a single video for sport and general movement. `myogait`
