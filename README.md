@@ -942,12 +942,14 @@ When using Sapiens (v1 or v2) with depth and segmentation:
 
 myogait is developed at the [Institut de Myologie](https://www.institut-myologie.org/) (Paris, France) by the **PhysioEvalLab / IDMDataHub** team.
 
-This work is supported by:
+This work is funded by **Crédit Agricole CIB-LCL** and supported by:
 - [AFM-Téléthon](https://www.afm-telethon.fr/) — French Muscular Dystrophy Association
 - [Fondation Myologie](https://www.fondation-myologie.org/) — Research foundation for muscle diseases
 - [Téléthon](https://www.telethon.fr/) — Annual fundraising event for rare disease research
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Cr%C3%A9dit_Agricole_CIB--LCL-Funding-006A4E?style=for-the-badge" alt="Crédit Agricole CIB-LCL">
+  &nbsp;
   <a href="https://www.institut-myologie.org/">
     <img src="https://img.shields.io/badge/Institut_de_Myologie-Paris-0055A4?style=for-the-badge" alt="Institut de Myologie">
   </a>
