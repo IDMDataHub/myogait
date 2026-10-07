@@ -2,15 +2,17 @@
 
 This folder holds the code and the aggregate results of the validation of
 **myogait 0.8.9** (single video + Sapiens2 pose model + myogait pipeline)
-against simultaneous **Vicon** recordings. The Vicon trials are processed by
-the same myogait angle, event and cycle algorithms, so the comparison isolates
+against simultaneous marker-based motion capture (**Qualisys** at Bath,
+**Vicon** at the Institut de Myologie; both 200 Hz, called "Vicon"/"marker"
+side in the tables). The marker trials are processed by the same myogait
+angle, event and cycle algorithms, so the comparison isolates
 the pose-estimation stage. Events on both sides come from kinematic detection,
 not from force plates.
 
-| Dataset | Setting | Participants | Video–Vicon pairs |
+| Dataset | Setting | Participants | Video–marker pairs |
 |---|---|---|---|
-| BioCV, University of Bath ([doi:10.15125/BATH-01258](https://doi.org/10.15125/BATH-01258)) | laboratory, fixed synchronised cameras, 4 views | 9 healthy adults | 194 (89 trials) |
-| Myokinesis, Institut de Myologie (**preliminary**) | clinic, hand-held iPhone (60 Hz) following the subject | 15 (10 healthy, 5 neuromuscular disease) | 64 |
+| BioCV, University of Bath ([doi:10.15125/BATH-01258](https://doi.org/10.15125/BATH-01258)) | laboratory, fixed synchronised machine-vision cameras (200 fps, analysed at 60 fps), 4 views; Qualisys | 9 healthy adults (P03, P04, P06, P08, P09, P10, P13, P16, P17) | 194 (89 trials) |
+| Myokinesis, Institut de Myologie (**preliminary**) | clinic, hand-held iPhone (60 Hz) following the subject; Vicon | 15 (10 healthy, 5 neuromuscular disease) | 64 |
 
 ## Main results
 
@@ -51,7 +53,7 @@ validation.
 
 | Path | What |
 |---|---|
-| `code/python/build_validation_dataset.py` | pairs video and Vicon trials, runs myogait on both, synchronises them and writes the tidy tables |
+| `code/python/build_validation_dataset.py` | pairs video and marker trials, runs myogait on both, synchronises them and writes the tidy tables |
 | `code/python/finalise_quality.py` | quality flags (synchronisation, side mapping) |
 | `code/R/` | every table and figure; `run_all.R` runs them in order |
 | `data_dictionary.csv` | every column, unit and definition of the prepared tables |
@@ -63,7 +65,11 @@ Per-subject and per-cycle tables are not included here.
 ## Reproducing
 
 The raw data are not redistributed. BioCV is available from the University of
-Bath under its licence. Myokinesis data are clinical and available on
+Bath Research Data Archive under its own terms (all rights reserved; cite
+Evans et al. 2024, doi:10.15125/BATH-01258).
+Gait events of the marker side are detected by myogait on the marker data,
+not taken from the Visual3D event files (some of which are known to be
+wrong on a few BioCV trials). Myokinesis data are clinical and available on
 reasonable request to the authors, subject to the study's ethics approval.
 With the data in place, from the package root:
 

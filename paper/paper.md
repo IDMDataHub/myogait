@@ -102,7 +102,9 @@ Changing the pose model does not change the rest of the analysis.
 ankle dorsiflexion positive; hip angle measured between thigh and trunk).
 Initial contact and toe-off are detected with kinematic methods [@Zeni2008] or
 with the detectors of the `gaitkit` library [@gaitkit], which were benchmarked
-on sixteen marker-based datasets and on real markerless video [@Fer2026].
+on sixteen marker-based datasets and on real markerless video [@Fer2026]; on
+BioCV video, the myogait preprocessing raised the heel-strike F1 of the BIKE
+detector from 0.13 (raw landmarks) to 0.83 [@Fer2026].
 Cycles are normalised to 101 points. Distances are scaled from the subject's
 stature over the whole recording, and step, stride and speed are computed
 from within-frame quantities so that they remain valid when the camera pans
@@ -116,7 +118,7 @@ parameters outside physiological ranges instead of silently reporting them.
 3-D joint angles from ISB anatomical frames [@Wu2002]. An optional ankle
 restoration step, disabled by default, compensates the low-pass behaviour of
 pose estimators at the ankle with a cadence-adaptive Wiener deconvolution; its
-transfer function was calibrated once against Vicon on the BioCV dataset for
+transfer function was calibrated once against marker data on the BioCV dataset for
 the Sapiens2 backend and reduced the ankle range-of-motion bias from −10.6° to
 −5.3° in leave-one-subject-out validation. Results can be compared with
 normative data, summarised with minimal detectable changes (MDC95), and
@@ -134,8 +136,9 @@ changelog.
 # Research impact statement
 
 **Agreement with marker-based motion capture.** `myogait` 0.8.9 with the
-Sapiens2 backend was compared with simultaneous Vicon recordings processed by
-the same `myogait` angle, event and cycle algorithms, so the comparison
+Sapiens2 backend was compared with simultaneous marker-based recordings
+(Qualisys or Vicon, 200 Hz) processed by the same `myogait` angle, event and
+cycle algorithms, so the comparison
 isolates the pose-estimation stage; events on both sides come from kinematic
 detection, not force plates. Curve agreement is reported per subject as
 Pearson *r* and centred RMSE (RMSE after removing the mean offset); parameter
@@ -144,7 +147,8 @@ measure, @Koo2016) and Bland–Altman limits of agreement [@Bland1986]; event
 timing is relative, after kinematic synchronisation of the two systems.
 
 *Laboratory* (BioCV dataset [@Evans2024; @Needham2021]: 9 healthy adults,
-fixed cameras, 194 video–Vicon pairs over four views). With the left lateral
+fixed machine-vision cameras at 200 fps analysed at 60 fps, Qualisys, 194
+video–marker pairs over four views). With the left lateral
 camera, hip, knee and ankle curves reached *r* = 0.98, 0.96 and 0.88 (centred
 RMSE 2.9°, 4.9° and 4.8°); cadence ICC was 0.93, stride-length ICC 0.71 and
 speed ICC 0.83; initial-contact and toe-off timing differed by −6 ± 26 ms and
@@ -155,7 +159,7 @@ usable sagittal angles.
 
 *Clinic, preliminary use* (Myokinesis study: 64 walks of 15 participants,
 5 with a neuromuscular disease, filmed with a hand-held iPhone at 60 Hz
-following the subject). Curves reached *r* = 0.92, 0.98 and 0.91 (centred
+following the subject, Vicon). Curves reached *r* = 0.92, 0.98 and 0.91 (centred
 RMSE 3.1°, 5.3°, 4.8°); cadence ICC 0.97, stride-length ICC 0.80 (bias
 −0.01 m, limits −0.25 to +0.23 m), speed ICC 0.86; event timing −8 ± 8 ms and
 −2 ± 9 ms over short overlapping recordings. Pose estimation failed for one
@@ -172,7 +176,9 @@ underestimated by about 9° in the laboratory and up to 17° in the clinic.
 **Reproducibility and use.** The validation is distributed as a
 self-contained package (prepared data, Python build scripts and R analyses)
 that regenerates every table and figure (TODO: DOI Zenodo). `myogait` has been
-released on PyPI since February 2026 and archived on Zenodo [@myogait]. It is
+released on PyPI since February 2026 (about 340 downloads per month) and
+archived on Zenodo [@myogait]; the repository had 12 stars and 6 external forks
+in October 2026. It is
 used in the Myokinesis clinical study at the Institut de Myologie, provided
 the markerless video chain of a gait-event benchmark [@Fer2026], and is the
 processing layer of `myogait-app` [@myogaitapp].

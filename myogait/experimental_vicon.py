@@ -571,7 +571,8 @@ C3D_MARKER_CONVENTIONS: Dict[str, Dict[str, List[str]]] = {
         "RIGHT_SHOULDER":   ["RSHO"],
         "NOSE":             ["C7", "CLAV"],
     },
-    # Bath BioCV dataset (Cotton et al.) — explicit anatomical labels
+    # Bath BioCV dataset (Evans et al. 2024, doi:10.15125/BATH-01258) —
+    # explicit anatomical labels
     # with LEFT_/RIGHT_ prefixes and _L / _R suffixes.  Uses the
     # already-computed joint centres when available (LEFT_HIP etc.).
     "bath_biocv": {

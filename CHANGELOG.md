@@ -15,11 +15,14 @@ semantic versioning: breaking API changes only occur in major releases.
 - `filter_cycles_by_direction` is now public (the private
   `_filter_cycles_by_direction` name is kept as an alias).
 - `validation/`: code, aggregate results and figures of the validation against
-  Vicon (BioCV laboratory dataset + preliminary Myokinesis clinical data).
+  marker-based capture (BioCV laboratory dataset, Qualisys + preliminary
+  Myokinesis clinical data, Vicon).
 - `paper/`: draft software paper, built to PDF by the `draft-pdf` workflow.
 - `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`.
 
 ### Changed
+- Bath BioCV is attributed to Evans et al. 2024 (it was credited to "Cotton
+  et al." in the C3D marker-preset comment).
 - README: statement of need, link to myogait-app, updated validation section
   (numbers from `validation/`), citation with the Zenodo DOI.
 

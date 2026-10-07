@@ -60,14 +60,15 @@ result["recipe"]["name"], result["reasons"]   # e.g. "overground", [...]
 
 ## Validation
 
-myogait 0.8.9 (Sapiens2 backend) was compared with simultaneous Vicon
-recordings processed by the same myogait algorithms, in a laboratory (BioCV,
-University of Bath: 9 healthy adults, fixed cameras, 194 video–Vicon pairs) and,
+myogait 0.8.9 (Sapiens2 backend) was compared with simultaneous marker-based
+motion capture processed by the same myogait algorithms, in a laboratory
+(BioCV, University of Bath: 9 healthy adults, fixed cameras, Qualisys, 194
+video–marker pairs) and,
 preliminarily, in a clinic (Myokinesis, Institut de Myologie: 64 walks of 15
 participants including 5 with a neuromuscular disease, hand-held iPhone
-following the subject).
+following the subject, Vicon).
 
-![Curve agreement with Vicon by setting](validation/results/figures/agreement_forest.png)
+![Curve agreement with marker-based capture by setting](validation/results/figures/agreement_forest.png)
 
 | | Lab, lateral camera | Clinic, hand-held (preliminary) |
 |---|---|---|
