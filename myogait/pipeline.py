@@ -158,8 +158,9 @@ def _diagnose(data: dict, cycles_all: dict, cycles_kept: dict) -> dict:
                 "placement")
 
     # Standing prelude: if the first second is near-static, neutral
-    # calibration would actually be applicable.
-    if n_frames > 60:
+    # calibration would actually be applicable (unless it was applied).
+    already_calibrated = bool((data.get("angles") or {}).get("calibrated"))
+    if n_frames > 60 and not already_calibrated:
         fps = float(data.get("meta", {}).get("fps", 30.0))
         head = thigh[: int(fps)] if thigh else []
         if len(head) > 10 and np.std(head) / (np.mean(head) + 1e-9) < 0.02:

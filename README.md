@@ -31,10 +31,15 @@ comparison and markerless-vs-marker comparison, without writing code.
 The validated end-to-end pipeline in one call — works on a video, a
 pre-extracted `.myogait.json`, or a `.c3d` optical-capture file:
 
+On a laptop without GPU, start with the lightweight MediaPipe backend
+(`pip install "myogait[mediapipe]"`); Sapiens 2, the most accurate backend,
+needs a recent PyTorch and ideally a GPU (see the Sapiens 2 section).
+
 ```python
 import myogait as mg
 
-result = mg.run_pipeline("walk.mp4", model="sapiens2-quick")
+result = mg.run_pipeline("walk.mp4", model="mediapipe")       # CPU
+# result = mg.run_pipeline("walk.mp4", model="sapiens2-quick")  # GPU, most accurate
 
 result["stats"]                  # cadence, stance %, ROM, symmetry, ...
 result["cycles"]                 # normalized gait cycles (0-100%)

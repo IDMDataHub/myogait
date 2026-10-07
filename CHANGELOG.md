@@ -5,7 +5,14 @@ semantic versioning: breaking API changes only occur in major releases.
 
 ## [Unreleased]
 
+### Added
+- `examples/quickstart.py`: one-command analysis of a video (MediaPipe on CPU
+  by default) or of a pre-extracted pivot; README Quick Start now starts on
+  CPU, Sapiens 2 being the GPU option.
+
 ### Fixed
+- `run_pipeline` / `run_auto` no longer suggest neutral calibration when it
+  was already applied.
 - Normative curves: the adult hip, knee, ankle and sagittal-pelvis curves are
   now credited to their real source, the BioCV dataset (Evans et al. 2024),
   in the code and in the `source` field returned for each curve (it named
