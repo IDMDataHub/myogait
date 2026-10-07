@@ -12,7 +12,7 @@ authors:
     given-names: Romain
     orcid: "https://orcid.org/0009-0009-1641-1182"
     affiliation: "Institut de Myologie, Neuromuscular Physiology and Evaluation Laboratory, Paris, France"
-version: 0.9.0
+version: 0.9.1
 date-released: 2026-10-07
 doi: 10.5281/zenodo.18726412
 license: MIT

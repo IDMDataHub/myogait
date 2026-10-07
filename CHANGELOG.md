@@ -3,7 +3,10 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
-## [Unreleased]
+## [0.9.1] — 2026-10-07
+
+Fixes an inverted hip sign that `run_auto` (0.9.0) could produce on
+single-direction recordings; documentation and example fixes.
 
 ### Added
 - `examples/quickstart.py`: one-command analysis of a video (MediaPipe on CPU
