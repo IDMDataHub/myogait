@@ -71,10 +71,11 @@ approaches range from pose estimators that output landmarks only — MediaPipe
 [@Lugaresi2019], ViTPose [@Xu2022], RTMPose [@Jiang2023], Sapiens
 [@Khirodkar2024] — to gait pipelines evaluated in clinical populations
 [@Stenum2021; @Kidzinski2020; @Stenum2024; @Liu2026]. Closest in spirit, the
-Portable Biomechanics Laboratory [@Peiffer2026] reconstructs biomechanics
-from a hand-held smartphone in neurological patients, and OpenCap-based
-metrics separate neuromuscular diseases [@Ruth2025], but with two fixed
-phones. Kinovea [@Kinovea] supports manual and semi-automatic 2-D
+Portable Biomechanics Laboratory [@Peiffer2026] fits a 3-D biomechanical
+model to a hand-held smartphone video; its kinematics were validated against
+markers in healthy adults and against multi-camera markerless capture in
+patients. OpenCap-based metrics separate neuromuscular diseases [@Ruth2025],
+with two fixed phones. Kinovea [@Kinovea] supports manual and semi-automatic 2-D
 measurement without pose-estimation-based landmark detection. Sports2D
 [@Pagnon2024] is the closest open-source tool: it computes 2-D joint and
 segment angles from a single video for sport and general movement. `myogait`
@@ -172,10 +173,14 @@ patient participants had the same direction with both systems but were
 attenuated by video. This is a demonstration of use, not a clinical
 validation, which will be reported separately on the complete cohort.
 
-Across both settings, waveform shape and timing are the validated outputs;
-absolute angles are biased (hip −7° to −12°, partly because of the
-trunk-based hip definition) and knee and ankle ranges of motion are
-underestimated by about 9° in the laboratory and up to 17° in the clinic.
+Across both settings, waveform shape and timing are the validated outputs.
+Absolute angles are biased (hip −7° to −12°, partly because of the
+trunk-based hip definition), giving absolute RMSE of 8.6°, 7.8° and 6.6° (hip,
+knee, ankle) in the laboratory and 13.2°, 6.2° and 8.0° in the clinic, and
+knee and ankle ranges of motion are underestimated by about 9° in the
+laboratory and up to 17° in the clinic. To our knowledge this is the first
+comparison of hand-held smartphone gait kinematics against marker-based
+capture that includes patients.
 
 **Reproducibility and use.** The validation is distributed as a
 self-contained package (prepared data, Python build scripts and R analyses)

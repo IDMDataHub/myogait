@@ -24,7 +24,9 @@ timing after kinematic synchronisation of the two systems.
 | | Bath, left lateral (cam01) | Bath, right lateral (cam05) | Myokinesis, hand-held |
 |---|---|---|---|
 | Hip / knee / ankle *r* | 0.98 / 0.96 / 0.88 | 0.96 / 0.90 / 0.80 | 0.92 / 0.98 / 0.91 |
-| Centred RMSE hip / knee / ankle | 2.9° / 4.9° / 4.8° | — | 3.1° / 5.3° / 4.8° |
+| Centred RMSE hip / knee / ankle | 2.9° / 4.9° / 4.8° | 3.2° / 6.2° / 5.7° | 3.1° / 5.3° / 4.8° |
+| Absolute RMSE hip / knee / ankle | 8.6° / 7.8° / 6.6° | 10.0° / 9.0° / 7.7° | 13.2° / 6.2° / 8.0° |
+| Mean bias hip / knee / ankle | −6.9° / −5.0° / +3.2° | −8.4° / −4.8° / +4.3° | −12.0° / −2.1° / +5.3° |
 | Cadence ICC (bias, LoA) | 0.93 (−0.9, −5.5 to +3.8 steps/min) | 0.91 | 0.97 (−0.8, −4.2 to +2.6) |
 | Stride time ICC | 0.93 | 0.89 | 0.97 |
 | Stride length ICC (bias, LoA) | 0.71 (−0.04 m, −0.28 to +0.20) | 0.41 | 0.80 (−0.01 m, −0.25 to +0.23) |
