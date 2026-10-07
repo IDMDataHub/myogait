@@ -3,6 +3,14 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [Unreleased]
+
+### Fixed
+- Normative curves: the adult hip, knee, ankle and sagittal-pelvis curves are
+  now credited to their real source, the BioCV dataset (Evans et al. 2024),
+  in the code and in the `source` field returned for each curve (it named
+  the textbooks used only for the trunk and frontal-plane curves).
+
 ## [0.9.0] — 2026-10-07
 
 Automatic recipe choice, a public API for the companion application, and the

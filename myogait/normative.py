@@ -56,11 +56,15 @@ _PEDIATRIC_SD_FACTOR = 1.4
 # ── Sagittal reference curves ────────────────────────────────────────
 #
 # Hip, knee, ankle and sagittal pelvis: empirical mean ± SD waveforms
-# derived from an instrumented optical motion-capture dataset of
-# healthy adults walking overground (marker-based, 200 Hz), resampled
-# to keypoints every 4 %GC and linearly interpolated back to 101
-# points.  The published reference band was treated as a 95 % interval
-# (SD = band width / 4).  These replace curves previously digitised
+# computed by the authors from the BioCV dataset of the University of
+# Bath (Evans et al. 2024, doi:10.15125/BATH-01258): all overground
+# walking trials of 15 healthy adults, Qualisys 200 Hz, sagittal angles
+# from the Visual3D joint centres, both legs pooled, cycles heel strike
+# to heel strike.  The 2.5-97.5th percentile band was treated as a 95 %
+# interval (SD = band width / 4); curves resampled to keypoints every
+# 4 %GC and linearly interpolated back to 101 points.  BioCV is used
+# under its research-only data use agreement; the raw data are not
+# redistributed.  These replace curves previously digitised
 # from textbook figures (Perry & Burnfield 2010; Winter 2009), which
 # remain the source for the trunk and frontal-plane entries below.
 
@@ -143,6 +147,21 @@ def _interp_keypoints(keypoints: dict) -> tuple:
 
 
 # ── Build normative data at module load ──────────────────────────────
+
+_EMPIRICAL_JOINTS = ("hip", "knee", "ankle", "pelvis_sagittal")
+
+
+def _source(joint: str, stratum: str) -> str:
+    """Citation of the reference curve returned for *joint*."""
+    if joint in _EMPIRICAL_JOINTS:
+        src = ("BioCV dataset (Evans et al. 2024, doi:10.15125/BATH-01258), "
+               "computed by the myogait authors")
+    else:
+        src = "Perry & Burnfield 2010; Winter 2009; Kadaba et al. 1990"
+    if stratum != "adult":
+        src += f"; {stratum} stratum scaled heuristically from adult curves"
+    return src
+
 
 def _build_normative_data():
     """Construct the full normative database for all strata."""
@@ -375,7 +394,11 @@ def get_normative_curve(joint: str, stratum: str = "adult") -> dict:
 
     References
     ----------
-    Perry & Burnfield (2010), Winter (2009), Kadaba et al. (1990).
+    Hip, knee, ankle and sagittal pelvis: computed by the myogait authors
+    from the BioCV dataset (Evans et al. 2024, doi:10.15125/BATH-01258).
+    Trunk and frontal-plane joints: Perry & Burnfield (2010), Winter
+    (2009), Kadaba et al. (1990). Elderly and pediatric strata are
+    heuristic scalings of the adult curves.
     """
     if stratum not in STRATA:
         raise ValueError(
@@ -391,7 +414,7 @@ def get_normative_curve(joint: str, stratum: str = "adult") -> dict:
         "mean": list(data["mean"]),
         "sd": list(data["sd"]),
         "unit": "deg",
-        "source": "Perry & Burnfield 2010; Winter 2009; Kadaba et al. 1990",
+        "source": _source(joint, stratum),
         "stratum": stratum,
     }
 
