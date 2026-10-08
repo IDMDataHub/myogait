@@ -3,6 +3,13 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [Unreleased]
+
+### Fixed
+- The `c3d` extra required `ezc3d>=2.0`, a version that does not exist on
+  PyPI (latest 1.7.x), so `pip install "myogait[c3d]"` failed; it now
+  requires `ezc3d>=1.5`.
+
 ## [0.9.1] — 2026-10-07
 
 Fixes an inverted hip sign that `run_auto` (0.9.0) could produce on
