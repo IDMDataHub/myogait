@@ -3,7 +3,11 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
-## [Unreleased]
+## [0.9.2] — 2026-10-24
+
+Fixes the units of the landmark positions handed to gaitkit for non-square
+videos (heel/toe-based gaitkit detectors were broken since the pixel-space
+angle correction) and the `c3d` packaging extra.
 
 ### Fixed
 - The `c3d` extra required `ezc3d>=2.0`, a version that does not exist on
