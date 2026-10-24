@@ -16,10 +16,8 @@ get_opensim_marker_names
 """
 
 import logging
-import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Optional
 from xml.dom.minidom import parseString
 
 from .constants import OPENSIM_MARKER_MAP
@@ -56,83 +54,6 @@ def _get_subject_info(data: dict) -> dict:
             if k not in subject:
                 subject[k] = v
     return subject
-
-
-def _compute_segment_length(data: dict, landmark_a: str, landmark_b: str) -> Optional[float]:
-    """Compute average Euclidean distance between two landmarks across frames.
-
-    Returns None if landmarks are not found in any frame.
-    """
-    frames = data.get("frames", [])
-    if not frames:
-        return None
-
-    distances = []
-    for frame in frames:
-        lm = frame.get("landmarks", {})
-        a = lm.get(landmark_a)
-        b = lm.get(landmark_b)
-        if a is None or b is None:
-            continue
-        ax, ay = a.get("x"), a.get("y")
-        bx, by = b.get("x"), b.get("y")
-        if ax is None or ay is None or bx is None or by is None:
-            continue
-        if math.isnan(ax) or math.isnan(ay) or math.isnan(bx) or math.isnan(by):
-            continue
-        dist = math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
-        distances.append(dist)
-
-    if not distances:
-        return None
-    return sum(distances) / len(distances)
-
-
-def _compute_midpoint_distance(
-    data: dict,
-    a1: str, a2: str,
-    b1: str, b2: str,
-) -> Optional[float]:
-    """Compute average distance between midpoint(a1, a2) and midpoint(b1, b2)."""
-    frames = data.get("frames", [])
-    if not frames:
-        return None
-
-    distances = []
-    for frame in frames:
-        lm = frame.get("landmarks", {})
-        pa1, pa2 = lm.get(a1), lm.get(a2)
-        pb1, pb2 = lm.get(b1), lm.get(b2)
-        if pa1 is None or pa2 is None or pb1 is None or pb2 is None:
-            continue
-        vals = [
-            pa1.get("x"), pa1.get("y"),
-            pa2.get("x"), pa2.get("y"),
-            pb1.get("x"), pb1.get("y"),
-            pb2.get("x"), pb2.get("y"),
-        ]
-        if any(v is None for v in vals):
-            continue
-        if any(math.isnan(v) for v in vals):
-            continue
-        mid_a_x = (vals[0] + vals[2]) / 2.0
-        mid_a_y = (vals[1] + vals[3]) / 2.0
-        mid_b_x = (vals[4] + vals[6]) / 2.0
-        mid_b_y = (vals[5] + vals[7]) / 2.0
-        dist = math.sqrt((mid_a_x - mid_b_x) ** 2 + (mid_a_y - mid_b_y) ** 2)
-        distances.append(dist)
-
-    if not distances:
-        return None
-    return sum(distances) / len(distances)
-
-
-def _get_landmark_names(data: dict) -> list:
-    """Get all landmark names from the first frame."""
-    frames = data.get("frames", [])
-    if not frames:
-        return []
-    return list(frames[0].get("landmarks", {}).keys())
 
 
 def export_opensim_scale_setup(

@@ -502,14 +502,6 @@ def load_raw_c3d_markers(c3d_path) -> tuple[dict[str, np.ndarray], float]:
     return markers, fps
 
 
-def _mean_markers(markers: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-    out = {}
-    for name, arr in markers.items():
-        with np.errstate(invalid="ignore"):
-            out[name] = np.nanmean(arr, axis=0)
-    return out
-
-
 # ── Tier 2/3 top-level drivers ──────────────────────────────────────
 
 

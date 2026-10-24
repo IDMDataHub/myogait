@@ -2147,11 +2147,6 @@ def procrustes_align(
         centroid = shape.mean(axis=0)
         return shape - centroid, centroid
 
-    def _centroid_size(shape):
-        """Compute centroid size: sqrt(sum of squared distances to centroid)."""
-        centered, _ = _center(shape)
-        return np.sqrt(np.sum(centered ** 2))
-
     def _align_to_reference(target, reference):
         """Align target shape to reference via Procrustes.
 
