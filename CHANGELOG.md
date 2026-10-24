@@ -9,6 +9,12 @@ semantic versioning: breaking API changes only occur in major releases.
 - The `c3d` extra required `ezc3d>=2.0`, a version that does not exist on
   PyPI (latest 1.7.x), so `pip install "myogait[c3d]"` failed; it now
   requires `ezc3d>=1.5`.
+- `compute_angles` stored the hip/knee/ankle `landmark_positions` of the angle
+  frames in pixel space when it pixel-scaled non-square images, whereas
+  `_convert_to_gaitkit_frames` completes heel and toe from `data["frames"]` in
+  normalised units; gaitkit detectors using heel/toe received mixed units
+  (BIKE F1 about 0.9 -> 0.1 on 1920x1080 Sapiens 2 video). Positions are now
+  taken from the unscaled frame; angles are unchanged.
 
 ## [0.9.1] — 2026-10-07
 

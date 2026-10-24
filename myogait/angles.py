@@ -965,7 +965,14 @@ def compute_angles(
             n_skipped += 1
         else:
             scaled_frame = _pixelify_frame(frame, width, height) if needs_scale else frame
-            angle_frames.append(method_func(scaled_frame, model))
+            af = method_func(scaled_frame, model)
+            if needs_scale:
+                # Angles are computed in pixel space, but the landmark positions handed to
+                # gaitkit must stay in the units of data["frames"]: _convert_to_gaitkit_frames
+                # completes them (heel, toe) from those frames, and mixing pixel and
+                # normalised coordinates corrupts every heel/toe-based detector.
+                af["landmark_positions"] = _extract_landmark_positions(frame)
+            angle_frames.append(af)
     if n_skipped:
         logger.info("Skipped %d/%d low-confidence frames (< %.2f)",
                      n_skipped, len(data["frames"]), min_confidence)

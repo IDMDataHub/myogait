@@ -480,3 +480,20 @@ def test_full_pipeline_with_gk_bike():
     # Should still be able to segment cycles
     cycles = segment_cycles(data)
     assert isinstance(cycles, (dict, list))
+
+
+def test_convert_to_gaitkit_frames_units_consistent_with_pixel_scaling():
+    """compute_angles pixel-scales landmarks for non-square images; the positions passed to
+    gaitkit (hip/knee/ankle from the angle frames, heel/toe from the frames) must share one unit."""
+    import myogait
+    data = make_walking_data(120, fps=30.0)
+    data["meta"]["width"], data["meta"]["height"] = 1920, 1080
+    data = myogait.compute_angles(data)
+    gk = _convert_to_gaitkit_frames(data)
+    for fr in gk[10:100:10]:
+        lp = fr["landmark_positions"]
+        if "left_ankle" in lp and "left_heel" in lp:
+            # heel and ankle are a few centimetres apart: same order of magnitude, not x1920
+            d = np.hypot(lp["left_ankle"][0] - lp["left_heel"][0], lp["left_ankle"][2] - lp["left_heel"][2])
+            knee = np.hypot(lp["left_knee"][0] - lp["left_ankle"][0], lp["left_knee"][2] - lp["left_ankle"][2])
+            assert d < knee
