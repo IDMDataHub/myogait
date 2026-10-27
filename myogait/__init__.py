@@ -170,6 +170,11 @@ from .vicon_calibration import (
 from .pipeline import run_pipeline, filter_cycles_by_direction, enforce_flexion_positive
 from .autoconfig import run_auto, detect_recipe
 from . import exceptions
+from .kinetics import (
+    estimate_kinetics,
+    detect_camera_motion,
+    background_vertical_shift,
+)
 from .exceptions import (
     MyogaitError,
     ExtractionError,
@@ -252,6 +257,9 @@ __all__ = [
     "harmonic_ratio",
     "step_length",
     "walking_speed",
+    "estimate_kinetics",
+    "detect_camera_motion",
+    "background_vertical_shift",
     "detect_pathologies",
     "single_support_time",
     "toe_clearance",

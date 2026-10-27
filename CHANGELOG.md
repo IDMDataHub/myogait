@@ -5,6 +5,26 @@ semantic versioning: breaking API changes only occur in major releases.
 
 ## [Unreleased]
 
+### Added
+- `myogait.kinetics` / `estimate_kinetics()`: markerless sagittal kinetics
+  without force plates — per-foot vertical and antero-posterior ground
+  reaction forces, centre of pressure, ankle / knee / hip internal moments
+  and ankle power, from a pivot (pose video or marker trajectories) and the
+  subject's mass and height. Chain: whole-body CoM (de Leva) and Newton's
+  law; cubic double-support load transfer learnt on force plates; virtual
+  pivot point for the antero-posterior force; foot-rotation centre-of-pressure model (FR-COP)
+  driven by three foot rotations (invariant to marker / keypoint placement
+  and to vertical camera motion); pose ankle keypoint moved to the anatomical
+  joint centre along the foot; 2-D inverse dynamics. Validated against force
+  plates on 12 datasets (healthy and pathological gait) and on fixed-camera
+  and hand-held smartphone video.
+- `detect_camera_motion()`: cheap fixed-vs-moving camera test from the
+  background optical flow (one frame in five), and
+  `background_vertical_shift()`: vertical camera stabilisation from the
+  static background (~6 ms per frame), used by `estimate_kinetics()` when a
+  video path is given. `estimate_kinetics()` also reports the walking speed
+  (fixed camera).
+
 ### Fixed
 - The `c3d` extra required `ezc3d>=2.0`, a version that does not exist on
   PyPI (latest 1.7.x), so `pip install "myogait[c3d]"` failed; it now
