@@ -159,3 +159,24 @@ def test_background_vertical_shift_recovers_motion(tmp_path):
     dy = K.background_vertical_shift(str(v))
     assert len(dy) == 30
     assert abs(dy[-1]) == pytest.approx(2.0 * 29, rel=0.25)      # cumulative shift ≈ 2 px per frame
+
+
+def _stepping_walker(v=1.2, fs=100.0, n=600, step_t=0.55, pan=False):
+    """Feet still during stance, swing at the speed that keeps the mean = v; optional camera tracking the pelvis."""
+    t = np.arange(n) / fs; pel = v * t; J = {}
+    for s, ph in (("left", 0.0), ("right", step_t)):
+        x = np.zeros(n)
+        for i, ti in enumerate(t):
+            k, r = divmod(ti + ph, 2 * step_t)            # stride = 2 steps: stance during 60 %, swing 40 %
+            base = k * 2 * step_t * v - ph * v
+            x[i] = base if r < 1.2 * step_t else base + (r - 1.2 * step_t) / (0.8 * step_t) * 2 * step_t * v
+        cam = pel if pan else 0.0
+        J[f"{s}_heel"] = np.c_[x - cam, np.zeros(n)]; J[f"{s}_foot_index"] = np.c_[x + 0.2 - cam, np.zeros(n)]
+        J[f"{s}_hip"] = np.c_[pel - cam, np.full(n, 0.9)]
+    return J, fs
+
+
+@pytest.mark.parametrize("pan", [False, True])
+def test_walking_speed_fixed_and_panning_camera(pan):
+    J, fs = _stepping_walker(pan=pan)
+    assert K.walking_speed_metric(J, fs, moving=pan) == pytest.approx(1.2, rel=0.08)

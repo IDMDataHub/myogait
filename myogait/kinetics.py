@@ -382,6 +382,24 @@ def _foot_share(n, on, off, ct, ch) -> np.ndarray:
 
 
 # --------------------------------------------------------------------------------------------------- main entry
+def walking_speed_metric(J: dict, fs: float, moving: bool = False) -> Optional[float]:
+    """Walking speed (m/s) from metric 2-D landmarks.
+
+    Fixed camera: median pelvis velocity. Panning (hand-held, tracking) camera: the stance foot is still in the world, so in
+    any translating camera frame the pelvis world velocity is the pelvis velocity relative to the slower foot,
+    ``v = v_pelvis - min(v_left foot, v_right foot)`` (median over the recording). The panning estimate assumes a
+    camera that translates or pans without zooming and a subject walking across the image.
+    """
+    v = lambda x: np.gradient(_lowpass(x, fs, 4.0)) * fs
+    pel = 0.5 * (J["left_hip"][:, 0] + J["right_hip"][:, 0])
+    if not moving:
+        out = np.nanmedian(np.gradient(_lowpass(pel, fs, 2.0)) * fs)
+    else:
+        vf = np.minimum(*(v(0.5 * (J[f"{s}_heel"][:, 0] + J[f"{s}_foot_index"][:, 0])) for s in ("left", "right")))
+        out = np.nanmedian(_lowpass(v(pel) - vf, fs, 1.0))
+    return float(abs(out)) if np.isfinite(out) else None
+
+
 def estimate_kinetics(data: dict, mass_kg: float, height_m: Optional[float] = None, femur_mm: Optional[float] = None,
                       sex: str = "M", events: Optional[dict] = None, video_path: Optional[str] = None,
                       camera_moving: Optional[bool] = None, stabilize: bool = True, com_cutoff_hz: Optional[float] = None,
@@ -412,7 +430,7 @@ def estimate_kinetics(data: dict, mass_kg: float, height_m: Optional[float] = No
     Returns
     -------
     dict
-        ``time`` (s), ``camera`` (dict), ``walking_speed_m_s`` (fixed camera only), ``grf_total_bw`` (N, 2),
+        ``time`` (s), ``camera`` (dict), ``walking_speed_m_s`` (see :func:`walking_speed_metric`), ``grf_total_bw`` (N, 2),
         per side ``{side}``: ``grf_v_N``, ``grf_ap_N``, ``cop_x_m`` (N,), ``moments_Nm`` (dict of (N,)),
         and ``stances``: list of dicts with ``side``, ``on``, ``off`` and 101-point curves (``vgrf_bw``,
         ``apgrf_bw``, ``cop_minus_ankle_m``, ``ankle_Nm_kg``, ``knee_Nm_kg``, ``hip_Nm_kg``, ``ankle_power_W_kg``).
@@ -432,9 +450,7 @@ def estimate_kinetics(data: dict, mass_kg: float, height_m: Optional[float] = No
     com = whole_body_com(J, sex); comf = _lowpass(com, fs, 6.0)
     Rv = (np.gradient(np.gradient(_lowpass(com[:, 1], fs, fc))) * fs ** 2 + G) / G
     Rap = np.gradient(np.gradient(_lowpass(com[:, 0], fs, fc))) * fs ** 2 / G
-    speed = None
-    if not moving:
-        pel = 0.5 * (J["left_hip"][:, 0] + J["right_hip"][:, 0]); speed = float(abs(np.nanmedian(np.gradient(_lowpass(pel, fs, 2.0)) * fs)))
+    speed = walking_speed_metric(J, fs, moving)
     res = {"time": J["t"], "camera": camera, "walking_speed_m_s": speed, "grf_total_bw": np.c_[Rap, Rv], "stances": []}
     for s in ("left", "right"):
         res[s] = {"grf_v_N": np.zeros(n), "grf_ap_N": np.zeros(n), "cop_x_m": np.full(n, np.nan), "moments_Nm": {k: np.full(n, np.nan) for k in ("ankle", "knee", "hip")}}
