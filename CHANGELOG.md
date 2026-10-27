@@ -9,8 +9,11 @@ semantic versioning: breaking API changes only occur in major releases.
 - `myogait.kinetics.walking_speed_metric()`: walking speed from metric 2-D
   landmarks, also for a hand-held panning camera (pelvis velocity relative
   to the slower, stance foot); `estimate_kinetics()` now reports
-  `walking_speed_m_s` for moving cameras too (Myokinesis pilot: within
-  0.4-6 % of the Vicon speed).
+  `walking_speed_m_s` for moving cameras too. Accuracy is limited by the
+  metric scale (femur or height reference) and by depth changes of a
+  hand-held camera: on 37 Myokinesis smartphone walks the error versus
+  Vicon was +18 % median (IQR +4 to +23 %), with 2 failures; treat it as
+  indicative.
 - `myogait.kinetics` / `estimate_kinetics()`: markerless sagittal kinetics
   without force plates — per-foot vertical and antero-posterior ground
   reaction forces, centre of pressure, ankle / knee / hip internal moments
