@@ -46,7 +46,7 @@ DEFAULT_CONFIG = {
     },
     "normalize": {
         "filters": ["butterworth"],
-        "butterworth_cutoff": 4.0,
+        "butterworth_cutoff": 8.0,
         "butterworth_order": 2,
         "center": False,
         "align": False,
@@ -54,7 +54,7 @@ DEFAULT_CONFIG = {
     },
     "angles": {
         "method": "sagittal_vertical_axis",
-        "correction_factor": 0.8,
+        "correction_factor": 1.0,
         "calibrate": True,
         "calibration_frames": 30,
     },

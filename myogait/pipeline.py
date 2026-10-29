@@ -219,7 +219,7 @@ def _diagnose(data: dict, cycles_all: dict, cycles_kept: dict) -> dict:
 def run_pipeline(
     source,
     model: str = "sapiens2-quick",
-    butterworth_cutoff: float = 4.0,
+    butterworth_cutoff: float = 8.0,
     event_method: str = "zeni",
     min_cycle_duration_s: float = 0.8,
     max_cycle_duration_s: float = 1.6,
@@ -236,7 +236,8 @@ def run_pipeline(
     1. Load / extract landmarks (``extract`` for videos with the given
        ``model``; ``load_json``; ``load_c3d`` with, for C3D, the
        3-D ankle reference via :func:`compute_c3d_reference_angles`).
-    2. ``normalize(filters=["butterworth"], butterworth_cutoff=4.0)``.
+    2. ``normalize(filters=["butterworth"], butterworth_cutoff=8.0)``
+       (8 Hz keeps the fast ankle push-off and knee swing peaks).
     3. ``compute_angles(calibrate=False)`` — neutral calibration is
        only meaningful when the clip starts with a standing pose;
        gait clips usually do not, and the built-in guard would skip
@@ -314,7 +315,7 @@ def _run_steps(
     data: dict,
     source_type: str,
     *,
-    butterworth_cutoff: float = 4.0,
+    butterworth_cutoff: float = 8.0,
     calibrate: bool = False,
     event_method: str = "zeni",
     trim_standstill: bool = False,

@@ -110,7 +110,7 @@ Usage:
 
     # Or call steps directly
     from myogait.normalize import filter_butterworth
-    df = filter_butterworth(df, cutoff=4.0, order=2, fs=30.0)
+    df = filter_butterworth(df, cutoff=8.0, order=2, fs=30.0)
 """
 
 import copy
@@ -181,7 +181,7 @@ def _apply_on_xy(df: pd.DataFrame, func) -> pd.DataFrame:
 
 def filter_butterworth(
     df: pd.DataFrame,
-    cutoff: float = 4.0,
+    cutoff: float = 8.0,
     order: int = 2,
     fs: float = 30.0,
     **kwargs,
@@ -1679,7 +1679,7 @@ def normalize(
     data: dict,
     filters: Optional[List[str]] = None,
     steps: Optional[List[dict]] = None,
-    butterworth_cutoff: float = 4.0,
+    butterworth_cutoff: float = 8.0,
     butterworth_order: int = 2,
     center: bool = False,
     align: bool = False,

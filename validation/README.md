@@ -19,17 +19,35 @@ and will be reported separately.
 
 ## Main results
 
-Curves: per subject, Pearson *r*, RMSE and centred RMSE (RMSE after removing
-the mean offset). Parameters: per trial, ICC(2,1) (two-way random, absolute
-agreement, single measure) and Bland–Altman limits of agreement (LoA).
-Events: relative timing after kinematic synchronisation of the two systems.
+**Kinematics with the myogait 0.9.3 defaults** (landmark filter 8 Hz, no angle
+scaling), left lateral camera, 9 subjects, subject-mean curves; marker angles
+computed directly from the markers and filtered at 15 Hz
+(`code/python/kinematics_093.py`):
 
-| | Left lateral (cam01) | Right lateral (cam05) |
+| | Hip | Knee | Ankle |
+|---|---|---|---|
+| Waveform *r* | 0.99 | 1.00 | 0.98 |
+| Shape RMSE (offset removed) | 2.9° | 2.9° | 1.8° |
+| Absolute RMSE | 8.7° | 5.5° | 3.6° |
+| Mean offset (video − markers) | −6.1° | −0.6° | −2.7° |
+| Range-of-motion error | −3.5° | −7.7° | +0.8° |
+
+Up to myogait 0.9.2 the defaults (4 Hz filter, angles scaled by 0.8)
+under-estimated knee and ankle range of motion by about 10-17° and flattened
+the ankle push-off and knee swing peaks; the 0.8.9 results below the line are
+kept for traceability.
+
+**Spatio-temporal parameters and events** were computed with myogait 0.8.9;
+the 0.9.3 filter change does not affect them (64 clinic walks: cadence bias
+vs Vicon −0.65 vs −0.62 steps/min, 758 vs 759 cycles detected). Parameters
+per trial: ICC(2,1) (two-way random, absolute agreement, single measure) and
+Bland–Altman limits of agreement (LoA). Events: relative timing after
+kinematic synchronisation of the two systems.
+
+| myogait 0.8.9 | Left lateral (cam01) | Right lateral (cam05) |
 |---|---|---|
 | Hip / knee / ankle *r* | 0.98 / 0.96 / 0.88 | 0.96 / 0.90 / 0.80 |
 | Centred RMSE hip / knee / ankle | 2.9° / 4.9° / 4.8° | 3.2° / 6.2° / 5.7° |
-| Absolute RMSE hip / knee / ankle | 8.6° / 7.8° / 6.6° | 10.0° / 9.0° / 7.7° |
-| Mean bias hip / knee / ankle | −6.9° / −5.0° / +3.2° | −8.4° / −4.8° / +4.3° |
 | Cadence ICC (bias, LoA) | 0.93 (−0.9, −5.5 to +3.8 steps/min) | 0.91 |
 | Stride time ICC | 0.93 | 0.89 |
 | Stride length ICC (bias, LoA) | 0.71 (−0.04 m, −0.28 to +0.20) | 0.41 |
@@ -39,17 +57,14 @@ Events: relative timing after kinematic synchronisation of the two systems.
 
 Frontal (cam03) and rear (cam07) views do not give usable sagittal angles.
 
-**Limits.** Waveform shape, timing and cadence from a lateral view are the
-validated outputs. Absolute angles are biased: the hip is offset by about −7°,
-partly because the video hip angle is measured between thigh and trunk
-(thigh–pelvis for markers). Knee and ankle ranges of motion are
-underestimated by about 9°, and peak angular velocities are underestimated.
-The camera on the far side of the subject gives lower agreement.
+**Limits.** Waveform shape, peaks, timing and cadence from a lateral view are
+the validated outputs. The hip angle is measured between thigh and trunk
+(thigh–pelvis for markers), hence a subject-specific offset driven by pelvic
+tilt, which pose models do not see. The camera on the far side of the subject
+gives lower agreement.
 
-The optional ankle restoration (`myogait.restore_ankle_dynamics`, disabled by
-default and not applied here) was calibrated on BioCV for Sapiens2 and reduced
-the ankle range-of-motion bias from −10.6° to −5.3° in leave-one-subject-out
-validation.
+The ankle restoration (`myogait.restore_ankle_dynamics`) compensated the
+former 4 Hz / ×0.8 defaults; it is deprecated since 0.9.3.
 
 ## Contents
 

@@ -56,7 +56,7 @@ DEFAULT_SINGLE_PAIR_BENCHMARK_CONFIG: Dict[str, Any] = {
     },
     "angle_kwargs": {
         "method": "sagittal_vertical_axis",
-        "correction_factor": 0.8,
+        "correction_factor": 1.0,
         "calibrate": True,
     },
     "vicon": {

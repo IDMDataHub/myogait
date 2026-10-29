@@ -65,29 +65,34 @@ result["recipe"]["name"], result["reasons"]   # e.g. "overground", [...]
 
 ## Validation
 
-myogait 0.8.9 (Sapiens2 backend) was compared with simultaneous marker-based
-motion capture processed by the same myogait algorithms on the BioCV dataset
-of the University of Bath (9 healthy adults, fixed cameras, Qualisys, 194
-video–marker pairs).
+myogait was compared with simultaneous marker-based motion capture on the
+BioCV dataset of the University of Bath (healthy adults, fixed cameras,
+Qualisys, Sapiens2 backend, left lateral camera). The marker angles are
+computed directly from the markers (hip relative to the pelvis), independently
+of myogait.
 
-![Joint-angle agreement with marker-based capture, left lateral view](validation/results/figures/BA_kinematics__Bath_lateral_left_cam01_.png)
+![Joint angles over the gait cycle, myogait vs marker-based capture](validation/results/figures/validation_curves.png)
 
-| Lateral camera | Agreement with marker-based capture |
+| Lateral camera, myogait 0.9.3 defaults | Agreement with marker-based capture |
 |---|---|
-| Waveform *r*, hip / knee / ankle | 0.98 / 0.96 / 0.88 |
-| Centred RMSE, hip / knee / ankle | 2.9° / 4.9° / 4.8° |
-| Absolute RMSE, hip / knee / ankle | 8.6° / 7.8° / 6.6° |
+| Waveform *r*, hip / knee / ankle | 0.99 / 1.00 / 0.98 |
+| Shape RMSE (offset removed), hip / knee / ankle | 2.9° / 2.9° / 1.8° |
+| Absolute RMSE, hip / knee / ankle | 8.7° / 5.5° / 3.6° |
+| Range-of-motion error, hip / knee / ankle | −3.5° / −7.7° / +0.8° |
 | Cadence ICC(2,1) | 0.93 |
 | Stride-length ICC(2,1) (bias) | 0.71 (−0.04 m) |
 | Walking-speed ICC(2,1) | 0.83 |
 | Initial contact / toe-off timing | −6 ± 26 / −3 ± 29 ms |
 
-Waveform shape, timing and cadence are the validated outputs. Absolute angles
-carry a hip offset (about −7°, trunk-based hip angle) and knee/ankle ranges of
-motion are underestimated by about 9°. The camera on the far side of the
-subject gives lower agreement, and frontal or rear views do not give usable
-sagittal angles. A clinical validation in patients is ongoing. Full results,
-limits, code and aggregate tables: [`validation/`](validation/README.md).
+Waveform shape, peaks (including the ankle push-off and the knee swing peak),
+timing and cadence are the validated outputs. The hip angle is measured
+between thigh and trunk, whereas marker models measure it against the pelvis:
+it carries a subject-specific offset (about −6° on average) that video cannot
+remove, because pelvic tilt is not visible to pose models. Frontal or rear
+views do not give usable sagittal angles, and the camera on the far side of
+the subject gives lower agreement. A clinical validation in patients is
+ongoing. Full results, limits, code and aggregate tables:
+[`validation/`](validation/README.md).
 
 ## Features
 

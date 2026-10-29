@@ -297,13 +297,13 @@ def cmd_batch(args):
             data = normalize(
                 data,
                 filters=cfg.get("normalize", {}).get("filters", ["butterworth"]),
-                butterworth_cutoff=cfg.get("normalize", {}).get("butterworth_cutoff", 4.0),
+                butterworth_cutoff=cfg.get("normalize", {}).get("butterworth_cutoff", 8.0),
             )
 
             data = compute_angles(
                 data,
                 method=cfg.get("angles", {}).get("method", "sagittal_vertical_axis"),
-                correction_factor=cfg.get("angles", {}).get("correction_factor", 0.8),
+                correction_factor=cfg.get("angles", {}).get("correction_factor", 1.0),
             )
 
             data = detect_events(
@@ -621,7 +621,7 @@ def main():
     p_run.add_argument("-m", "--model", default="mediapipe", help="Pose model (default: mediapipe)")
     p_run.add_argument("-o", "--output", help="Output JSON path (default: video.json)")
     p_run.add_argument("--max-frames", type=int, help="Max frames to process")
-    p_run.add_argument("--cutoff", type=float, default=4.0, help="Butterworth cutoff Hz (default: 4.0)")
+    p_run.add_argument("--cutoff", type=float, default=8.0, help="Butterworth cutoff Hz (default: 8.0)")
     p_run.add_argument("--correction", type=float, default=0.8, help="Angle correction factor (default: 0.8)")
     p_run.add_argument("--no-filter", action="store_true", help="Skip filtering")
     p_run.add_argument("--no-calibration", action="store_true", help="Skip neutral calibration")

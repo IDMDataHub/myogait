@@ -120,6 +120,14 @@ def restore_ankle_dynamics(cycles: dict, inplace: bool = False) -> dict:
         push-off restoration added, per side. Cycle-to-cycle variability is
         preserved exactly. A ``dynamics_restored`` marker is set on the summary.
     """
+    import warnings
+    warnings.warn(
+        "restore_ankle_dynamics is deprecated: its transfer function was "
+        "calibrated for the former defaults (4 Hz landmark filter, angle "
+        "factor 0.8), whose attenuation it compensated. With the 0.9.3 "
+        "defaults (8 Hz, factor 1.0) the push-off peak is already preserved "
+        "and this restoration over-corrects. It will be removed in 1.0.",
+        DeprecationWarning, stacklevel=2)
     out = cycles if inplace else copy.deepcopy(cycles)
     applied = []
     for side in ("left", "right"):

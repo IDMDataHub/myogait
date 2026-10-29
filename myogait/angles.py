@@ -31,12 +31,13 @@ References for conventions:
     2002;35(4):543-548. doi:10.1016/S0021-9290(01)00222-6
 
 Correction factor:
-    The default correction_factor=0.8 compensates for 2D projection
-    overestimation of sagittal-plane joint ROM.
-    Ref: Mündermann L, Corazza S, Andriacchi TP. The evolution of
-    methods for the capture of human movement leading to markerless
-    motion capture for biomechanical applications. J Neuroeng Rehabil.
-    2006;3:6. doi:10.1186/1743-0003-3-6
+    ``correction_factor`` multiplies the hip, knee and ankle angles. It
+    defaults to 1.0 (no scaling) since 0.9.3.  The former default (0.8),
+    meant to offset an assumed 2-D over-estimation of range of motion, was
+    measured against marker-based capture (BioCV, Myokinesis) to do the
+    opposite: together with a 4 Hz landmark filter it under-estimated knee
+    and ankle range of motion by about 10-17 degrees and flattened the
+    ankle push-off and knee swing peaks.
 """
 
 import copy
@@ -814,7 +815,7 @@ def list_angle_methods() -> list:
 def compute_angles(
     data: dict,
     method: str = "sagittal_vertical_axis",
-    correction_factor: float = 0.8,
+    correction_factor: float = 1.0,
     calibrate: bool = True,
     calibration_frames: int = 30,
     calibration_joints: Optional[list] = None,

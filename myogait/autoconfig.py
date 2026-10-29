@@ -143,7 +143,7 @@ def detect_recipe(data: dict) -> tuple[dict, list[str]]:
 def run_auto(
     source,
     model: str = "sapiens2-quick",
-    butterworth_cutoff: float = 4.0,
+    butterworth_cutoff: float = 8.0,
     event_method: str = "zeni",
     min_cycle_duration_s: float = 0.8,
     max_cycle_duration_s: float = 1.6,

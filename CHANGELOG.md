@@ -3,7 +3,32 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
-## [Unreleased]
+## [0.9.3] — 2026-10-29
+
+Better default kinematics: the ankle push-off and knee swing peaks are no
+longer flattened.
+
+### Changed
+- Default landmark Butterworth cutoff 8 Hz (was 4 Hz) in `normalize`,
+  `run_pipeline`, `run_auto`, the CLI and `DEFAULT_CONFIG`.
+- Default `compute_angles(correction_factor=1.0)` (was 0.8). The 0.8 factor
+  assumed that 2-D video over-estimates range of motion; against marker-based
+  capture (BioCV, Myokinesis) the opposite was measured. Together the two old
+  defaults under-estimated knee and ankle range of motion by about 10-17° and
+  flattened the ankle push-off (about 7°) and knee swing peaks (about 10°).
+  With the new defaults (9 BioCV subjects, markers computed independently):
+  shape RMSE hip/knee/ankle 2.9/2.9/1.8°, range-of-motion error
+  −3.5/−7.7/+0.8°. Events and cadence are unchanged (64 clinic walks:
+  cadence bias −0.65 vs −0.62 steps/min, 758 vs 759 cycles).
+- README and `validation/`: figure and kinematic results updated.
+
+### Deprecated
+- `restore_ankle_dynamics` (and `analyze_gait(restore_ankle_dynamics=True)`):
+  it compensated the former defaults and over-corrects with the new ones.
+
+### Notes
+- Results computed with earlier versions are not directly comparable for
+  range of motion and peaks; re-process recordings to compare.
 
 ### Fixed
 - `canonicalize_angle_signs` could invert the hip of a correctly oriented
