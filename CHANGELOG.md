@@ -3,6 +3,18 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [Unreleased]
+
+### Fixed
+- `canonicalize_angle_signs` could invert the hip of a correctly oriented
+  side when the hip carries a large negative offset (trunk lean / pelvic
+  tilt, e.g. some neuromuscular patients): its check required the hip to be
+  flexed at the swing knee-flexion peak. The hip is now checked against the
+  forward inclination of the thigh (walking direction read from the foot,
+  valid with a panning camera and on return passes), which does not depend
+  on any offset. On 97 BioCV and Myokinesis recordings processed step by
+  step, inverted hip cycles went from 40/1002 to 0/1002.
+
 ## [0.9.2] — 2026-10-24
 
 Fixes the units of the landmark positions handed to gaitkit for non-square

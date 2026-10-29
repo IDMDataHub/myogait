@@ -297,3 +297,36 @@ def test_segment_cycles_confidence_gate():
                              min_confidence=0.99)
     assert len(rej["cycles"]) == 0
     assert rej["summary"]["n_rejected_quality"] == n_base
+
+
+def test_canonicalize_keeps_hip_with_large_negative_offset():
+    """A correctly oriented hip shifted far below zero (large trunk/pelvis
+    offset, as in some neuromuscular patients) must not be flipped: the
+    hip must still increase when the thigh swings forward."""
+    data = make_walking_data(n_frames=300)
+    data = mg.compute_angles(data, calibrate=False, correction_factor=1.0)
+    data = mg.canonicalize_angle_signs(data)
+    ref = np.array([f["hip_L"] for f in data["angles"]["frames"]], float)
+    for f in data["angles"]["frames"]:
+        if f.get("hip_L") is not None:
+            f["hip_L"] = f["hip_L"] - 40.0
+    data["angles"]["sign_canonicalized"] = False
+    data = mg.canonicalize_angle_signs(data)
+    out = np.array([f["hip_L"] for f in data["angles"]["frames"]], float)
+    ok = np.isfinite(ref) & np.isfinite(out)
+    assert np.corrcoef(ref[ok], out[ok])[0, 1] > 0.99
+
+
+def test_canonicalize_flips_inverted_hip():
+    data = make_walking_data(n_frames=300)
+    data = mg.compute_angles(data, calibrate=False, correction_factor=1.0)
+    data = mg.canonicalize_angle_signs(data)
+    ref = np.array([f["hip_R"] for f in data["angles"]["frames"]], float)
+    for f in data["angles"]["frames"]:
+        if f.get("hip_R") is not None:
+            f["hip_R"] = -f["hip_R"]
+    data["angles"]["sign_canonicalized"] = False
+    data = mg.canonicalize_angle_signs(data)
+    out = np.array([f["hip_R"] for f in data["angles"]["frames"]], float)
+    ok = np.isfinite(ref) & np.isfinite(out)
+    assert np.corrcoef(ref[ok], out[ok])[0, 1] > 0.99

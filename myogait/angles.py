@@ -1148,10 +1148,13 @@ def canonicalize_angle_signs(data: dict) -> dict:
        (mean sagittal knee angle over a walking trial is reliably
        positive, ~+15-25°).  If the mean knee angle is negative, the
        side's hip and knee signs are flipped together.
-    2. **Hip**: independently verified against the knee.  At the
-       knee-flexion peak (swing) the hip is necessarily flexed
-       (positive).  If the mean hip angle over the top-decile
-       knee-flexion frames is negative, the hip alone is flipped.
+    2. **Hip**: verified independently of any offset: the hip angle
+       must increase when the thigh swings forward (knee ahead of the
+       hip along the walking direction, read from the foot so that a
+       panning camera or a return pass does not fool it).  If the two
+       are anti-correlated, the hip alone is flipped.  When the feet are
+       not available, the older check is used: at the swing knee-flexion
+       peak the hip must be flexed.
        This catches the case where the raw 2-D hip convention comes
        out extension-positive (measured at signed r = −1.0 against a
        Vicon 3-D biomechanical model) even when the knee is already
@@ -1197,10 +1200,21 @@ def canonicalize_angle_signs(data: dict) -> dict:
             _flip(f"hip_{side}")
             knee = [(i, -v) for i, v in knee]
 
-        # Hip orientation anchored on the (now positive) knee: during
-        # the swing knee-flexion peak the hip must be in flexion.
+        # Hip orientation.  Primary criterion, independent of any constant
+        # offset: the hip flexes when the thigh swings forward, so the hip
+        # angle must correlate positively with the forward inclination of
+        # the thigh (knee ahead of the hip along the walking direction).
+        # The walking direction is read per frame from the foot (toe ahead
+        # of heel), which stays valid when the camera pans with the subject
+        # and on there-and-back passes.  Fallback (no foot / too few
+        # frames): the hip must be flexed at the swing knee-flexion peak.
         hip = dict(_vals(f"hip_{side}"))
         if not hip:
+            continue
+        r = _hip_thigh_correlation(data, af, side, hip)
+        if r is not None:
+            if r < 0:
+                _flip(f"hip_{side}")
             continue
         knee_sorted = sorted(knee, key=lambda t: -t[1])
         top = knee_sorted[:max(5, len(knee_sorted) // 10)]
@@ -1208,6 +1222,51 @@ def canonicalize_angle_signs(data: dict) -> dict:
         if hip_at_peak and np.mean(hip_at_peak) < 0:
             _flip(f"hip_{side}")
     return data
+
+
+def _hip_thigh_correlation(data: dict, af: list, side: str, hip: dict,
+                           min_frames: int = 30) -> Optional[float]:
+    """Correlation between the (sign-ambiguous) hip angle of *side* and the
+    forward inclination of its thigh, or None when it cannot be measured.
+
+    Forward = the walking direction, taken per frame from the foot (toe
+    ahead of the heel, rolling median over about one second).
+    """
+    S = "LEFT" if side == "L" else "RIGHT"
+    frames = data.get("frames") or []
+    by_idx = {f.get("frame_idx", i): f for i, f in enumerate(frames)}
+    fps = float((data.get("meta") or {}).get("fps") or 30.0)
+    xs_h, xs_k, foot, hv = [], [], [], []
+    for i, a in enumerate(af):
+        if i not in hip:
+            continue
+        fr = by_idx.get(a.get("frame_idx"))
+        if fr is None:
+            continue
+        h, k = _get_xy(fr, f"{S}_HIP"), _get_xy(fr, f"{S}_KNEE")
+        heel = _get_xy(fr, f"{S}_HEEL")
+        toe = _get_xy(fr, f"{S}_BIG_TOE")
+        if toe is None:
+            toe = _get_xy(fr, f"{S}_FOOT_INDEX")
+        if h is None or k is None or heel is None or toe is None:
+            continue
+        xs_h.append(float(h[0]))
+        xs_k.append(float(k[0]))
+        foot.append(float(toe[0]) - float(heel[0]))
+        hv.append(hip[i])
+    if len(hv) < min_frames:
+        return None
+    foot = np.asarray(foot)
+    win = max(5, int(round(fps)))
+    pad = win // 2
+    padded = np.pad(foot, pad, mode="edge")
+    d = np.sign(np.array([np.median(padded[j:j + win]) for j in range(len(foot))]))
+    thigh_fwd = d * (np.asarray(xs_k) - np.asarray(xs_h))
+    hv = np.asarray(hv, float)
+    ok = (d != 0) & np.isfinite(thigh_fwd) & np.isfinite(hv)
+    if ok.sum() < min_frames or np.std(thigh_fwd[ok]) == 0 or np.std(hv[ok]) == 0:
+        return None
+    return float(np.corrcoef(hv[ok], thigh_fwd[ok])[0, 1])
 
 
 # ── Ankle swap detection (dual-method) ───────────────────────────────
