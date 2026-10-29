@@ -149,6 +149,7 @@ def run_auto(
     max_cycle_duration_s: float = 1.6,
     n_points: int = 101,
     analyze: bool = True,
+    outlier_rejection: bool = True,
     show_progress: bool = True,
 ) -> dict:
     """Run the pipeline with an automatically chosen recipe.
@@ -181,6 +182,7 @@ def run_auto(
             n_points=n_points,
             analyze=analyze,
             direction_filter=rec["direction_filter"],
+            outlier_rejection=outlier_rejection,
         )
 
     pristine: Optional[dict] = (copy.deepcopy(data)

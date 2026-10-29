@@ -107,14 +107,20 @@ def filter_cycles_by_direction(data: dict, cycles: dict) -> dict:
         return cycles
 
     enforce_flexion_positive(keep)
-    return {**cycles, "cycles": keep}
+    from .cycles import summarize_cycles
+    summary = summarize_cycles(keep)
+    for key in ("n_rejected_quality",):
+        if key in (cycles.get("summary") or {}):
+            summary[key] = cycles["summary"][key]
+    return {**cycles, "cycles": keep, "summary": summary}
 
 
 # Backward-compatible private alias (myogait <= 0.8.9 exposed only this name).
 _filter_cycles_by_direction = filter_cycles_by_direction
 
 
-def _diagnose(data: dict, cycles_all: dict, cycles_kept: dict) -> dict:
+def _diagnose(data: dict, cycles_all: dict, cycles_kept: dict,
+              n_outlier: int = 0) -> dict:
     """Post-hoc quality diagnostics with actionable warnings.
 
     Inspects the processed recording for the conditions that are known
@@ -182,8 +188,13 @@ def _diagnose(data: dict, cycles_all: dict, cycles_kept: dict) -> dict:
                 "compute_angles(calibrate=True) is applicable here and would "
                 "give absolute joint angles a subject-specific neutral zero")
 
-    n_all = len(cycles_all.get("cycles", []))
+    n_all = len(cycles_all.get("cycles", [])) - n_outlier
     n_kept = len(cycles_kept.get("cycles", []))
+    if n_outlier:
+        warnings_.append(
+            f"cycles: {n_outlier} cycle(s) with an atypical curve shape were "
+            "excluded from the averages (subject entering/leaving the field "
+            "of view, occlusion)")
     if n_all - n_kept > 0:
         warnings_.append(
             f"direction: {n_all - n_kept} cycle(s) walked against the dominant "
@@ -212,6 +223,7 @@ def _diagnose(data: dict, cycles_all: dict, cycles_kept: dict) -> dict:
         "n_cycles_left": per_side["left"],
         "n_cycles_right": per_side["right"],
         "n_cycles_dropped_direction": n_all - n_kept,
+        "n_cycles_dropped_outlier": n_outlier,
         "warnings": warnings_,
     }
 
@@ -226,6 +238,7 @@ def run_pipeline(
     n_points: int = 101,
     analyze: bool = True,
     direction_filter: bool = True,
+    outlier_rejection: bool = True,
     show_progress: bool = True,
 ) -> dict:
     """Run the validated end-to-end gait pipeline on a video, a
@@ -248,7 +261,10 @@ def run_pipeline(
     5. ``detect_events(method="zeni", trim_standstill=False)``.
     6. ``segment_cycles`` into ``n_points``-sample cycles within the
        physiological duration window.
-    7. Direction-consistent cycle filter (there-and-back recordings).
+    7. Direction-consistent cycle filter (there-and-back recordings),
+       then rejection of cycles whose curve shape is far from the
+       per-side median (:func:`myogait.cycles.reject_outlier_cycles`;
+       ``outlier_rejection=False`` disables it).
     8. Quality diagnostics (tracking coverage, plane distortion,
        standing-prelude detection, cycle counts) with actionable
        warnings — see :func:`_diagnose`.
@@ -271,6 +287,7 @@ def run_pipeline(
         n_points=n_points,
         analyze=analyze,
         direction_filter=direction_filter,
+        outlier_rejection=outlier_rejection,
     )
 
 
@@ -324,13 +341,14 @@ def _run_steps(
     n_points: int = 101,
     analyze: bool = True,
     direction_filter: bool = True,
+    outlier_rejection: bool = True,
 ) -> dict:
     """Processing steps shared by :func:`run_pipeline` and
     :func:`myogait.autoconfig.run_auto` (steps 2-9 of run_pipeline)."""
     from .normalize import normalize
     from .angles import compute_angles, canonicalize_angle_signs
     from .events import detect_events
-    from .cycles import segment_cycles
+    from .cycles import segment_cycles, reject_outlier_cycles
     from .analysis import analyze_gait
 
     data = normalize(data, filters=["butterworth"],
@@ -351,8 +369,14 @@ def _run_steps(
     else:
         cycles = cycles_all
         enforce_flexion_positive(cycles.get("cycles", []))
+    n_outlier = 0
+    if outlier_rejection and cycles.get("cycles"):
+        n_before = len(cycles["cycles"])
+        cycles = reject_outlier_cycles(cycles)
+        n_outlier = n_before - len(cycles["cycles"])
+    data["cycles_data"] = cycles
 
-    quality = _diagnose(data, cycles_all, cycles)
+    quality = _diagnose(data, cycles_all, cycles, n_outlier=n_outlier)
     for w in quality["warnings"]:
         logger.warning("run_pipeline: %s", w)
 

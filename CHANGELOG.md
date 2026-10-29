@@ -3,6 +3,29 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.9.4] — 2026-10-29
+
+### Added
+- `reject_outlier_cycles(cycles, k=2.5)`: drops cycles whose hip, knee or
+  ankle curve is far from the per-side median curve (robust z-score of the
+  RMS distance above `k`; sides with at least 5 cycles). Applied by default
+  in `run_pipeline` / `run_auto` after the direction filter
+  (`outlier_rejection=False` disables it); the count is reported in
+  `quality["n_cycles_dropped_outlier"]` and in the warnings. Cycles recorded
+  while the subject enters or leaves the field of view have a much more
+  variable push-off (timing SD about 3x, amplitude SD about 2x) and flattened
+  the mean ankle curve. Full `run_auto` on 15 Myokinesis clinic subjects
+  (hand-held phone, subject entering and leaving the frame), vs markers:
+  ankle range-of-motion error −5.7 → −3.1°, ankle shape RMSE 2.0 → 1.5°,
+  knee range-of-motion error −2.2 → −1.3°. Short lab trials (fewer than 5
+  cycles per side) are unaffected.
+- `summarize_cycles(cycles)`: per-side mean/SD curves of a cycle list.
+
+### Fixed
+- `filter_cycles_by_direction` returned the summary (mean/SD curves) of all
+  cycles, including the dropped return-pass ones; the summary is now
+  recomputed on the kept cycles, and `data["cycles_data"]` follows.
+
 ## [0.9.3] — 2026-10-29
 
 Better default kinematics: the ankle push-off and knee swing peaks are no

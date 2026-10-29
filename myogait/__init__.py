@@ -19,7 +19,7 @@ Full pipeline with cycle analysis::
 
 from importlib import import_module
 
-__version__ = "0.9.3"
+__version__ = "0.9.4"
 
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
@@ -60,7 +60,8 @@ from .corrections import (
     KNEE_BIAS_V1,
 )
 from .events import detect_events, list_event_methods, event_consensus, validate_events
-from .cycles import segment_cycles, ensemble_average
+from .cycles import (segment_cycles, ensemble_average, summarize_cycles,
+                     reject_outlier_cycles)
 from .analysis import (
     analyze_gait,
     regularity_index,
@@ -233,6 +234,8 @@ __all__ = [
     "event_consensus",
     "validate_events",
     "segment_cycles",
+    "summarize_cycles",
+    "reject_outlier_cycles",
     "ensemble_average",
     "analyze_gait",
     "filter_median",
