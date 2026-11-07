@@ -3,6 +3,40 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.10.0] — 2026-11-07
+
+### Added
+- `myogait.kinetics.walking_speed_metric()`: walking speed from metric 2-D
+  landmarks, also for a hand-held panning camera (pelvis velocity relative
+  to the slower, stance foot); `estimate_kinetics()` now reports
+  `walking_speed_m_s` for moving cameras too. Accuracy is limited by the
+  metric scale (femur or height reference) and by depth changes of a
+  hand-held camera: on 37 Myokinesis smartphone walks the error versus
+  Vicon was +18 % median (IQR +4 to +23 %), with 2 failures; treat it as
+  indicative.
+- `myogait.kinetics` / `estimate_kinetics()`: markerless sagittal kinetics
+  without force plates — per-foot vertical and antero-posterior ground
+  reaction forces, centre of pressure, ankle / knee / hip internal moments
+  and ankle power, from a pivot (pose video or marker trajectories) and the
+  subject's mass and height. Chain: whole-body CoM (de Leva) and Newton's
+  law; cubic double-support load transfer learnt on force plates; virtual
+  pivot point for the antero-posterior force; foot-rotation centre-of-pressure model (FR-COP)
+  driven by three foot rotations (invariant to marker / keypoint placement
+  and to vertical camera motion); pose ankle keypoint moved to the anatomical
+  joint centre along the foot; 2-D inverse dynamics. Validated against force
+  plates on 12 datasets (healthy and pathological gait) and on fixed-camera
+  and hand-held smartphone video.
+- `detect_camera_motion()`: cheap fixed-vs-moving camera test from the
+  background optical flow (one frame in five), and
+  `background_vertical_shift()`: vertical camera stabilisation from the
+  static background (~6 ms per frame), used by `estimate_kinetics()` when a
+  video path is given. `estimate_kinetics()` also reports the walking speed
+  (fixed camera).
+- Constants of `myogait.kinetics` aligned with the article (double-support cubic and
+  foot-rotation COP coefficients fitted on the force-plate datasets without video,
+  virtual pivot 0.40 m fixed camera / 0.30 m moving camera, ankle relocation
+  0.335 / 0.365, kinematic event bias −40 / +15 ms); new `vpp_height_m` argument.
+
 ## [0.9.4] — 2026-10-29
 
 ### Added
