@@ -18,7 +18,7 @@ hand-held smartphone):
    the load is shared with a cubic transfer law ``w(tau)`` learnt on force
    plates (:data:`DS_CUBIC`).
 4. Per-foot antero-posterior GRF from a virtual pivot point
-   (:data:`VPP_HEIGHT_M` above the CoM): the GRF line of action passes through
+   (0.40 m above the CoM with a fixed camera, 0.30 m with a moving camera): the GRF line of action passes through
    the COP and the pivot, so ``F_ap = F_v (x_CoM - x_COP) / (z_CoM + h - z_COP)``.
 5. Foot-rotation COP model (FR-COP): cubic in normalised stance time whose four coefficients
    depend linearly on three foot rotations measured relative to the foot-flat
@@ -26,7 +26,7 @@ hand-held smartphone):
    used to measure the foot (markers or pose keypoints) and to vertical camera
    motion (:data:`COP_FOOT_ROTATION`).
 6. The pose ankle keypoint sits posterior to the anatomical ankle joint centre;
-   it is moved along the heel→toe axis to :data:`ANKLE_FOOT_FRACTION` of the
+   it is moved along the heel→toe axis to 0.335 (fixed camera) or 0.365 (moving camera) of the
    heel→MTP1 foot length (:func:`relocate_ankle`).
 7. 2-D inverse dynamics (foot → shank → thigh, Winter), inertial terms from
    kinematics low-pass filtered at 6 Hz.
@@ -34,7 +34,8 @@ hand-held smartphone):
 All forces are returned in newtons and body weights, moments as internal
 moments (plantarflexor / extensor positive) in N·m and N·m/kg.
 
-Reference: Fer F., Arlaud L., Feigean R. et al. (in preparation).
+Constants: those of the article (Arlaud L., Fer F., Santmary P., Feigean R., in preparation).
+Reference: Arlaud L., Fer F., Santmary P., Feigean R. (in preparation).
 """
 
 from __future__ import annotations
@@ -58,24 +59,30 @@ DE_LEVA = {
 _ID_SEG = {"foot": (0.0137, 0.4415, 0.257), "shank": (0.0433, 0.4459, 0.255), "thigh": (0.1416, 0.4095, 0.329)}
 
 #: Leading-foot share of the vertical load in double support, w(tau) = polyval(DS_CUBIC, tau),
-#: tau = normalised double-support time (fitted on 616 195 double-support frames, 457 subjects, 12 datasets).
-DS_CUBIC = (-0.13292, 0.18365, 0.78608, 0.14092)
+#: tau = normalised double-support time. Coefficients of the article (Supplementary Section S2.4): fitted on the
+#: double-support frames of the force-plate datasets without video, each laboratory and participant with the same weight.
+DS_CUBIC = (-0.05256, 0.12676, 0.75176, 0.15041)
 
 #: Foot-rotation COP model (FR-COP). COP position along the foot r(tau) (0 = heel at foot flat, 1 = first metatarsal head),
 #: r = sum_k (B[0,k] + B[1,k] a + B[2,k] rm + B[3,k] rl) tau^k, with a / rm / rl the foot rotations (rad)
 #: at initial contact (tau 0-5 %), mid stance (50-80 %) and late stance (80-95 %) minus the foot-flat
-#: rotation (median 15-45 %). Fitted on 11 384 stances, 563 subjects, 11 datasets.
-COP_FOOT_ROTATION = np.array([[0.39468, 0.09275, 0.03184, 0.59476],
-                    [0.91025, -3.78567, 5.21195, -2.01425],
-                    [-0.27801, 12.97732, -26.83098, 12.86307],
-                    [0.05070, -2.18379, 8.40579, -5.76788]])
+#: rotation (median 15-45 %). Coefficients of the article (Supplementary Table S3): fitted on the eight force-plate
+#: datasets without video (van der Zee excluded), each dataset and participant with the same weight.
+COP_FOOT_ROTATION = np.array([[0.47566, -0.28924, 0.60363, 0.38829],
+                    [1.34766, -5.28371, 6.28931, -1.66184],
+                    [-0.21628, 12.91071, -27.05851, 13.19341],
+                    [0.00992, -1.94262, 7.90877, -5.52678]])
 
-VPP_HEIGHT_M = 0.30           #: virtual pivot point height above the CoM
-ANKLE_FOOT_FRACTION = 0.35    #: anatomical ankle joint centre, fraction of heel→MTP1 length from the heel
+VPP_HEIGHT_FIXED_M = 0.40     #: virtual pivot point height above the CoM, fixed camera or markers (article)
+VPP_HEIGHT_MOVING_M = 0.30    #: virtual pivot point height above the CoM, hand-held camera following the subject (article)
+VPP_HEIGHT_M = VPP_HEIGHT_FIXED_M
+ANKLE_FOOT_FRACTION_FIXED = 0.335   #: anatomical ankle joint centre, fraction of heel→MTP1 length, fixed camera (article)
+ANKLE_FOOT_FRACTION_MOVING = 0.365  #: same, hand-held camera (article)
+ANKLE_FOOT_FRACTION = ANKLE_FOOT_FRACTION_FIXED
 MTP_TO_TOE_RATIO = 0.85       #: heel→MTP1 / heel→toe-tip (pose foot_index) length ratio
 LOAD_BLEND_BW = 0.10          #: below this vertical load the COP is drawn back under the ankle
-HS_BIAS_S = -0.035            #: median bias of kinematic (Zeni) heel strike vs force plate (s)
-TO_BIAS_S = 0.010             #: median bias of kinematic toe off vs force plate (s)
+HS_BIAS_S = -0.040            #: median bias of kinematic (Zeni) heel strike vs force plate (s), datasets without video
+TO_BIAS_S = 0.015             #: median bias of kinematic toe off vs force plate (s), datasets without video
 FEMUR_HEIGHT_RATIO = 0.245
 
 _KEYS = {"hip": "HIP", "knee": "KNEE", "ankle": "ANKLE", "heel": "HEEL", "foot_index": "FOOT_INDEX",
@@ -405,7 +412,7 @@ def estimate_kinetics(data: dict, mass_kg: float, height_m: Optional[float] = No
                       sex: str = "M", events: Optional[dict] = None, video_path: Optional[str] = None,
                       camera_moving: Optional[bool] = None, stabilize: bool = True, com_cutoff_hz: Optional[float] = None,
                       relocate_pose_ankle: bool = True, camera_dy_px: Optional[np.ndarray] = None,
-                      hs_bias_s: float = HS_BIAS_S, to_bias_s: float = TO_BIAS_S) -> dict:
+                      hs_bias_s: float = HS_BIAS_S, to_bias_s: float = TO_BIAS_S, vpp_height_m: Optional[float] = None) -> dict:
     """Per-foot GRF, COP and sagittal joint moments from a myogait pivot (pose landmarks + events).
 
     Parameters
@@ -427,6 +434,8 @@ def estimate_kinetics(data: dict, mass_kg: float, height_m: Optional[float] = No
         Kinematic event bias versus force plates, removed from the detected events.
     com_cutoff_hz : float, optional
         CoM low-pass cutoff before differentiation (default 4 Hz fixed camera, 2.5 Hz moving camera).
+    vpp_height_m : float, optional
+        Virtual pivot height above the CoM (default 0.40 m fixed camera, 0.30 m moving camera, as in the article).
 
     Returns
     -------
@@ -460,11 +469,12 @@ def estimate_kinetics(data: dict, mass_kg: float, height_m: Optional[float] = No
         s, on, off = st["side"], st["on"], st["off"]; sw = "right" if s == "left" else "left"
         Js = dict(J)
         if relocate_pose_ankle:
-            Js[f"{s}_ankle"] = relocate_ankle(J[f"{s}_heel"], J[f"{s}_foot_index"], J[f"{s}_ankle"], on, off)
+            Js[f"{s}_ankle"] = relocate_ankle(J[f"{s}_heel"], J[f"{s}_foot_index"], J[f"{s}_ankle"], on, off,
+                                              ANKLE_FOOT_FRACTION_MOVING if moving else ANKLE_FOOT_FRACTION_FIXED)
         share = _foot_share(n, on, off, st["contra_to"], st["contra_hs"])
         F = np.zeros((n, 2)); F[:, 1] = np.clip(Rv * share, 0, None) * mass_kg * G
         cop = cop_position(Js[f"{s}_heel"], Js[f"{s}_foot_index"], Js[f"{s}_ankle"], on, off, F[:, 1] / (mass_kg * G))
-        F[:, 0] = vpp_ap_force(F[:, 1], cop, comf)
+        F[:, 0] = vpp_ap_force(F[:, 1], cop, comf, vpp_height_m or (VPP_HEIGHT_MOVING_M if moving else VPP_HEIGHT_FIXED_M))
         F[:on] = 0; F[off + 1:] = 0
         M = inverse_dynamics_2d(Js, s, F, cop, mass_kg, fs)
         sl = slice(on, off + 1)
