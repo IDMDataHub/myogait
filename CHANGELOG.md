@@ -3,7 +3,15 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
-## [0.10.0] — 2026-11-07
+## [0.10.1] — 2026-11-09
+
+### Fixed
+- Release blocked: `myogait/kinetics.py` and its tests failed the lint step
+  of the CI and release workflows (ruff E,W,F), so 0.10.0 never reached
+  PyPI. Formatting only, no behaviour change. 0.10.1 is the first published
+  version with the kinetics module (contents of 0.10.0 below).
+
+## [0.10.0] — 2026-11-07 (tagged, not published on PyPI)
 
 ### Added
 - `myogait.kinetics.walking_speed_metric()`: walking speed from metric 2-D
