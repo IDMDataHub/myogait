@@ -3,6 +3,26 @@
 All notable changes to myogait are documented here. The project follows
 semantic versioning: breaking API changes only occur in major releases.
 
+## [0.11.0] — 2026-11-12
+
+### Changed
+- `myogait.kinetics.estimate_kinetics()`: the antero-posterior GRF now uses the
+  DAMP moment law about a point h above the CoM (`damp_ap_force()`), which
+  replaces the virtual pivot point of 0.10: a learnt offset of the line of
+  action from the heel position and foot pitch, and a 15 ms onset lag after
+  heel strike. Default heights 0.40 m (fixed camera or markers) and 0.50 m
+  (moving camera). Against force plates and inverse dynamics (BioCV fixed
+  camera, Myokinesis hand-held phone), median hip-moment RMSE 0.40 -> 0.28
+  (fixed camera), 0.35 -> 0.23 (phone, healthy), 0.39 -> 0.31 (phone, NMD)
+  N·m/kg; knee 0.25 -> 0.19 N·m/kg (fixed camera); AP GRF 4.1 -> 3.9 %BW.
+
+### Added
+- `damp_ap_force()`, `DAMP_COEFS` (coefficients per height, fitted on force
+  plates of healthy younger and older adults), `AP_HEIGHT_FIXED_M`,
+  `AP_HEIGHT_MOVING_M`, `DAMP_LAG_S`.
+- `estimate_kinetics(ap_law="vpp")` restores the 0.10 virtual pivot;
+  `ap_height_m` sets h (`vpp_height_m` kept as an alias).
+
 ## [0.10.1] — 2026-11-09
 
 ### Fixed
