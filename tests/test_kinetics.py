@@ -72,6 +72,44 @@ def test_vpp_force_points_to_pivot():
     assert np.allclose(fap, expected)
 
 
+
+def test_damp_reduces_to_pivot_with_zero_coefficients():
+    n, fs = 200, 100.0
+    fv = np.full(n, 700.0)
+    cop = np.zeros((n, 2))
+    com = np.c_[np.full(n, 0.10), np.full(n, 0.95)]
+    hip = np.c_[np.zeros(n), np.full(n, 0.90)]
+    heel, toe = np.zeros((n, 2)), np.c_[np.full(n, 0.25), np.zeros(n)]
+    fap = K.damp_ap_force(fv, cop, com, heel, toe, hip, 0, n - 1, fs, h=0.30, coefs=(0, 0, 0, 0, 0))
+    lag = 1 - np.exp(-np.arange(n) / fs / K.DAMP_LAG_S)
+    assert np.allclose(fap, lag * K.vpp_ap_force(fv, cop, com, h=0.30))
+
+
+def test_damp_matches_article_formula():
+    rng = np.random.default_rng(0)
+    n, fs, on, off, h = 120, 100.0, 10, 99, 0.40
+    fv = np.r_[np.zeros(on), 700 * np.sin(np.linspace(0, np.pi, off - on + 1)), np.zeros(n - off - 1)]
+    cop = np.c_[np.linspace(-0.1, 0.2, n), np.zeros(n)]
+    com = np.c_[np.linspace(0.0, 0.25, n), 0.95 + 0.01 * rng.standard_normal(n)]
+    heel = np.c_[np.full(n, -0.12), np.zeros(n)]
+    toe = np.c_[np.full(n, 0.10), 0.05 * np.sin(np.linspace(0, 3, n))]
+    hip = np.c_[com[:, 0], np.full(n, 0.92)]
+    out = K.damp_ap_force(fv, cop, com, heel, toe, hip, on, off, fs, h=h)
+    sl = slice(on, off + 1)
+    m = off - on + 1
+    c = np.array(K.DAMP_COEFS[h])
+    L = 0.92 - 0.0
+    th = np.arctan2(toe[sl, 1] - heel[sl, 1], toe[sl, 0] - heel[sl, 0])
+    s = np.linspace(0, 1, m)
+    th -= np.median(th[(s >= 0.3) & (s <= 0.6)])
+    d = (heel[sl, 0] - com[sl, 0]) / L
+    p = (cop[sl] - com[sl]) / L
+    f = c[0] + c[1] * d + c[2] * th + c[3] * th**2 + c[4] * th * d
+    ref = (1 - np.exp(-np.arange(m) / fs / 0.015)) * fv[sl] * (p[:, 0] - f) / (p[:, 1] - h / L)
+    ref[fv[sl] <= 0] = 0
+    assert np.allclose(out[sl], ref) and np.all(out[:on] == 0) and np.all(out[off + 1:] == 0)
+
+
 def test_foot_rotation_cop_flat_foot_progression():
     n = 100
     heel = np.c_[np.zeros(n), np.zeros(n)]

@@ -19,7 +19,7 @@ Full pipeline with cycle analysis::
 
 from importlib import import_module
 
-__version__ = "0.10.1"
+__version__ = "0.11.0"
 
 from .extract import extract, detect_sagittal_alignment, auto_crop_roi, select_person
 from .normalize import (
@@ -173,6 +173,7 @@ from .autoconfig import run_auto, detect_recipe
 from . import exceptions
 from .kinetics import (
     estimate_kinetics,
+    damp_ap_force,
     detect_camera_motion,
     background_vertical_shift,
 )
@@ -261,6 +262,7 @@ __all__ = [
     "step_length",
     "walking_speed",
     "estimate_kinetics",
+    "damp_ap_force",
     "detect_camera_motion",
     "background_vertical_shift",
     "detect_pathologies",

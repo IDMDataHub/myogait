@@ -17,9 +17,12 @@ hand-held smartphone):
 3. Per-foot vertical GRF: single support takes the total; in double support
    the load is shared with a cubic transfer law ``w(tau)`` learnt on force
    plates (:data:`DS_CUBIC`).
-4. Per-foot antero-posterior GRF from a virtual pivot point
-   (0.40 m above the CoM with a fixed camera, 0.30 m with a moving camera): the GRF line of action passes through
-   the COP and the pivot, so ``F_ap = F_v (x_CoM - x_COP) / (z_CoM + h - z_COP)``.
+4. Per-foot antero-posterior GRF from a moment law about a point h above the CoM (DAMP law, :func:`damp_ap_force`;
+   h = 0.40 m with a fixed camera or markers, 0.50 m with a moving camera):
+   ``F_ap = lag F_v (p_x - f) / (p_z - h/L)``, ``p = (COP - CoM) / L`` (L: hip height above the floor),
+   ``f = c0 + c1 d + c2 theta + c3 theta^2 + c4 theta d`` (d: heel - CoM, theta: foot pitch relative to
+   mid-stance), ``lag = 1 - exp(-t / 15 ms)``; coefficients learnt on force plates (:data:`DAMP_COEFS`).
+   With f = 0 and no lag it reduces to the virtual pivot point (:func:`vpp_ap_force`, previous releases).
 5. Foot-rotation COP model (FR-COP): cubic in normalised stance time whose four coefficients
    depend linearly on three foot rotations measured relative to the foot-flat
    posture (initial contact, mid and late stance) — invariant to the points
@@ -95,10 +98,20 @@ COP_FOOT_ROTATION = np.array(
     ]
 )
 
-VPP_HEIGHT_FIXED_M = (
-    0.40  #: virtual pivot point height above the CoM, fixed camera or markers (article)
-)
-VPP_HEIGHT_MOVING_M = 0.30  #: virtual pivot point height above the CoM, hand-held camera following the subject (article)
+AP_HEIGHT_FIXED_M = 0.40  #: height h of the AP moment point above the CoM, fixed camera or markers (article, DAMP law)
+AP_HEIGHT_MOVING_M = 0.50  #: same, hand-held camera following the subject (article, DAMP law)
+#: DAMP coefficients (c0, c1, c2, c3, c4) per height h (m), fitted on force plates of healthy younger and older adults
+#: of all laboratories (article, table A6).
+DAMP_COEFS = {
+    0.10: (-0.0053145, 0.1413401, 0.0504935, 0.0825191, 0.3529590),
+    0.20: (-0.0166896, 0.0883852, 0.0445394, 0.0895012, 0.3994880),
+    0.30: (-0.0280630, 0.0354392, 0.0385708, 0.0964792, 0.4459991),
+    0.40: (-0.0394349, -0.0174999, 0.0325907, 0.1034539, 0.4924959),
+    0.50: (-0.0508057, -0.0704336, 0.0266013, 0.1104263, 0.5389811),
+}
+DAMP_LAG_S = 0.015  #: time constant of the AP force onset after heel strike (s)
+VPP_HEIGHT_FIXED_M = 0.40  #: virtual pivot point height (releases <= 0.10, kept for vpp_ap_force)
+VPP_HEIGHT_MOVING_M = 0.30
 VPP_HEIGHT_M = VPP_HEIGHT_FIXED_M
 ANKLE_FOOT_FRACTION_FIXED = 0.335  #: anatomical ankle joint centre, fraction of heel→MTP1 length, fixed camera (article)
 ANKLE_FOOT_FRACTION_MOVING = 0.365  #: same, hand-held camera (article)
@@ -493,6 +506,46 @@ def vpp_ap_force(
     )
 
 
+def damp_ap_force(
+    fv: np.ndarray,
+    cop: np.ndarray,
+    com: np.ndarray,
+    heel: np.ndarray,
+    toe: np.ndarray,
+    hip: np.ndarray,
+    on: int,
+    off: int,
+    fs: float,
+    h: float = AP_HEIGHT_FIXED_M,
+    coefs: Optional[tuple] = None,
+) -> np.ndarray:
+    """AP force of one stance (frames ``on``..``off``) from the DAMP moment law about a point h above the CoM.
+
+    ``F_ap = lag F_v (p_x - f) / (p_z - h/L)`` with ``p = (COP - CoM) / L``, L the hip height above the floor,
+    ``f = c0 + c1 d + c2 theta + c3 theta^2 + c4 theta d``, ``d = (heel - CoM)_x / L``, ``theta`` the heel→toe
+    pitch minus its median over 30-60 % of stance, ``lag = 1 - exp(-t / 15 ms)``. ``hip`` is the hip-joint
+    centre (mid-pelvis) trajectory, all arrays (N, 2) in metres [AP forward, vertical up]; ``fv`` (N,) in N.
+    Coefficients: ``coefs`` or :data:`DAMP_COEFS` at ``h`` (rounded to 0.1 m)."""
+    fv = np.asarray(fv, float)
+    n = len(fv)
+    out = np.zeros(n)
+    sl = slice(on, off + 1)
+    m = off - on + 1
+    c = np.asarray(coefs if coefs is not None else DAMP_COEFS[round(float(h), 1)], float)
+    L = float(np.nanmedian(np.asarray(hip, float)[:, 1]) - np.nanmedian(cop[sl, 1]))
+    hl, tl = np.asarray(heel, float)[sl], np.asarray(toe, float)[sl]
+    s = np.linspace(0, 1, m)
+    th = np.arctan2(tl[:, 1] - hl[:, 1], tl[:, 0] - hl[:, 0])
+    th = th - np.nanmedian(th[(s >= 0.3) & (s <= 0.6)])
+    d = (hl[:, 0] - com[sl, 0]) / L
+    lag = 1.0 - np.exp(-np.arange(m) / fs / DAMP_LAG_S)
+    p = (cop[sl] - com[sl]) / L
+    f = c[0] + c[1] * d + c[2] * th + c[3] * th**2 + c[4] * th * d
+    out[sl] = lag * fv[sl] * (p[:, 0] - f) / (p[:, 1] - h / L)
+    out[fv <= 0] = 0
+    return np.nan_to_num(out)
+
+
 def inverse_dynamics_2d(
     J: dict,
     side: str,
@@ -666,6 +719,8 @@ def estimate_kinetics(
     hs_bias_s: float = HS_BIAS_S,
     to_bias_s: float = TO_BIAS_S,
     vpp_height_m: Optional[float] = None,
+    ap_law: str = "damp",
+    ap_height_m: Optional[float] = None,
 ) -> dict:
     """Per-foot GRF, COP and sagittal joint moments from a myogait pivot (pose landmarks + events).
 
@@ -688,8 +743,13 @@ def estimate_kinetics(
         Kinematic event bias versus force plates, removed from the detected events.
     com_cutoff_hz : float, optional
         CoM low-pass cutoff before differentiation (default 4 Hz fixed camera, 2.5 Hz moving camera).
+    ap_law : {"damp", "vpp"}
+        Antero-posterior force law: ``"damp"`` (default, article) or ``"vpp"`` (virtual pivot point, releases <= 0.10).
+    ap_height_m : float, optional
+        Height h of the AP moment point above the CoM (default 0.40 m fixed camera, 0.50 m moving camera for DAMP;
+        0.40 / 0.30 m for the virtual pivot).
     vpp_height_m : float, optional
-        Virtual pivot height above the CoM (default 0.40 m fixed camera, 0.30 m moving camera, as in the article).
+        Deprecated alias of ``ap_height_m``.
 
     Returns
     -------
@@ -767,12 +827,24 @@ def estimate_kinetics(
             off,
             F[:, 1] / (mass_kg * G),
         )
-        F[:, 0] = vpp_ap_force(
-            F[:, 1],
-            cop,
-            comf,
-            vpp_height_m or (VPP_HEIGHT_MOVING_M if moving else VPP_HEIGHT_FIXED_M),
-        )
+        h_ap = ap_height_m or vpp_height_m
+        if ap_law == "vpp":
+            F[:, 0] = vpp_ap_force(
+                F[:, 1], cop, comf, h_ap or (VPP_HEIGHT_MOVING_M if moving else VPP_HEIGHT_FIXED_M)
+            )
+        else:
+            F[:, 0] = damp_ap_force(
+                F[:, 1],
+                cop,
+                comf,
+                Js[f"{s}_heel"],
+                Js[f"{s}_foot_index"],
+                0.5 * (np.asarray(Js["left_hip"], float) + np.asarray(Js["right_hip"], float)),
+                on,
+                off,
+                fs,
+                h_ap or (AP_HEIGHT_MOVING_M if moving else AP_HEIGHT_FIXED_M),
+            )
         F[:on] = 0
         F[off + 1 :] = 0
         M = inverse_dynamics_2d(Js, s, F, cop, mass_kg, fs)
